@@ -37,6 +37,18 @@ impl EndpointEvent {
         anyhow::ensure!(!self.host_id.trim().is_empty(), "host_id required");
         Ok(())
     }
+
+    /// Returns the normalized event type consumed by the Python feature extractor.
+    /// ProcessStart/ProcessStop collapse to `process`, etc., so both sides use
+    /// the same six-way feature encoding.
+    pub fn kind_str(&self) -> &'static str {
+        match self.kind {
+            EventKind::ProcessStart | EventKind::ProcessStop => "process",
+            EventKind::NetworkConnect => "network",
+            EventKind::FileActivity => "file",
+            EventKind::Unknown => "unknown",
+        }
+    }
 }
 
 #[cfg(test)]
@@ -60,6 +72,25 @@ mod tests {
             payload: Value::Null,
         };
         assert!(event.validate().is_ok());
+    }
+
+    #[test]
+    fn kind_maps_to_ml_schema() {
+        let event = EndpointEvent {
+            schema_version: 1,
+            event_id: "evt-1".into(),
+            observed_at: "now".into(),
+            kind: EventKind::ProcessStart,
+            host_id: "host-1".into(),
+            pid: None,
+            parent_pid: None,
+            image: None,
+            command_line: None,
+            remote_address: None,
+            remote_port: None,
+            payload: Value::Null,
+        };
+        assert_eq!(event.kind_str(), "process");
     }
 
     #[test]
