@@ -3,6 +3,7 @@ use std::{
     fs::OpenOptions,
     io::Write,
     mem::size_of,
+    ptr::null_mut,
     sync::mpsc::{self, Receiver, Sender},
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -22,9 +23,6 @@ const CALLBACK_ERROR_LOG: &str = r"C:\ProgramData\Sentinel\agent-errors.log";
 const EVENT_HEADER_FLAG_32_BIT_HEADER_VALUE: u16 = 0x0020;
 const EVENT_HEADER_FLAG_64_BIT_HEADER_VALUE: u16 = 0x0040;
 
-// Windows NT kernel Process class GUID. The kernel process payload is a MOF
-// class, not a manifest event, so the class GUID and version are part of the
-// schema contract we use before decoding UserData.
 const PROCESS_GUID_DATA1: u32 = 0x3d6fa8d0;
 const PROCESS_GUID_DATA2: u16 = 0xfe05;
 const PROCESS_GUID_DATA3: u16 = 0x11d0;
@@ -48,18 +46,23 @@ impl EtwCollector {
         let (tx, receiver) = mpsc::channel();
         let context = Box::into_raw(Box::new(CallbackContext { host_id, tx }));
 
-        let mut logfile: EVENT_TRACE_LOGFILEW = unsafe { std::mem::zeroed() };
-        logfile.LoggerName = SESSION_NAME.0 as *mut u16;
-        logfile.Anonymous1.ProcessTraceMode =
-            PROCESS_TRACE_MODE_REAL_TIME | PROCESS_TRACE_MODE_EVENT_RECORD;
-        logfile.Context = context as *mut c_void;
-        logfile.Anonymous2.EventRecordCallback = Some(event_record_callback);
+        // Windows 0.62 exposes the modern real-time consumer API directly;
+        // use it instead of the legacy EVENT_TRACE_LOGFILEW/OpenTraceW pair.
+        let options = ETW_OPEN_TRACE_OPTIONS {
+            ProcessTraceModes: ETW_PROCESS_TRACE_MODE_NONE,
+            EventCallback: Some(event_record_callback),
+            EventCallbackContext: context as *mut c_void,
+            BufferCallback: None,
+            BufferCallbackContext: null_mut(),
+        };
 
-        let consumer = unsafe { OpenTraceW(&mut logfile) };
+        let consumer = unsafe {
+            OpenTraceFromRealTimeLogger(SESSION_NAME, &options, null_mut())
+        };
         if consumer.Value == u64::MAX {
             let _ = stop_kernel_session(session);
             unsafe { drop(Box::from_raw(context)); }
-            return Err(anyhow!("OpenTraceW failed"));
+            return Err(anyhow!("OpenTraceFromRealTimeLogger failed"));
         }
 
         info!("Sentinel kernel ETW session started");
@@ -68,22 +71,20 @@ impl EtwCollector {
 
     pub fn run(mut self, mut sink: impl FnMut(EndpointEvent) + Send + 'static) -> Result<()> {
         let handle = self.consumer;
-        let receiver = &self.receiver;
+        let receiver = std::mem::replace(&mut self.receiver, mpsc::channel().1);
+        let context = self.context;
+        self.context = null_mut();
 
-        let process_status = std::thread::scope(|scope| {
-            let thread_handle = scope.spawn(|| {
-                while let Ok(event) = receiver.recv() {
-                    sink(event);
-                }
-            });
-
-            let status = unsafe { ProcessTrace(&[handle], None, None) };
-
-            unsafe { drop(Box::from_raw(self.context)); }
-            self.context = std::ptr::null_mut();
-            let _ = thread_handle.join();
-            status
+        let consumer_thread = std::thread::spawn(move || {
+            while let Ok(event) = receiver.recv() {
+                sink(event);
+            }
         });
+
+        let process_status = unsafe { ProcessTrace(&[handle], None, None) };
+
+        unsafe { drop(Box::from_raw(context)); }
+        let _ = consumer_thread.join();
 
         unsafe { let _ = CloseTrace(handle); }
         let _ = stop_kernel_session(self.session);
@@ -113,7 +114,7 @@ impl Drop for EtwCollector {
         }
         if !self.context.is_null() {
             unsafe { drop(Box::from_raw(self.context)); }
-            self.context = std::ptr::null_mut();
+            self.context = null_mut();
         }
     }
 }
@@ -133,9 +134,7 @@ fn log_callback_panic() {
         .create(true)
         .append(true)
         .open(CALLBACK_ERROR_LOG)
-        .and_then(|mut file| {
-            writeln!(file, "etw callback panic at {:?}", SystemTime::now())
-        });
+        .and_then(|mut file| writeln!(file, "etw callback panic at {:?}", SystemTime::now()));
 }
 
 unsafe extern "system" fn event_record_callback(record: *mut EVENT_RECORD) {
@@ -220,8 +219,6 @@ unsafe fn process_record(record: *mut EVENT_RECORD) {
         observed_at,
         kind,
         host_id: ctx.host_id.clone(),
-        // EVENT_HEADER.ProcessId is the event execution context and is not
-        // necessarily the process being created/stopped.
         pid,
         parent_pid,
         image,
@@ -254,9 +251,6 @@ fn is_process_guid(guid: &windows::core::GUID) -> bool {
         && guid.data4 == PROCESS_GUID_DATA4
 }
 
-/// Decode the Windows kernel Process_TypeGroup1 MOF payload. Microsoft
-/// documents Process as version 3 and the versioned layouts below; we never
-/// interpret unrelated ETW provider payloads as process telemetry.
 fn decode_process_payload(
     version: u8,
     opcode: u8,
@@ -475,18 +469,10 @@ fn stop_kernel_session(session: CONTROLTRACE_HANDLE) -> Result<()> {
 mod tests {
     use super::*;
 
-    fn push_u32(out: &mut Vec<u8>, value: u32) {
-        out.extend_from_slice(&value.to_le_bytes());
-    }
-
-    fn push_u64(out: &mut Vec<u8>, value: u64) {
-        out.extend_from_slice(&value.to_le_bytes());
-    }
-
+    fn push_u32(out: &mut Vec<u8>, value: u32) { out.extend_from_slice(&value.to_le_bytes()); }
+    fn push_u64(out: &mut Vec<u8>, value: u64) { out.extend_from_slice(&value.to_le_bytes()); }
     fn push_utf16_z(out: &mut Vec<u8>, value: &str) {
-        for unit in value.encode_utf16() {
-            out.extend_from_slice(&unit.to_le_bytes());
-        }
+        for unit in value.encode_utf16() { out.extend_from_slice(&unit.to_le_bytes()); }
         out.extend_from_slice(&0u16.to_le_bytes());
     }
 
