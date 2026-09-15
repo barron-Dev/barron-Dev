@@ -1,4 +1,4 @@
-use std::{ffi::c_void, mem::size_of, sync::mpsc::{self, Receiver, Sender}, time::{SystemTime, UNIX_EPOCH}};
+use std::{ffi::c_void, mem::size_of, sync::mpsc::{self, Receiver, Sender}, thread, time::{SystemTime, UNIX_EPOCH}};
 use anyhow::{anyhow, Context, Result};
 use serde_json::json;
 use tracing::{debug, info};
@@ -44,25 +44,25 @@ impl EtwCollector {
         Ok(Self { session, consumer, receiver, context })
     }
 
-    pub fn recv(&self) -> Result<EndpointEvent> {
-        self.receiver.recv().context("ETW event channel closed")
-    }
-
-    pub fn run_consumer(&self) -> Result<()> {
+    pub fn run(self, mut sink: impl FnMut(EndpointEvent) + Send + 'static) -> Result<()> {
         let handle = self.consumer;
+        let receiver = self.receiver;
+        let consumer_thread = thread::spawn(move || {
+            while let Ok(event) = receiver.recv() {
+                sink(event);
+            }
+        });
+
         let status = unsafe { ProcessTrace(&[handle], None, None) };
+        unsafe { let _ = CloseTrace(handle); }
+        let _ = stop_kernel_session(self.session);
+        unsafe { drop(Box::from_raw(self.context)); }
+        let _ = consumer_thread.join();
+
         if status != 0 {
             return Err(anyhow!("ProcessTrace failed with Win32 status {status}"));
         }
         Ok(())
-    }
-}
-
-impl Drop for EtwCollector {
-    fn drop(&mut self) {
-        unsafe { let _ = CloseTrace(self.consumer); }
-        let _ = stop_kernel_session(self.session);
-        unsafe { drop(Box::from_raw(self.context)); }
     }
 }
 
@@ -81,7 +81,6 @@ unsafe extern "system" fn event_record_callback(record: *mut EVENT_RECORD) {
         2 => EventKind::ProcessStop,
         _ => EventKind::Unknown,
     };
-
     let pid = record.EventHeader.ProcessId;
     let event_id = format!("etw-{:016x}-{}-{}", record.EventHeader.TimeStamp as u64, pid, descriptor.Id);
     let observed_at = SystemTime::now()
@@ -113,10 +112,7 @@ unsafe extern "system" fn event_record_callback(record: *mut EVENT_RECORD) {
             "user_data_length": record.UserDataLength,
         }),
     };
-
-    if event.validate().is_ok() {
-        let _ = ctx.tx.send(event);
-    }
+    if event.validate().is_ok() { let _ = ctx.tx.send(event); }
 }
 
 fn start_kernel_session() -> Result<CONTROLTRACE_HANDLE> {
@@ -132,9 +128,7 @@ fn start_kernel_session() -> Result<CONTROLTRACE_HANDLE> {
 
     let mut session = CONTROLTRACE_HANDLE(0);
     let status = unsafe { StartTraceW(&mut session, SESSION_NAME, &mut properties) };
-    if status != 0 {
-        return Err(anyhow!("StartTraceW failed with Win32 status {status}"));
-    }
+    if status != 0 { return Err(anyhow!("StartTraceW failed with Win32 status {status}")); }
     Ok(session)
 }
 
@@ -142,8 +136,6 @@ fn stop_kernel_session(session: CONTROLTRACE_HANDLE) -> Result<()> {
     let mut properties: EVENT_TRACE_PROPERTIES = unsafe { std::mem::zeroed() };
     properties.Wnode.BufferSize = size_of::<EVENT_TRACE_PROPERTIES>() as u32;
     let status = unsafe { ControlTraceW(session, SESSION_NAME, &mut properties, EVENT_TRACE_CONTROL_STOP) };
-    if status != 0 {
-        debug!(status, "ETW session stop returned non-zero status");
-    }
+    if status != 0 { debug!(status, "ETW session stop returned non-zero status"); }
     Ok(())
 }
