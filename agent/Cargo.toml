@@ -1,0 +1,23 @@
+[package]
+name = "sentinel-agent"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Sentinel endpoint telemetry agent"
+
+[dependencies]
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.58", features = [
+    "Win32_Foundation",
+    "Win32_System_Diagnostics_Etw",
+    "Win32_System_Threading",
+] }
+
+[dev-dependencies]
+proptest = "1"
