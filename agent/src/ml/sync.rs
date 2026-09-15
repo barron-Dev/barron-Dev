@@ -157,5 +157,6 @@ fn verify_sha(path: &Path, expected: &str) -> bool {
         Ok(d) => d,
         Err(_) => return false,
     };
-    Sha256::digest(&data).as_slice().eq_ignore_ascii_case(expected.as_bytes())
+    let actual = hex::encode(Sha256::digest(&data));
+    actual.eq_ignore_ascii_case(expected)
 }
