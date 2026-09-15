@@ -1,0 +1,48 @@
+services:
+  api:
+    build:
+      context: ../..
+      dockerfile: deploy/region/Dockerfile.api
+    environment:
+      SENTINEL_REGION: ${SENTINEL_REGION:?SENTINEL_REGION must be set}
+      SUPABASE_URL: ${SUPABASE_URL:?SUPABASE_URL must be set}
+      SUPABASE_SECRET_KEY: ${SUPABASE_SECRET_KEY:?SUPABASE_SECRET_KEY must be set}
+      SENTINEL_SANDBOX_URL: http://sandbox:8080
+    expose:
+      - "8000"
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:size=128m,noexec,nosuid,nodev
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    depends_on:
+      sandbox:
+        condition: service_started
+
+  sandbox:
+    build:
+      context: ../../sandbox
+      dockerfile: Dockerfile
+    environment:
+      SENTINEL_REGION: ${SENTINEL_REGION:?SENTINEL_REGION must be set}
+    expose:
+      - "8080"
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:size=512m,noexec,nosuid,nodev
+      - /downloads:size=256m,noexec,nosuid,nodev
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    mem_limit: 2g
+    pids_limit: 512
+
+# TLS/mTLS termination belongs at the regional edge/load balancer. It must
+# preserve the ASGI TLS client certificate extension for device authentication.
+# Do not add a cross-region proxy here: wrong-region requests are rejected by
+# the API with 421 and only routing metadata is returned.
