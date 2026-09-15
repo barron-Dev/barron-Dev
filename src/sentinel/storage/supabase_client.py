@@ -11,11 +11,7 @@ T = TypeVar("T")
 
 
 class SupabaseServiceClient:
-    """Single privileged server-side Supabase client.
-
-    The secret key is never accepted from request data. Legacy service_role is
-    supported only as a migration fallback while Supabase transitions keys.
-    """
+    """Single privileged server-side Supabase client."""
 
     def __init__(self) -> None:
         self._client: AsyncClient | None = None
@@ -33,12 +29,7 @@ class SupabaseServiceClient:
                 self._client = await acreate_client(url, key)
         return self._client
 
-    async def _retry(
-        self,
-        operation: Callable[[], Awaitable[T]],
-        *,
-        attempts: int = 3,
-    ) -> T:
+    async def _retry(self, operation: Callable[[], Awaitable[T]], *, attempts: int = 3) -> T:
         if attempts < 1:
             raise ValueError("attempts must be >= 1")
         last_error: Exception | None = None
@@ -54,14 +45,28 @@ class SupabaseServiceClient:
 
     async def select_one(self, table: str, columns: str, **filters: Any) -> dict[str, Any] | None:
         async def operation() -> dict[str, Any] | None:
-            client = await self._ensure()
-            query = client.table(table).select(columns)
-            for column, value in filters.items():
-                query = query.eq(column, value)
-            response = await query.limit(1).execute()
+            response = await (await self._ensure()).table(table).select(columns).match(filters).limit(1).execute()
             rows = response.data or []
             return rows[0] if rows else None
+        return await self._retry(operation)
 
+    async def insert_one(self, table: str, values: dict[str, Any]) -> dict[str, Any]:
+        async def operation() -> dict[str, Any]:
+            response = await (await self._ensure()).table(table).insert(values).select("*").single().execute()
+            return response.data
+        return await self._retry(operation)
+
+    async def update(self, table: str, values: dict[str, Any], **filters: Any) -> dict[str, Any] | None:
+        async def operation() -> dict[str, Any] | None:
+            response = await (await self._ensure()).table(table).update(values).match(filters).select("*").limit(1).execute()
+            rows = response.data or []
+            return rows[0] if rows else None
+        return await self._retry(operation)
+
+    async def rpc(self, function: str, params: dict[str, Any]) -> Any:
+        async def operation() -> Any:
+            response = await (await self._ensure()).rpc(function, params).execute()
+            return response.data
         return await self._retry(operation)
 
 
