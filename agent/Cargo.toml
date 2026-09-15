@@ -16,6 +16,7 @@ tokio = { version = "1", features = ["fs", "macros", "rt-multi-thread", "sync", 
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 ort = { version = "=2.0.0-rc.9", features = ["download-binaries"] }
+ort-sys = "=2.0.0-rc.9"
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62.2", features = [
