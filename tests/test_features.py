@@ -12,7 +12,7 @@ def test_extract_shape_dtype_and_finiteness():
 
 def test_missing_fields_are_zero_except_kind_flag():
     vector = extract("file", {})
-    assert vector[:-5].sum() == 0.0
+    assert vector[:-6].sum() == 0.0
     assert vector[-6:].sum() == 1.0
 
 
