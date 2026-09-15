@@ -20,6 +20,14 @@ const SESSION_NAME: PCWSTR = windows::core::w!("SentinelKernel");
 const WNODE_FLAG_TRACED_GUID_VALUE: u32 = 0x0002_0000;
 const CALLBACK_ERROR_LOG: &str = r"C:\ProgramData\Sentinel\agent-errors.log";
 
+// Windows NT kernel Process class GUID. The kernel process payload is a MOF
+// class, not a manifest event, so the class GUID and version are part of the
+// schema contract we use before decoding UserData.
+const PROCESS_GUID_DATA1: u32 = 0x3d6fa8d0;
+const PROCESS_GUID_DATA2: u16 = 0xfe05;
+const PROCESS_GUID_DATA3: u16 = 0x11d0;
+const PROCESS_GUID_DATA4: [u8; 8] = [0x9d, 0xda, 0x00, 0xc0, 0x4f, 0xd7, 0xba, 0x7c];
+
 pub struct EtwCollector {
     session: CONTROLTRACE_HANDLE,
     consumer: PROCESSTRACE_HANDLE,
@@ -156,12 +164,23 @@ unsafe fn process_record(record: *mut EVENT_RECORD) {
     let ctx = &*ctx_ptr;
 
     let descriptor = record.EventHeader.EventDescriptor;
+    let process_schema = if is_process_guid(&record.EventHeader.ProviderId) {
+        decode_process_payload(
+            descriptor.Version,
+            descriptor.Opcode,
+            record.EventHeader.Flags,
+            record.UserData,
+            record.UserDataLength,
+        )
+    } else {
+        None
+    };
+
     let kind = classify_event(descriptor.Opcode);
-    let pid = record.EventHeader.ProcessId;
     let event_id = format!(
         "etw-{:016x}-{}-{}",
         record.EventHeader.TimeStamp as u64,
-        pid,
+        record.EventHeader.ProcessId,
         descriptor.Id
     );
     let observed_at = SystemTime::now()
@@ -169,7 +188,7 @@ unsafe fn process_record(record: *mut EVENT_RECORD) {
         .map(|d| format!("{}.{:09}Z", d.as_secs(), d.subsec_nanos()))
         .unwrap_or_else(|_| "0Z".to_string());
 
-    let payload = json!({
+    let mut payload = json!({
         "provider_id": format!("{:?}", record.EventHeader.ProviderId),
         "event_id": descriptor.Id,
         "version": descriptor.Version,
@@ -182,16 +201,37 @@ unsafe fn process_record(record: *mut EVENT_RECORD) {
         "user_data": user_data_hex(record),
     });
 
+    let (pid, parent_pid, image, command_line) = if let Some(decoded) = process_schema {
+        payload["process_schema"] = json!({
+            "version": decoded.version,
+            "session_id": decoded.session_id,
+            "exit_status": decoded.exit_status,
+            "schema": "Process_TypeGroup1",
+            "provider": "ProcessGuid",
+        });
+        (
+            Some(decoded.pid),
+            Some(decoded.parent_pid),
+            Some(decoded.image),
+            decoded.command_line,
+        )
+    } else {
+        (None, None, None, None)
+    };
+
     let event = EndpointEvent {
         schema_version: EndpointEvent::SCHEMA_VERSION,
         event_id,
         observed_at,
         kind,
         host_id: ctx.host_id.clone(),
-        pid: Some(pid),
-        parent_pid: None,
-        image: None,
-        command_line: None,
+        // Do not use EVENT_HEADER.ProcessId for process-start/end identity:
+        // Microsoft documents that header PID may identify the logging
+        // context rather than the process being created/stopped.
+        pid,
+        parent_pid,
+        image,
+        command_line,
         remote_address: None,
         remote_port: None,
         payload,
@@ -199,6 +239,221 @@ unsafe fn process_record(record: *mut EVENT_RECORD) {
 
     if event.validate().is_ok() && ctx.tx.send(event).is_err() {
         debug!("ETW consumer channel closed");
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct DecodedProcess {
+    version: u8,
+    pid: u32,
+    parent_pid: u32,
+    session_id: u32,
+    exit_status: i32,
+    image: String,
+    command_line: Option<String>,
+}
+
+fn is_process_guid(guid: &windows::core::GUID) -> bool {
+    guid.data1 == PROCESS_GUID_DATA1
+        && guid.data2 == PROCESS_GUID_DATA2
+        && guid.data3 == PROCESS_GUID_DATA3
+        && guid.data4 == PROCESS_GUID_DATA4
+}
+
+/// Decode the verified Windows kernel Process_TypeGroup1 MOF payload.
+///
+/// The Process class has evolved through versions 0..3. Version 3 is the
+/// current documented Process class and contains UniqueProcessKey,
+/// ProcessId, ParentId, SessionId, ExitStatus, DirectoryTableBase, UserSID,
+/// ImageFileName and CommandLine. The older layouts are handled explicitly
+/// because ETW event version is part of the schema contract.
+fn decode_process_payload(
+    version: u8,
+    opcode: u8,
+    header_flags: u16,
+    user_data: *mut c_void,
+    user_data_length: u16,
+) -> Option<DecodedProcess> {
+    if !matches!(opcode, 1 | 3) {
+        // Only process-start and process-rundown-start carry the full process
+        // start payload. Process end has a different, shorter layout and is
+        // intentionally decoded separately below.
+        return decode_process_end_payload(version, opcode, header_flags, user_data, user_data_length);
+    }
+
+    let bytes = unsafe {
+        if user_data.is_null() || user_data_length == 0 {
+            return None;
+        }
+        std::slice::from_raw_parts(user_data as *const u8, user_data_length as usize)
+    };
+    decode_process_start_bytes(version, header_flags, bytes)
+}
+
+fn decode_process_start_bytes(
+    version: u8,
+    header_flags: u16,
+    bytes: &[u8],
+) -> Option<DecodedProcess> {
+    if version > 3 {
+        return None;
+    }
+
+    let pointer_size = pointer_size_from_header_flags(header_flags);
+    let mut cursor = 0usize;
+
+    if version >= 1 {
+        read_pointer(bytes, &mut cursor, pointer_size)?; // PageDirectoryBase / UniqueProcessKey
+    }
+
+    let (pid, parent_pid) = if version == 0 {
+        (
+            read_pointer(bytes, &mut cursor, pointer_size)? as u32,
+            read_pointer(bytes, &mut cursor, pointer_size)? as u32,
+        )
+    } else {
+        (
+            read_u32(bytes, &mut cursor)?,
+            read_u32(bytes, &mut cursor)?,
+        )
+    };
+
+    let (session_id, exit_status) = if version >= 1 {
+        (
+            read_u32(bytes, &mut cursor)?,
+            read_i32(bytes, &mut cursor)?,
+        )
+    } else {
+        (0, 0)
+    };
+
+    if version >= 3 {
+        read_pointer(bytes, &mut cursor, pointer_size)?; // DirectoryTableBase
+    }
+
+    skip_sid(bytes, &mut cursor)?;
+    let image = read_ansi_z(bytes, &mut cursor)?;
+    let command_line = if version >= 2 {
+        Some(read_utf16_z(bytes, &mut cursor)?)
+    } else {
+        None
+    };
+
+    Some(DecodedProcess {
+        version,
+        pid,
+        parent_pid,
+        session_id,
+        exit_status,
+        image,
+        command_line,
+    })
+}
+
+fn decode_process_end_payload(
+    version: u8,
+    opcode: u8,
+    header_flags: u16,
+    user_data: *mut c_void,
+    user_data_length: u16,
+) -> Option<DecodedProcess> {
+    if opcode != 2 {
+        return None;
+    }
+    let bytes = unsafe {
+        if user_data.is_null() || user_data_length == 0 {
+            return None;
+        }
+        std::slice::from_raw_parts(user_data as *const u8, user_data_length as usize)
+    };
+    let pointer_size = pointer_size_from_header_flags(header_flags);
+    let mut cursor = 0usize;
+    let pid = if version == 0 {
+        read_pointer(bytes, &mut cursor, pointer_size)? as u32
+    } else {
+        read_pointer(bytes, &mut cursor, pointer_size)?;
+        read_u32(bytes, &mut cursor)?
+    };
+
+    Some(DecodedProcess {
+        version,
+        pid,
+        parent_pid: 0,
+        session_id: 0,
+        exit_status: 0,
+        image: String::new(),
+        command_line: None,
+    })
+}
+
+fn pointer_size_from_header_flags(flags: u16) -> usize {
+    if flags & EVENT_HEADER_FLAG_32_BIT_HEADER.0 as u16 != 0 {
+        4
+    } else if flags & EVENT_HEADER_FLAG_64_BIT_HEADER.0 as u16 != 0 {
+        8
+    } else {
+        // The agent is built for the native Windows architecture. A missing
+        // bitness flag therefore uses the native pointer width.
+        size_of::<usize>()
+    }
+}
+
+fn read_pointer(bytes: &[u8], cursor: &mut usize, pointer_size: usize) -> Option<u64> {
+    match pointer_size {
+        4 => Some(read_u32(bytes, cursor)? as u64),
+        8 => {
+            let end = cursor.checked_add(8)?;
+            let chunk = bytes.get(*cursor..end)?;
+            *cursor = end;
+            Some(u64::from_le_bytes(chunk.try_into().ok()?))
+        }
+        _ => None,
+    }
+}
+
+fn read_u32(bytes: &[u8], cursor: &mut usize) -> Option<u32> {
+    let end = cursor.checked_add(4)?;
+    let chunk = bytes.get(*cursor..end)?;
+    *cursor = end;
+    Some(u32::from_le_bytes(chunk.try_into().ok()?))
+}
+
+fn read_i32(bytes: &[u8], cursor: &mut usize) -> Option<i32> {
+    Some(read_u32(bytes, cursor)? as i32)
+}
+
+fn skip_sid(bytes: &[u8], cursor: &mut usize) -> Option<()> {
+    let revision = *bytes.get(*cursor)?;
+    let sub_authority_count = *bytes.get(cursor.checked_add(1)?)?;
+    if revision == 0 || sub_authority_count > 15 {
+        return None;
+    }
+    let sid_len = 8usize.checked_add((sub_authority_count as usize).checked_mul(4)?)?;
+    let end = cursor.checked_add(sid_len)?;
+    bytes.get(*cursor..end)?;
+    *cursor = end;
+    Some(())
+}
+
+fn read_ansi_z(bytes: &[u8], cursor: &mut usize) -> Option<String> {
+    let start = *cursor;
+    let relative_end = bytes.get(start..)?.iter().position(|b| *b == 0)?;
+    let end = start.checked_add(relative_end)?;
+    *cursor = end.checked_add(1)?;
+    Some(String::from_utf8_lossy(bytes.get(start..end)?).into_owned())
+}
+
+fn read_utf16_z(bytes: &[u8], cursor: &mut usize) -> Option<String> {
+    let mut units = Vec::new();
+    loop {
+        let lo = *bytes.get(*cursor)?;
+        let hi = *bytes.get(cursor.checked_add(1)?)?;
+        *cursor = cursor.checked_add(2)?;
+        let unit = u16::from_le_bytes([lo, hi]);
+        if unit == 0 {
+            return String::from_utf16(&units).ok();
+        }
+        units.push(unit);
     }
 }
 
@@ -259,11 +514,62 @@ fn stop_kernel_session(session: CONTROLTRACE_HANDLE) -> Result<()> {
 mod tests {
     use super::*;
 
+    fn push_u32(out: &mut Vec<u8>, value: u32) {
+        out.extend_from_slice(&value.to_le_bytes());
+    }
+
+    fn push_u64(out: &mut Vec<u8>, value: u64) {
+        out.extend_from_slice(&value.to_le_bytes());
+    }
+
+    fn push_utf16_z(out: &mut Vec<u8>, value: &str) {
+        for unit in value.encode_utf16() {
+            out.extend_from_slice(&unit.to_le_bytes());
+        }
+        out.extend_from_slice(&0u16.to_le_bytes());
+    }
+
     #[test]
     fn process_opcodes_are_normalized() {
         assert_eq!(classify_event(1), EventKind::ProcessStart);
         assert_eq!(classify_event(2), EventKind::ProcessStop);
         assert_eq!(classify_event(0), EventKind::Unknown);
         assert_eq!(classify_event(255), EventKind::Unknown);
+    }
+
+    #[test]
+    fn decodes_process_v3_payload_without_using_header_pid() {
+        let mut payload = Vec::new();
+        push_u64(&mut payload, 0x1122_3344_5566_7788); // UniqueProcessKey
+        push_u32(&mut payload, 4242); // ProcessId
+        push_u32(&mut payload, 1337); // ParentId
+        push_u32(&mut payload, 2); // SessionId
+        push_u32(&mut payload, 259); // ExitStatus
+        push_u64(&mut payload, 0x8877_6655_4433_2211); // DirectoryTableBase
+        payload.extend_from_slice(&[1, 1, 0, 0, 0, 0, 0, 5, 0, 0, 0, 0]); // SID: S-1-5-0
+        payload.extend_from_slice(b"C:\\Windows\\System32\\cmd.exe\0");
+        push_utf16_z(&mut payload, "cmd.exe /c whoami");
+
+        let decoded = decode_process_start_bytes(3, EVENT_HEADER_FLAG_64_BIT_HEADER.0 as u16, &payload)
+            .expect("valid Process v3 payload");
+
+        assert_eq!(
+            decoded,
+            DecodedProcess {
+                version: 3,
+                pid: 4242,
+                parent_pid: 1337,
+                session_id: 2,
+                exit_status: 259,
+                image: "C:\\Windows\\System32\\cmd.exe".to_string(),
+                command_line: Some("cmd.exe /c whoami".to_string()),
+            }
+        );
+    }
+
+    #[test]
+    fn rejects_truncated_process_payload() {
+        let payload = [0u8; 24];
+        assert!(decode_process_start_bytes(3, EVENT_HEADER_FLAG_64_BIT_HEADER.0 as u16, &payload).is_none());
     }
 }
