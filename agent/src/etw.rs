@@ -1,4 +1,4 @@
-use std::{ffi::c_void, mem::size_of, ptr, sync::mpsc::{self, Receiver, Sender}};
+use std::{ffi::c_void, mem::size_of, sync::mpsc::{self, Receiver, Sender}, time::{SystemTime, UNIX_EPOCH}};
 use anyhow::{anyhow, Context, Result};
 use serde_json::json;
 use tracing::{debug, info};
@@ -13,6 +13,7 @@ pub struct EtwCollector {
     session: CONTROLTRACE_HANDLE,
     consumer: PROCESSTRACE_HANDLE,
     receiver: Receiver<EndpointEvent>,
+    context: *mut CallbackContext,
 }
 
 unsafe impl Send for EtwCollector {}
@@ -24,22 +25,23 @@ impl EtwCollector {
 
         let session = start_kernel_session().context("start Sentinel ETW kernel session")?;
         let (tx, receiver) = mpsc::channel();
+        let context = Box::into_raw(Box::new(CallbackContext { host_id, tx }));
 
         let mut logfile: EVENT_TRACE_LOGFILEW = unsafe { std::mem::zeroed() };
         logfile.LoggerName = SESSION_NAME.0 as *mut u16;
         logfile.ProcessTraceMode = EVENT_TRACE_REAL_TIME_MODE;
-        logfile.Context = Box::into_raw(Box::new(CallbackContext { host_id, tx })) as *mut c_void;
+        logfile.Context = context as *mut c_void;
         logfile.Anonymous2.EventRecordCallback = Some(event_record_callback);
 
         let consumer = unsafe { OpenTraceW(&mut logfile) };
         if consumer == INVALID_PROCESSTRACE_HANDLE {
             let _ = stop_kernel_session(session);
-            unsafe { drop(Box::from_raw(logfile.Context as *mut CallbackContext)); }
+            unsafe { drop(Box::from_raw(context)); }
             return Err(anyhow!("OpenTraceW failed"));
         }
 
         info!("Sentinel kernel ETW session started");
-        Ok(Self { session, consumer, receiver })
+        Ok(Self { session, consumer, receiver, context })
     }
 
     pub fn recv(&self) -> Result<EndpointEvent> {
@@ -60,6 +62,7 @@ impl Drop for EtwCollector {
     fn drop(&mut self) {
         unsafe { let _ = CloseTrace(self.consumer); }
         let _ = stop_kernel_session(self.session);
+        unsafe { drop(Box::from_raw(self.context)); }
     }
 }
 
@@ -73,8 +76,7 @@ unsafe extern "system" fn event_record_callback(record: *mut EVENT_RECORD) {
     let ctx = &*ctx_ptr;
 
     let descriptor = record.EventHeader.EventDescriptor;
-    let opcode = descriptor.Opcode;
-    let kind = match opcode {
+    let kind = match descriptor.Opcode {
         1 => EventKind::ProcessStart,
         2 => EventKind::ProcessStop,
         _ => EventKind::Unknown,
@@ -82,10 +84,15 @@ unsafe extern "system" fn event_record_callback(record: *mut EVENT_RECORD) {
 
     let pid = record.EventHeader.ProcessId;
     let event_id = format!("etw-{:016x}-{}-{}", record.EventHeader.TimeStamp as u64, pid, descriptor.Id);
+    let observed_at = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| format!("{}.{}Z", d.as_secs(), format!("{:09}", d.subsec_nanos())))
+        .unwrap_or_else(|_| "0Z".to_string());
+
     let event = EndpointEvent {
         schema_version: EndpointEvent::SCHEMA_VERSION,
         event_id,
-        observed_at: format!("{}", record.EventHeader.TimeStamp),
+        observed_at,
         kind,
         host_id: ctx.host_id.clone(),
         pid: Some(pid),
@@ -102,6 +109,7 @@ unsafe extern "system" fn event_record_callback(record: *mut EVENT_RECORD) {
             "level": descriptor.Level,
             "keywords": descriptor.Keyword,
             "thread_id": record.EventHeader.ThreadId,
+            "event_timestamp": record.EventHeader.TimeStamp,
             "user_data_length": record.UserDataLength,
         }),
     };
@@ -125,8 +133,6 @@ fn start_kernel_session() -> Result<CONTROLTRACE_HANDLE> {
     let mut session = CONTROLTRACE_HANDLE(0);
     let status = unsafe { StartTraceW(&mut session, SESSION_NAME, &mut properties) };
     if status != 0 {
-        // ERROR_ALREADY_EXISTS: reuse is intentionally not allowed; a stale session must be
-        // explicitly stopped by the service owner rather than hijacked by another agent.
         return Err(anyhow!("StartTraceW failed with Win32 status {status}"));
     }
     Ok(session)
