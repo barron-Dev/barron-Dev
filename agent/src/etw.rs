@@ -57,26 +57,33 @@ impl EtwCollector {
         Ok(Self { session, consumer, receiver, context })
     }
 
-    pub fn run(self, mut sink: impl FnMut(EndpointEvent) + Send + 'static) -> Result<()> {
+    pub fn run(mut self, mut sink: impl FnMut(EndpointEvent) + Send + 'static) -> Result<()> {
         let handle = self.consumer;
-        let receiver = self.receiver;
-        let session = self.session;
-        let context = self.context;
+        let receiver = &self.receiver;
 
-        let consumer_thread = thread::spawn(move || {
-            while let Ok(event) = receiver.recv() {
-                sink(event);
-            }
+        let consumer_thread = thread::scope(|scope| {
+            let thread_handle = scope.spawn(|| {
+                while let Ok(event) = receiver.recv() {
+                    sink(event);
+                }
+            });
+
+            let status = unsafe { ProcessTrace(&[handle], None, None) };
+            let _ = thread_handle.join();
+            status
         });
 
-        let status = unsafe { ProcessTrace(&[handle], None, None) };
         unsafe { let _ = CloseTrace(handle); }
-        let _ = stop_kernel_session(session);
-        unsafe { drop(Box::from_raw(context)); }
-        let _ = consumer_thread.join();
+        let _ = stop_kernel_session(self.session);
+        unsafe { drop(Box::from_raw(self.context)); }
 
-        if status != WIN32_ERROR(0) {
-            return Err(anyhow!("ProcessTrace failed with Win32 status {:?}", status));
+        // Prevent Drop from closing/freeing resources a second time.
+        self.consumer = PROCESSTRACE_HANDLE { Value: 0 };
+        self.session = CONTROLTRACE_HANDLE { Value: 0 };
+        self.context = std::ptr::null_mut();
+
+        if consumer_thread != WIN32_ERROR(0) {
+            return Err(anyhow!("ProcessTrace failed with Win32 status {:?}", consumer_thread));
         }
         Ok(())
     }
@@ -84,10 +91,14 @@ impl EtwCollector {
 
 impl Drop for EtwCollector {
     fn drop(&mut self) {
-        // Best-effort cleanup for startup failures or callers that drop the
-        // collector before run(). run() consumes self and performs full cleanup.
-        unsafe { let _ = CloseTrace(self.consumer); }
-        let _ = stop_kernel_session(self.session);
+        if self.consumer.Value != 0 {
+            unsafe { let _ = CloseTrace(self.consumer); }
+            self.consumer = PROCESSTRACE_HANDLE { Value: 0 };
+        }
+        if self.session.Value != 0 {
+            let _ = stop_kernel_session(self.session);
+            self.session = CONTROLTRACE_HANDLE { Value: 0 };
+        }
         if !self.context.is_null() {
             unsafe { drop(Box::from_raw(self.context)); }
             self.context = std::ptr::null_mut();
@@ -106,11 +117,7 @@ fn log_callback_panic() {
         .append(true)
         .open(CALLBACK_ERROR_LOG)
         .and_then(|mut file| {
-            writeln!(
-                file,
-                "etw callback panic at {:?}",
-                SystemTime::now()
-            )
+            writeln!(file, "etw callback panic at {:?}", SystemTime::now())
         });
 }
 
@@ -178,27 +185,15 @@ unsafe fn process_record(record: *mut EVENT_RECORD) {
         payload,
     };
 
-    if event.validate().is_ok() {
-        // Do not block an ETW callback on a potentially slow downstream
-        // consumer. A full channel is treated as backpressure/drop here;
-        // the telemetry pipeline remains alive and the event is accounted for
-        // by the agent's normal logging/metrics layer.
-        if ctx.tx.send(event).is_err() {
-            debug!("ETW consumer channel closed");
-        }
+    if event.validate().is_ok() && ctx.tx.send(event).is_err() {
+        debug!("ETW consumer channel closed");
     }
 }
 
-fn classify_event(opcode: u8, id: u16) -> EventKind {
-    // Kernel process start/stop are represented by opcodes 1/2. The kernel
-    // session is also enabled for network/file activity below; retain the
-    // normalized kinds already consumed by the server when those records are
-    // encountered. Unknown records are deliberately preserved rather than
-    // guessed into a security-sensitive category.
+fn classify_event(opcode: u8, _id: u16) -> EventKind {
     match opcode {
         1 => EventKind::ProcessStart,
         2 => EventKind::ProcessStop,
-        _ if id != 0 => EventKind::Unknown,
         _ => EventKind::Unknown,
     }
 }
