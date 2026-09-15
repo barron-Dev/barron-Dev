@@ -10,10 +10,10 @@ use anyhow::{anyhow, Context, Result};
 use ort::session::Session;
 use ort::value::Tensor;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 pub struct OnnxDetector {
-    session: Arc<Session>,
+    session: Mutex<Session>,
     pub version: i64,
     pub threshold_monitor: f32,
     pub threshold_quarantine: f32,
@@ -28,13 +28,14 @@ impl OnnxDetector {
             .with_optimization_level(ort::session::builder::GraphOptimizationLevel::Level3)?
             .commit_from_file(path)
             .with_context(|| format!("load onnx {}", path.display()))?;
-        Ok(Self { session: Arc::new(session), version, threshold_monitor, threshold_quarantine })
+        Ok(Self { session: Mutex::new(session), version, threshold_monitor, threshold_quarantine })
     }
 
     pub fn score(&self, event_type: &str, payload: &serde_json::Value) -> Result<f32> {
         let features = extract(event_type, payload);
         let tensor = Tensor::from_array(([1usize, N_FEATURES], features.to_vec()))?;
-        let outputs = self.session.run(ort::inputs!["input" => tensor])?;
+        let mut session = self.session.lock().map_err(|_| anyhow!("onnx session lock poisoned"))?;
+        let outputs = session.run(ort::inputs!["input" => tensor])?;
         let (_shape, data) = outputs[0].try_extract_tensor::<f32>()?;
         if data.is_empty() { return Err(anyhow!("empty onnx output")); }
         let p = if data.len() >= 2 { data[1] } else { data[0] };
