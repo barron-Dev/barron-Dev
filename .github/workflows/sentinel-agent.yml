@@ -1,0 +1,25 @@
+name: Sentinel Agent
+
+on:
+  push:
+    paths:
+      - 'agent/**'
+      - '.github/workflows/sentinel-agent.yml'
+  pull_request:
+    paths:
+      - 'agent/**'
+      - '.github/workflows/sentinel-agent.yml'
+
+jobs:
+  windows-agent:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: agent
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Check Windows agent
+        run: cargo check
+      - name: Run agent tests
+        run: cargo test
