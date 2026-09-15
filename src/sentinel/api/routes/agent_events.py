@@ -52,7 +52,6 @@ async def ingest_event(
         if detection is None
         else {
             "score": detection.score,
-            "verdict": detection.verdict,
             "model_version": detection.model_version,
         },
     }
