@@ -1,0 +1,183 @@
+from __future__ import annotations
+
+import logging
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from enum import StrEnum
+from typing import Any, Protocol
+from uuid import UUID
+
+logger = logging.getLogger(__name__)
+
+
+class ActionClass(StrEnum):
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    CRITICAL = "critical"
+
+
+ACTION_CLASS: dict[str, ActionClass] = {
+    "scan_now": ActionClass.LOW,
+    "collect_forensics": ActionClass.LOW,
+    "kill_process": ActionClass.MEDIUM,
+    "block_hash": ActionClass.MEDIUM,
+    "block_ip": ActionClass.MEDIUM,
+    "quarantine_file": ActionClass.MEDIUM,
+    "restore_file": ActionClass.MEDIUM,
+    "rollback": ActionClass.MEDIUM,
+    "isolate_host": ActionClass.HIGH,
+    "release_host": ActionClass.HIGH,
+    "force_logout": ActionClass.HIGH,
+    "disable_account": ActionClass.CRITICAL,
+}
+
+
+@dataclass(frozen=True, slots=True)
+class ActionPlan:
+    action: str
+    args: dict[str, Any]
+    requires_approval: bool = False
+    rollback: dict[str, Any] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ChainResult:
+    case_id: str
+    dispatched: list[str]
+    queued: list[str]
+    rejected: list[str]
+    reasons: dict[str, str]
+
+
+class Dispatcher(Protocol):
+    async def issue(self, *, tenant_id: UUID, device_id: UUID | None, action: str, args: dict[str, Any], issued_by: str) -> dict[str, Any]: ...
+
+
+class ActionStore(Protocol):
+    async def create(self, **values: Any) -> str: ...
+    async def get(self, action_id: UUID) -> dict[str, Any] | None: ...
+    async def update(self, action_id: UUID, **values: Any) -> None: ...
+    async def blast_allowed(self, rule_id: UUID, limit: int, window_minutes: int = 60) -> bool: ...
+    async def record_blast(self, *, rule_id: UUID, tenant_id: UUID, device_id: UUID, case_id: UUID) -> None: ...
+
+
+class Signer(Protocol):
+    def sign(self, payload: dict[str, Any]) -> Any: ...
+
+
+class ResponseOrchestrator:
+    """Single owner of case response execution and safety gates."""
+
+    def __init__(self, dispatcher: Dispatcher, store: ActionStore, signer: Signer | None = None) -> None:
+        self.dispatcher = dispatcher
+        self.store = store
+        self.signer = signer
+
+    async def run_chain(
+        self, *, tenant_id: UUID, case_id: UUID, device_id: UUID | None,
+        plan: list[ActionPlan], issued_by: str, initiated_by_rule: UUID | None = None,
+        dry_run: bool = False, blast_rule_id: UUID | None = None, blast_limit: int = 10,
+    ) -> ChainResult:
+        dispatched: list[str] = []
+        queued: list[str] = []
+        rejected: list[str] = []
+        reasons: dict[str, str] = {}
+
+        for step in plan:
+            row_id = ""
+            try:
+                if not step.action.strip():
+                    raise ValueError("action must not be empty")
+                action_class = ACTION_CLASS.get(step.action, ActionClass.MEDIUM)
+                approval_required = step.requires_approval or action_class in (ActionClass.HIGH, ActionClass.CRITICAL)
+
+                if blast_rule_id and not await self.store.blast_allowed(blast_rule_id, blast_limit):
+                    row_id = await self.store.create(
+                        tenant_id=tenant_id, case_id=case_id, device_id=device_id,
+                        action=step.action, args=step.args, status="rejected",
+                        issued_by=issued_by, initiated_by_rule=initiated_by_rule,
+                        rollback_args=step.rollback, error="blast radius exceeded",
+                    )
+                    rejected.append(row_id)
+                    reasons[row_id] = "blast radius exceeded"
+                    continue
+
+                if approval_required and not dry_run:
+                    row_id = await self.store.create(
+                        tenant_id=tenant_id, case_id=case_id, device_id=device_id,
+                        action=step.action, args=step.args, status="pending_approval",
+                        issued_by=issued_by, initiated_by_rule=initiated_by_rule,
+                        rollback_args=step.rollback,
+                    )
+                    queued.append(row_id)
+                    continue
+
+                if dry_run:
+                    row_id = await self.store.create(
+                        tenant_id=tenant_id, case_id=case_id, device_id=device_id,
+                        action=step.action, args=step.args, status="approved",
+                        issued_by=issued_by, initiated_by_rule=initiated_by_rule,
+                        rollback_args=step.rollback, error="dry run: not dispatched",
+                    )
+                    dispatched.append(row_id)
+                    continue
+
+                row_id = await self._dispatch_step(tenant_id, case_id, device_id, step, issued_by, initiated_by_rule)
+                dispatched.append(row_id)
+                if blast_rule_id and device_id:
+                    await self.store.record_blast(rule_id=blast_rule_id, tenant_id=tenant_id, device_id=device_id, case_id=case_id)
+            except Exception as exc:
+                logger.exception("response chain step failed")
+                if not row_id:
+                    row_id = await self.store.create(
+                        tenant_id=tenant_id, case_id=case_id, device_id=device_id,
+                        action=step.action, args=step.args, status="failed",
+                        issued_by=issued_by, initiated_by_rule=initiated_by_rule,
+                        rollback_args=step.rollback, error=str(exc)[:500],
+                    )
+                else:
+                    await self.store.update(UUID(row_id), status="failed", error=str(exc)[:500])
+                rejected.append(row_id)
+                reasons[row_id] = str(exc)[:500]
+
+        return ChainResult(str(case_id), dispatched, queued, rejected, reasons)
+
+    async def approve(self, case_action_id: UUID, approved_by: UUID) -> dict[str, Any]:
+        row = await self.store.get(case_action_id)
+        if not row:
+            raise RuntimeError("case_action not found")
+        if row.get("status") != "pending_approval":
+            raise RuntimeError(f"case_action {case_action_id} is {row.get('status')}")
+        await self.store.update(case_action_id, status="approved", approved_by=str(approved_by), approved_at=datetime.now(timezone.utc).isoformat())
+        command = await self.dispatcher.issue(
+            tenant_id=UUID(row["tenant_id"]), device_id=UUID(row["device_id"]) if row.get("device_id") else None,
+            action=row["action"], args=row.get("args") or {}, issued_by=f"approval:{approved_by}",
+        )
+        await self.store.update(case_action_id, status="dispatched", command_id=command["id"], dispatched_at=datetime.now(timezone.utc).isoformat())
+        return {"case_action_id": str(case_action_id), "command_id": command["id"]}
+
+    async def reject(self, case_action_id: UUID, rejected_by: UUID, reason: str) -> dict[str, Any]:
+        row = await self.store.get(case_action_id)
+        if not row:
+            raise RuntimeError("case_action not found")
+        if row.get("status") != "pending_approval":
+            raise RuntimeError(f"case_action {case_action_id} is {row.get('status')}")
+        await self.store.update(case_action_id, status="rejected", rejected_by=str(rejected_by), rejected_at=datetime.now(timezone.utc).isoformat(), rejection_reason=reason[:500])
+        return {"case_action_id": str(case_action_id), "status": "rejected"}
+
+    async def _dispatch_step(self, tenant_id: UUID, case_id: UUID, device_id: UUID | None, step: ActionPlan, issued_by: str, rule_id: UUID | None) -> str:
+        row_id = await self.store.create(
+            tenant_id=tenant_id, case_id=case_id, device_id=device_id,
+            action=step.action, args=step.args, status="approved", issued_by=issued_by,
+            initiated_by_rule=rule_id, rollback_args=step.rollback,
+        )
+        if self.signer:
+            signed = self.signer.sign({
+                "case_action_id": row_id, "action": step.action, "args": step.args,
+                "ts": datetime.now(timezone.utc).isoformat(),
+            })
+            await self.store.update(row_id, signature=signed.signature_b64, signer_kid=signed.kid)
+        command = await self.dispatcher.issue(tenant_id=tenant_id, device_id=device_id, action=step.action, args=step.args, issued_by=issued_by)
+        await self.store.update(UUID(row_id), status="dispatched", command_id=command["id"], dispatched_at=datetime.now(timezone.utc).isoformat())
+        return row_id
