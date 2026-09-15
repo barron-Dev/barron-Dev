@@ -24,8 +24,11 @@ impl OnnxDetector {
         anyhow::ensure!((0.0..=1.0).contains(&threshold_monitor));
         anyhow::ensure!((0.0..=1.0).contains(&threshold_quarantine));
         anyhow::ensure!(threshold_monitor <= threshold_quarantine);
-        let session = Session::builder()?
-            .with_optimization_level(ort::session::builder::GraphOptimizationLevel::Level3)?
+
+        let session = Session::builder()
+            .map_err(|error| anyhow!("create ONNX session builder: {error:?}"))?
+            .with_optimization_level(ort::session::builder::GraphOptimizationLevel::Level3)
+            .map_err(|error| anyhow!("configure ONNX optimization: {error:?}"))?
             .commit_from_file(path)
             .with_context(|| format!("load onnx {}", path.display()))?;
         Ok(Self { session: Mutex::new(session), version, threshold_monitor, threshold_quarantine })
@@ -33,10 +36,14 @@ impl OnnxDetector {
 
     pub fn score(&self, event_type: &str, payload: &serde_json::Value) -> Result<f32> {
         let features = extract(event_type, payload);
-        let tensor = Tensor::from_array(([1usize, N_FEATURES], features.to_vec()))?;
+        let tensor = Tensor::from_array(([1usize, N_FEATURES], features.to_vec()))
+            .map_err(|error| anyhow!("create ONNX input tensor: {error:?}"))?;
         let mut session = self.session.lock().map_err(|_| anyhow!("onnx session lock poisoned"))?;
-        let outputs = session.run(ort::inputs!["input" => tensor])?;
-        let (_shape, data) = outputs[0].try_extract_tensor::<f32>()?;
+        let outputs = session.run(ort::inputs!["input" => tensor])
+            .map_err(|error| anyhow!("run ONNX model: {error:?}"))?;
+        let (_shape, data) = outputs[0]
+            .try_extract_tensor::<f32>()
+            .map_err(|error| anyhow!("extract ONNX output: {error:?}"))?;
         if data.is_empty() { return Err(anyhow!("empty onnx output")); }
         let p = if data.len() >= 2 { data[1] } else { data[0] };
         anyhow::ensure!(p.is_finite(), "non-finite onnx probability");
