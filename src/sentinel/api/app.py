@@ -6,6 +6,7 @@ from fastapi import Depends, FastAPI
 
 from sentinel.api.routes.agent_events import router as agent_events_router
 from sentinel.api.routes.agent_model import router as agent_model_router
+from sentinel.api.routes.deception import router as deception_router
 from sentinel.routing.region_router import current_region_code, enforce_device_region, region_cache
 
 
@@ -34,6 +35,9 @@ def create_app() -> FastAPI:
         prefix="/api/v1",
         dependencies=[Depends(enforce_device_region)],
     )
+    # Canary callbacks intentionally bypass device mTLS: they detect access to
+    # planted deception artifacts. The callback token is opaque and hashed.
+    application.include_router(deception_router, prefix="/api/v1")
     return application
 
 
