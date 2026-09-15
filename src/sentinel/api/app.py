@@ -6,15 +6,15 @@ from fastapi import Depends, FastAPI
 
 from sentinel.api.routes.agent_events import router as agent_events_router
 from sentinel.api.routes.agent_model import router as agent_model_router
-from sentinel.routing.region_router import enforce_device_region, region_cache
+from sentinel.routing.region_router import current_region_code, enforce_device_region, region_cache
 
 
 @asynccontextmanager
 async def lifespan(application: FastAPI):
-    # A data plane must know its own region before accepting tenant traffic.
-    # If the replicated region registry cannot be loaded, startup fails rather
-    # than silently running with an unsafe residency configuration.
+    region = current_region_code()
     await region_cache.load(force=True)
+    if region_cache.get(region) is None:
+        raise RuntimeError(f"SENTINEL_REGION {region!r} is not present in the active region registry")
     yield
 
 
