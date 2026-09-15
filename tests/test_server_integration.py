@@ -3,23 +3,12 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 import pytest
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
 
 from sentinel.api.routes.agent_events import router
 from sentinel.models.events import EndpointEvent
 from sentinel.security.device_auth import DeviceIdentity, get_device
-
-
-def _app() -> FastAPI:
-    app = FastAPI()
-    app.include_router(router)
-    app.dependency_overrides[get_device] = lambda: DeviceIdentity(
-        device_id="device-1",
-        tenant_id="tenant-1",
-        cert_sha256="a" * 64,
-    )
-    return app
 
 
 def test_agent_event_contract_matches_rust_shape() -> None:
@@ -47,7 +36,7 @@ def test_mtls_dependency_fails_closed_without_tls() -> None:
     app = FastAPI()
 
     @app.get("/device")
-    async def device(device: DeviceIdentity = __import__("fastapi").Depends(get_device)):
+    async def device(device: DeviceIdentity = Depends(get_device)):
         return device
 
     with TestClient(app) as client:
@@ -56,7 +45,7 @@ def test_mtls_dependency_fails_closed_without_tls() -> None:
 
 
 @pytest.mark.asyncio
-async def test_server_detector_uses_normalized_event_payload(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_server_detector_uses_normalized_event_payload() -> None:
     from sentinel.ml.detector import ServerMLDetector
 
     class FakeModel:
