@@ -61,7 +61,7 @@ impl EtwCollector {
         let handle = self.consumer;
         let receiver = &self.receiver;
 
-        let consumer_thread = thread::scope(|scope| {
+        let process_status = thread::scope(|scope| {
             let thread_handle = scope.spawn(|| {
                 while let Ok(event) = receiver.recv() {
                     sink(event);
@@ -69,21 +69,28 @@ impl EtwCollector {
             });
 
             let status = unsafe { ProcessTrace(&[handle], None, None) };
+
+            // ProcessTrace has returned, so ETW will no longer invoke the
+            // callback. Release its sender before waiting for the receiver.
+            unsafe { drop(Box::from_raw(self.context)); }
+            self.context = std::ptr::null_mut();
             let _ = thread_handle.join();
             status
         });
 
         unsafe { let _ = CloseTrace(handle); }
         let _ = stop_kernel_session(self.session);
-        unsafe { drop(Box::from_raw(self.context)); }
 
-        // Prevent Drop from closing/freeing resources a second time.
+        // Prevent Drop from closing the consumer or stopping/freeing the
+        // already-cleaned session/context a second time.
         self.consumer = PROCESSTRACE_HANDLE { Value: 0 };
         self.session = CONTROLTRACE_HANDLE { Value: 0 };
-        self.context = std::ptr::null_mut();
 
-        if consumer_thread != WIN32_ERROR(0) {
-            return Err(anyhow!("ProcessTrace failed with Win32 status {:?}", consumer_thread));
+        if process_status != WIN32_ERROR(0) {
+            return Err(anyhow!(
+                "ProcessTrace failed with Win32 status {:?}",
+                process_status
+            ));
         }
         Ok(())
     }
@@ -144,7 +151,7 @@ unsafe fn process_record(record: *mut EVENT_RECORD) {
     let ctx = &*ctx_ptr;
 
     let descriptor = record.EventHeader.EventDescriptor;
-    let kind = classify_event(descriptor.Opcode, descriptor.Id);
+    let kind = classify_event(descriptor.Opcode);
     let pid = record.EventHeader.ProcessId;
     let event_id = format!(
         "etw-{:016x}-{}-{}",
@@ -190,7 +197,7 @@ unsafe fn process_record(record: *mut EVENT_RECORD) {
     }
 }
 
-fn classify_event(opcode: u8, _id: u16) -> EventKind {
+fn classify_event(opcode: u8) -> EventKind {
     match opcode {
         1 => EventKind::ProcessStart,
         2 => EventKind::ProcessStop,
@@ -215,9 +222,9 @@ fn start_kernel_session() -> Result<CONTROLTRACE_HANDLE> {
     properties.Wnode.Flags = WNODE_FLAG_TRACED_GUID_VALUE;
     properties.Wnode.ClientContext = 1;
     properties.LogFileMode = EVENT_TRACE_REAL_TIME_MODE;
-    // Kernel process telemetry is the stable capability already supported by
-    // this agent. Keep the session narrow until provider-specific schemas are
-    // decoded and normalized rather than emitting misleading network/file data.
+    // Keep the existing kernel process session narrow until provider-specific
+    // schemas are decoded and normalized. Do not label raw records as network,
+    // DNS, or file activity without verified schemas.
     properties.EnableFlags = EVENT_TRACE_FLAG_PROCESS;
     properties.BufferSize = 64;
     properties.MinimumBuffers = 8;
@@ -241,4 +248,17 @@ fn stop_kernel_session(session: CONTROLTRACE_HANDLE) -> Result<()> {
         debug!(status = ?status, "ETW session stop returned non-zero status");
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn process_opcodes_are_normalized() {
+        assert_eq!(classify_event(1), EventKind::ProcessStart);
+        assert_eq!(classify_event(2), EventKind::ProcessStop);
+        assert_eq!(classify_event(0), EventKind::Unknown);
+        assert_eq!(classify_event(255), EventKind::Unknown);
+    }
 }
