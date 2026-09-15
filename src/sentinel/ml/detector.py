@@ -10,7 +10,6 @@ from sentinel.models.events import EndpointEvent
 @dataclass(frozen=True, slots=True)
 class MLDetection:
     score: float
-    verdict: str
     model_version: int
 
 
@@ -25,8 +24,7 @@ class ServerMLDetector:
         if model is None:
             return None
         score = await model.predict_proba(event.ml_type(), self._payload(event))
-        verdict = "high" if score >= 0.90 else "medium" if score >= 0.60 else "low"
-        return MLDetection(score=score, verdict=verdict, model_version=model.version)
+        return MLDetection(score=score, model_version=model.version)
 
     @staticmethod
     def _payload(event: EndpointEvent) -> dict[str, Any]:
