@@ -44,13 +44,21 @@ async def exchange_authorization_code(code: str, client_id: str, redirect_uri: s
     return await _issue(row["client_id"], row["app_id"], row["user_id"], list(row.get("scope") or []), refresh=True)
 
 
+async def rotate_refresh_token(refresh_token: str) -> dict[str, Any]:
+    row = await supabase.select_one("oauth_refresh_tokens", "id,client_id,user_id,app_id,scope,expires_at,revoked_at", token_hash=hash_secret(refresh_token))
+    if not row or row.get("revoked_at") or datetime.fromisoformat(str(row["expires_at"]).replace("Z", "+00:00")) <= datetime.now(UTC):
+        raise ValueError("invalid_grant")
+    result = await _issue(row["client_id"], row["app_id"], row.get("user_id"), list(row.get("scope") or []), refresh=True)
+    await supabase.update("oauth_refresh_tokens", {"revoked_at": datetime.now(UTC).isoformat()}, id=row["id"])
+    return result
+
+
 async def _issue(client_id: str, app_id: str, user_id: str | None, scope: list[str], refresh: bool = False) -> dict[str, Any]:
     app = await supabase.select_one("developer_apps", "active,allowed_scopes", id=app_id)
     if not app or not app["active"] or not set(scope).issubset(set(app.get("allowed_scopes") or [])):
         raise ValueError("invalid_scope")
     token, token_hash = new_token("snt_")
-    exp = expires(1)
-    await supabase.insert_one("oauth_access_tokens", {"token_hash": token_hash, "client_id": client_id, "user_id": user_id, "app_id": app_id, "scope": sorted(set(scope)), "expires_at": exp.isoformat()})
+    await supabase.insert_one("oauth_access_tokens", {"token_hash": token_hash, "client_id": client_id, "user_id": user_id, "app_id": app_id, "scope": sorted(set(scope)), "expires_at": expires(1).isoformat()})
     result: dict[str, Any] = {"access_token": token, "token_type": "Bearer", "expires_in": 3600, "scope": " ".join(sorted(set(scope)))}
     if refresh:
         refresh_token, refresh_hash = new_token("snr_")
