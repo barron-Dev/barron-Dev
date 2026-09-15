@@ -53,8 +53,6 @@ alter table deception_triggers enable row level security;
 create policy deception_triggers_tenant_select on deception_triggers for select to authenticated
     using (tenant_id = (select (auth.jwt() ->> 'tenant_id')::uuid));
 
--- Only the server-side service client should write callback events. Do not grant
--- INSERT/UPDATE/DELETE to anon/authenticated; the callback route uses service auth.
 revoke all on deception_triggers from anon, authenticated;
 revoke all on deception_artifacts from anon;
 grant select, insert on deception_artifacts to authenticated;
@@ -71,47 +69,30 @@ create or replace function deception_record_trigger(
     p_source_asn bigint default null,
     p_source_org text default null,
     p_evidence jsonb default '{}'::jsonb
-) returns table (
-    trigger_id uuid,
-    tenant_id uuid,
-    artifact_id uuid,
-    severity text,
-    artifact_type text
-)
+) returns table (trigger_id uuid, tenant_id uuid, artifact_id uuid, severity text, artifact_type text)
 language plpgsql
 as $$
 declare
     a deception_artifacts%rowtype;
     t uuid;
 begin
-    select * into a
-      from deception_artifacts
-     where token_hash = p_token_hash and enabled = true
-     for update;
-    if not found then
-        return;
-    end if;
-
+    select * into a from deception_artifacts where token_hash = p_token_hash and enabled = true for update;
+    if not found then return; end if;
     insert into deception_triggers(
         tenant_id, artifact_id, source_ip, forwarded_for, user_agent,
         request_method, request_path, source_country, source_asn, source_org,
         evidence, alert_severity
     ) values (
-        a.tenant_id, a.id, p_source_ip, left(p_forwarded_for, 2048),
-        left(p_user_agent, 2048), left(p_request_method, 32),
-        left(p_request_path, 2048), left(p_source_country, 2), p_source_asn,
+        a.tenant_id, a.id, p_source_ip, left(p_forwarded_for, 2048), left(p_user_agent, 2048),
+        left(p_request_method, 32), left(p_request_path, 2048), left(p_source_country, 2), p_source_asn,
         left(p_source_org, 512), coalesce(p_evidence, '{}'::jsonb),
         case when a.severity = 'medium' then 'high' else a.severity end
     ) returning id into t;
-
-    update deception_artifacts
-       set last_triggered_at = now(), trigger_count = trigger_count + 1
-     where id = a.id;
-
+    update deception_artifacts set last_triggered_at = now(), trigger_count = trigger_count + 1 where id = a.id;
     return query select t, a.tenant_id, a.id,
-        case when a.severity = 'medium' then 'high' else a.severity end,
-        a.artifact_type;
+        case when a.severity = 'medium' then 'high' else a.severity end, a.artifact_type;
 end;
 $$;
 
 revoke all on function deception_record_trigger(text, inet, text, text, text, text, text, bigint, text, jsonb) from public, anon, authenticated;
+grant execute on function deception_record_trigger(text, inet, text, text, text, text, text, bigint, text, jsonb) to service_role;
