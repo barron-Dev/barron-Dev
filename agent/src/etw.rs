@@ -3,6 +3,7 @@ use anyhow::{anyhow, Context, Result};
 use serde_json::json;
 use tracing::{debug, info};
 use windows::core::PCWSTR;
+use windows::Win32::Foundation::WIN32_ERROR;
 use windows::Win32::System::Diagnostics::Etw::*;
 use crate::{EndpointEvent, EventKind};
 
@@ -29,12 +30,12 @@ impl EtwCollector {
 
         let mut logfile: EVENT_TRACE_LOGFILEW = unsafe { std::mem::zeroed() };
         logfile.LoggerName = SESSION_NAME.0 as *mut u16;
-        logfile.ProcessTraceMode = EVENT_TRACE_REAL_TIME_MODE;
+        logfile.Anonymous1.ProcessTraceMode = PROCESS_TRACE_MODE_REAL_TIME | PROCESS_TRACE_MODE_EVENT_RECORD;
         logfile.Context = context as *mut c_void;
         logfile.Anonymous2.EventRecordCallback = Some(event_record_callback);
 
         let consumer = unsafe { OpenTraceW(&mut logfile) };
-        if consumer == INVALID_PROCESSTRACE_HANDLE {
+        if consumer.Value == u64::MAX {
             let _ = stop_kernel_session(session);
             unsafe { drop(Box::from_raw(context)); }
             return Err(anyhow!("OpenTraceW failed"));
@@ -59,8 +60,8 @@ impl EtwCollector {
         unsafe { drop(Box::from_raw(self.context)); }
         let _ = consumer_thread.join();
 
-        if status != 0 {
-            return Err(anyhow!("ProcessTrace failed with Win32 status {status}"));
+        if status != WIN32_ERROR(0) {
+            return Err(anyhow!("ProcessTrace failed with Win32 status {:?}", status));
         }
         Ok(())
     }
@@ -126,9 +127,9 @@ fn start_kernel_session() -> Result<CONTROLTRACE_HANDLE> {
     properties.MinimumBuffers = 8;
     properties.MaximumBuffers = 64;
 
-    let mut session = CONTROLTRACE_HANDLE(0);
+    let mut session = CONTROLTRACE_HANDLE { Value: 0 };
     let status = unsafe { StartTraceW(&mut session, SESSION_NAME, &mut properties) };
-    if status != 0 { return Err(anyhow!("StartTraceW failed with Win32 status {status}")); }
+    if status != WIN32_ERROR(0) { return Err(anyhow!("StartTraceW failed with Win32 status {:?}", status)); }
     Ok(session)
 }
 
@@ -136,6 +137,6 @@ fn stop_kernel_session(session: CONTROLTRACE_HANDLE) -> Result<()> {
     let mut properties: EVENT_TRACE_PROPERTIES = unsafe { std::mem::zeroed() };
     properties.Wnode.BufferSize = size_of::<EVENT_TRACE_PROPERTIES>() as u32;
     let status = unsafe { ControlTraceW(session, SESSION_NAME, &mut properties, EVENT_TRACE_CONTROL_STOP) };
-    if status != 0 { debug!(status, "ETW session stop returned non-zero status"); }
+    if status != WIN32_ERROR(0) { debug!(status = ?status, "ETW session stop returned non-zero status"); }
     Ok(())
 }
