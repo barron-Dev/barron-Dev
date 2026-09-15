@@ -4,7 +4,6 @@ use std::{
     io::Write,
     mem::size_of,
     sync::mpsc::{self, Receiver, Sender},
-    thread,
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -61,7 +60,7 @@ impl EtwCollector {
         let handle = self.consumer;
         let receiver = &self.receiver;
 
-        let process_status = thread::scope(|scope| {
+        let process_status = std::thread::scope(|scope| {
             let thread_handle = scope.spawn(|| {
                 while let Ok(event) = receiver.recv() {
                     sink(event);
@@ -81,8 +80,6 @@ impl EtwCollector {
         unsafe { let _ = CloseTrace(handle); }
         let _ = stop_kernel_session(self.session);
 
-        // Prevent Drop from closing the consumer or stopping/freeing the
-        // already-cleaned session/context a second time.
         self.consumer = PROCESSTRACE_HANDLE { Value: 0 };
         self.session = CONTROLTRACE_HANDLE { Value: 0 };
 
@@ -111,6 +108,14 @@ impl Drop for EtwCollector {
             self.context = std::ptr::null_mut();
         }
     }
+}
+
+/// Stop the named real-time session. Used by Windows Service Control Manager
+/// shutdown handling; ProcessTrace then returns and the agent can unwind cleanly.
+pub fn stop_named_session() -> Result<()> {
+    // A zero handle tells ControlTraceW to address the named session.
+    let session = CONTROLTRACE_HANDLE { Value: 0 };
+    stop_kernel_session(session)
 }
 
 struct CallbackContext {
