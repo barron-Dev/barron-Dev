@@ -19,6 +19,8 @@ use crate::{EndpointEvent, EventKind};
 const SESSION_NAME: PCWSTR = windows::core::w!("SentinelKernel");
 const WNODE_FLAG_TRACED_GUID_VALUE: u32 = 0x0002_0000;
 const CALLBACK_ERROR_LOG: &str = r"C:\ProgramData\Sentinel\agent-errors.log";
+const EVENT_HEADER_FLAG_32_BIT_HEADER_VALUE: u16 = 0x0020;
+const EVENT_HEADER_FLAG_64_BIT_HEADER_VALUE: u16 = 0x0040;
 
 // Windows NT kernel Process class GUID. The kernel process payload is a MOF
 // class, not a manifest event, so the class GUID and version are part of the
@@ -77,8 +79,6 @@ impl EtwCollector {
 
             let status = unsafe { ProcessTrace(&[handle], None, None) };
 
-            // ProcessTrace has returned, so ETW will no longer invoke the
-            // callback. Release its sender before waiting for the receiver.
             unsafe { drop(Box::from_raw(self.context)); }
             self.context = std::ptr::null_mut();
             let _ = thread_handle.join();
@@ -118,10 +118,7 @@ impl Drop for EtwCollector {
     }
 }
 
-/// Stop the named real-time session. Used by Windows Service Control Manager
-/// shutdown handling; ProcessTrace then returns and the agent can unwind cleanly.
 pub fn stop_named_session() -> Result<()> {
-    // A zero handle tells ControlTraceW to address the named session.
     let session = CONTROLTRACE_HANDLE { Value: 0 };
     stop_kernel_session(session)
 }
@@ -142,8 +139,6 @@ fn log_callback_panic() {
 }
 
 unsafe extern "system" fn event_record_callback(record: *mut EVENT_RECORD) {
-    // ETW invokes this callback from a tracing thread. Never allow a Rust
-    // panic to unwind across the FFI boundary.
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         process_record(record);
     }));
@@ -212,7 +207,7 @@ unsafe fn process_record(record: *mut EVENT_RECORD) {
         (
             Some(decoded.pid),
             Some(decoded.parent_pid),
-            Some(decoded.image),
+            if decoded.image.is_empty() { None } else { Some(decoded.image) },
             decoded.command_line,
         )
     } else {
@@ -225,9 +220,8 @@ unsafe fn process_record(record: *mut EVENT_RECORD) {
         observed_at,
         kind,
         host_id: ctx.host_id.clone(),
-        // Do not use EVENT_HEADER.ProcessId for process-start/end identity:
-        // Microsoft documents that header PID may identify the logging
-        // context rather than the process being created/stopped.
+        // EVENT_HEADER.ProcessId is the event execution context and is not
+        // necessarily the process being created/stopped.
         pid,
         parent_pid,
         image,
@@ -260,13 +254,9 @@ fn is_process_guid(guid: &windows::core::GUID) -> bool {
         && guid.data4 == PROCESS_GUID_DATA4
 }
 
-/// Decode the verified Windows kernel Process_TypeGroup1 MOF payload.
-///
-/// The Process class has evolved through versions 0..3. Version 3 is the
-/// current documented Process class and contains UniqueProcessKey,
-/// ProcessId, ParentId, SessionId, ExitStatus, DirectoryTableBase, UserSID,
-/// ImageFileName and CommandLine. The older layouts are handled explicitly
-/// because ETW event version is part of the schema contract.
+/// Decode the Windows kernel Process_TypeGroup1 MOF payload. Microsoft
+/// documents Process as version 3 and the versioned layouts below; we never
+/// interpret unrelated ETW provider payloads as process telemetry.
 fn decode_process_payload(
     version: u8,
     opcode: u8,
@@ -274,27 +264,21 @@ fn decode_process_payload(
     user_data: *mut c_void,
     user_data_length: u16,
 ) -> Option<DecodedProcess> {
-    if !matches!(opcode, 1 | 3) {
-        // Only process-start and process-rundown-start carry the full process
-        // start payload. Process end has a different, shorter layout and is
-        // intentionally decoded separately below.
-        return decode_process_end_payload(version, opcode, header_flags, user_data, user_data_length);
-    }
-
     let bytes = unsafe {
         if user_data.is_null() || user_data_length == 0 {
             return None;
         }
         std::slice::from_raw_parts(user_data as *const u8, user_data_length as usize)
     };
-    decode_process_start_bytes(version, header_flags, bytes)
+
+    match opcode {
+        1 | 3 => decode_process_start_bytes(version, header_flags, bytes),
+        2 => decode_process_end_bytes(version, header_flags, bytes),
+        _ => None,
+    }
 }
 
-fn decode_process_start_bytes(
-    version: u8,
-    header_flags: u16,
-    bytes: &[u8],
-) -> Option<DecodedProcess> {
+fn decode_process_start_bytes(version: u8, header_flags: u16, bytes: &[u8]) -> Option<DecodedProcess> {
     if version > 3 {
         return None;
     }
@@ -303,7 +287,7 @@ fn decode_process_start_bytes(
     let mut cursor = 0usize;
 
     if version >= 1 {
-        read_pointer(bytes, &mut cursor, pointer_size)?; // PageDirectoryBase / UniqueProcessKey
+        read_pointer(bytes, &mut cursor, pointer_size)?;
     }
 
     let (pid, parent_pid) = if version == 0 {
@@ -312,23 +296,17 @@ fn decode_process_start_bytes(
             read_pointer(bytes, &mut cursor, pointer_size)? as u32,
         )
     } else {
-        (
-            read_u32(bytes, &mut cursor)?,
-            read_u32(bytes, &mut cursor)?,
-        )
+        (read_u32(bytes, &mut cursor)?, read_u32(bytes, &mut cursor)?)
     };
 
     let (session_id, exit_status) = if version >= 1 {
-        (
-            read_u32(bytes, &mut cursor)?,
-            read_i32(bytes, &mut cursor)?,
-        )
+        (read_u32(bytes, &mut cursor)?, read_i32(bytes, &mut cursor)?)
     } else {
         (0, 0)
     };
 
     if version >= 3 {
-        read_pointer(bytes, &mut cursor, pointer_size)?; // DirectoryTableBase
+        read_pointer(bytes, &mut cursor, pointer_size)?;
     }
 
     skip_sid(bytes, &mut cursor)?;
@@ -350,22 +328,10 @@ fn decode_process_start_bytes(
     })
 }
 
-fn decode_process_end_payload(
-    version: u8,
-    opcode: u8,
-    header_flags: u16,
-    user_data: *mut c_void,
-    user_data_length: u16,
-) -> Option<DecodedProcess> {
-    if opcode != 2 {
+fn decode_process_end_bytes(version: u8, header_flags: u16, bytes: &[u8]) -> Option<DecodedProcess> {
+    if version > 3 {
         return None;
     }
-    let bytes = unsafe {
-        if user_data.is_null() || user_data_length == 0 {
-            return None;
-        }
-        std::slice::from_raw_parts(user_data as *const u8, user_data_length as usize)
-    };
     let pointer_size = pointer_size_from_header_flags(header_flags);
     let mut cursor = 0usize;
     let pid = if version == 0 {
@@ -387,13 +353,11 @@ fn decode_process_end_payload(
 }
 
 fn pointer_size_from_header_flags(flags: u16) -> usize {
-    if flags & EVENT_HEADER_FLAG_32_BIT_HEADER.0 as u16 != 0 {
+    if flags & EVENT_HEADER_FLAG_32_BIT_HEADER_VALUE != 0 {
         4
-    } else if flags & EVENT_HEADER_FLAG_64_BIT_HEADER.0 as u16 != 0 {
+    } else if flags & EVENT_HEADER_FLAG_64_BIT_HEADER_VALUE != 0 {
         8
     } else {
-        // The agent is built for the native Windows architecture. A missing
-        // bitness flag therefore uses the native pointer width.
         size_of::<usize>()
     }
 }
@@ -482,9 +446,6 @@ fn start_kernel_session() -> Result<CONTROLTRACE_HANDLE> {
     properties.Wnode.Flags = WNODE_FLAG_TRACED_GUID_VALUE;
     properties.Wnode.ClientContext = 1;
     properties.LogFileMode = EVENT_TRACE_REAL_TIME_MODE;
-    // Keep the existing kernel process session narrow until provider-specific
-    // schemas are decoded and normalized. Do not label raw records as network,
-    // DNS, or file activity without verified schemas.
     properties.EnableFlags = EVENT_TRACE_FLAG_PROCESS;
     properties.BufferSize = 64;
     properties.MinimumBuffers = 8;
@@ -540,36 +501,31 @@ mod tests {
     #[test]
     fn decodes_process_v3_payload_without_using_header_pid() {
         let mut payload = Vec::new();
-        push_u64(&mut payload, 0x1122_3344_5566_7788); // UniqueProcessKey
-        push_u32(&mut payload, 4242); // ProcessId
-        push_u32(&mut payload, 1337); // ParentId
-        push_u32(&mut payload, 2); // SessionId
-        push_u32(&mut payload, 259); // ExitStatus
-        push_u64(&mut payload, 0x8877_6655_4433_2211); // DirectoryTableBase
-        payload.extend_from_slice(&[1, 1, 0, 0, 0, 0, 0, 5, 0, 0, 0, 0]); // SID: S-1-5-0
+        push_u64(&mut payload, 0x1122_3344_5566_7788);
+        push_u32(&mut payload, 4242);
+        push_u32(&mut payload, 1337);
+        push_u32(&mut payload, 2);
+        push_u32(&mut payload, 259);
+        push_u64(&mut payload, 0x8877_6655_4433_2211);
+        payload.extend_from_slice(&[1, 1, 0, 0, 0, 0, 0, 5, 0, 0, 0, 0]);
         payload.extend_from_slice(b"C:\\Windows\\System32\\cmd.exe\0");
         push_utf16_z(&mut payload, "cmd.exe /c whoami");
 
-        let decoded = decode_process_start_bytes(3, EVENT_HEADER_FLAG_64_BIT_HEADER.0 as u16, &payload)
+        let decoded = decode_process_start_bytes(3, EVENT_HEADER_FLAG_64_BIT_HEADER_VALUE, &payload)
             .expect("valid Process v3 payload");
 
-        assert_eq!(
-            decoded,
-            DecodedProcess {
-                version: 3,
-                pid: 4242,
-                parent_pid: 1337,
-                session_id: 2,
-                exit_status: 259,
-                image: "C:\\Windows\\System32\\cmd.exe".to_string(),
-                command_line: Some("cmd.exe /c whoami".to_string()),
-            }
-        );
+        assert_eq!(decoded.version, 3);
+        assert_eq!(decoded.pid, 4242);
+        assert_eq!(decoded.parent_pid, 1337);
+        assert_eq!(decoded.session_id, 2);
+        assert_eq!(decoded.exit_status, 259);
+        assert_eq!(decoded.image, "C:\\Windows\\System32\\cmd.exe");
+        assert_eq!(decoded.command_line.as_deref(), Some("cmd.exe /c whoami"));
     }
 
     #[test]
     fn rejects_truncated_process_payload() {
         let payload = [0u8; 24];
-        assert!(decode_process_start_bytes(3, EVENT_HEADER_FLAG_64_BIT_HEADER.0 as u16, &payload).is_none());
+        assert!(decode_process_start_bytes(3, EVENT_HEADER_FLAG_64_BIT_HEADER_VALUE, &payload).is_none());
     }
 }
