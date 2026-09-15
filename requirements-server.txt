@@ -1,0 +1,4 @@
+fastapi==0.141.1
+supabase==2.31.0
+cryptography==50.0.1
+uvicorn==0.52.4
