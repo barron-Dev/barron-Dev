@@ -9,22 +9,60 @@ from sentinel.storage.supabase_client import supabase
 
 logger = logging.getLogger(__name__)
 SEVERITY = {"medium": 0, "high": 1, "critical": 2}
+LAYERS = {"surface", "deep", "dark"}
 
 
 class DarkWebMatcher:
     async def process(self, finding: dict[str, Any]) -> dict[str, Any]:
         kind = str(finding["kind"])
         value = str(finding["matched_value"]).strip().lower()
+        layer = str(finding.get("exposure_layer") or (finding.get("metadata") or {}).get("exposure_layer") or "surface").lower()
+        if layer not in LAYERS:
+            logger.warning("unknown darkweb exposure layer=%s", layer)
+            return {"matched": 0, "alerts": 0, "errors": 1}
         if not value:
             return {"matched": 0, "alerts": 0, "errors": 0}
         digest = hashlib.sha256(value.encode()).hexdigest()
 
         async def _lookup():
             client = await supabase._ensure()
-            return await client.table("dw_watchlist").select("id,tenant_id,kind,severity").eq("kind", kind).eq("value_hash", digest).execute()
+            exact = await (
+                client.table("dw_watchlist")
+                .select("id,tenant_id,kind,severity")
+                .eq("kind", kind)
+                .eq("value_hash", digest)
+                .execute()
+            )
+            rows = list(exact.data or [])
+            seen = {str(row["id"]) for row in rows}
+            # Ransomware/company correlation and approved aliases are explicit
+            # customer configuration, never inferred from generic names.
+            aliases = await (
+                client.table("dw_watch_aliases")
+                .select("watchlist_id,tenant_id,kind")
+                .eq("kind", kind)
+                .eq("alias_hash", digest)
+                .execute()
+            )
+            for alias in aliases.data or []:
+                watch_id = str(alias["watchlist_id"])
+                if watch_id in seen:
+                    continue
+                watch = await (
+                    client.table("dw_watchlist")
+                    .select("id,tenant_id,kind,severity")
+                    .eq("id", watch_id)
+                    .eq("tenant_id", str(alias["tenant_id"]))
+                    .limit(1)
+                    .execute()
+                )
+                if watch.data:
+                    rows.append(watch.data[0])
+                    seen.add(watch_id)
+            return rows
 
         try:
-            matches = list((await supabase._retry(_lookup, attempts=2)).data or [])
+            matches = list((await supabase._retry(_lookup, attempts=2)))
         except Exception:
             logger.exception("dark web watchlist lookup failed for kind=%s", kind)
             return {"matched": 0, "alerts": 0, "errors": 1}
@@ -32,7 +70,7 @@ class DarkWebMatcher:
         alerts = 0
         errors = 0
         if not matches:
-            result = await self._record(finding, None, None)
+            result = await self._record(finding, None, None, layer=layer)
             return {"matched": 0, "alerts": 0, "errors": int(bool(result.get("error")))}
         for watch in matches:
             result = await self._record(
@@ -40,6 +78,7 @@ class DarkWebMatcher:
                 str(watch["tenant_id"]),
                 str(watch["id"]),
                 max_severity(str(watch.get("severity", "high")), str(finding.get("severity", "medium"))),
+                layer=layer,
             )
             if result.get("alert_id"):
                 alerts += 1
@@ -47,18 +86,32 @@ class DarkWebMatcher:
                 errors += 1
         return {"matched": len(matches), "alerts": alerts, "errors": errors}
 
-    async def _record(self, finding: dict[str, Any], tenant_id: str | None, watchlist_id: str | None, severity: str | None = None) -> dict[str, Any]:
-        content_key = f"{finding['source_id']}:{finding['kind']}:{str(finding['matched_value']).strip().lower()}:{json.dumps(finding.get('metadata') or {}, sort_keys=True, separators=(',', ':'))}"
+    async def _record(
+        self,
+        finding: dict[str, Any],
+        tenant_id: str | None,
+        watchlist_id: str | None,
+        severity: str | None = None,
+        layer: str = "surface",
+    ) -> dict[str, Any]:
+        metadata = dict(finding.get("metadata") or {})
+        metadata["exposure_layer"] = layer
+        content_key = f"{finding['source_id']}:{finding['kind']}:{str(finding['matched_value']).strip().lower()}:{json.dumps(metadata, sort_keys=True, separators=(',', ':'))}"
         content_hash = hashlib.sha256(content_key.encode()).hexdigest()
 
         async def _do():
             client = await supabase._ensure()
             return await client.rpc("record_dw_finding", {
-                "p_source_id": finding["source_id"], "p_content_hash": content_hash,
-                "p_kind": finding["kind"], "p_matched_value": str(finding["matched_value"]).strip().lower(),
-                "p_context": finding.get("context"), "p_severity": severity or finding.get("severity", "medium"),
-                "p_source_url": finding.get("source_url"), "p_metadata": finding.get("metadata") or {},
-                "p_tenant_id": tenant_id, "p_watchlist_id": watchlist_id,
+                "p_source_id": finding["source_id"],
+                "p_content_hash": content_hash,
+                "p_kind": finding["kind"],
+                "p_matched_value": str(finding["matched_value"]).strip().lower(),
+                "p_context": finding.get("context"),
+                "p_severity": severity or finding.get("severity", "medium"),
+                "p_source_url": finding.get("source_url"),
+                "p_metadata": metadata,
+                "p_tenant_id": tenant_id,
+                "p_watchlist_id": watchlist_id,
             }).execute()
 
         try:
