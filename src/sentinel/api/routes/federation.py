@@ -22,6 +22,7 @@ PEER_KINDS = {"tenant", "cert", "isac", "vendor", "research"}
 PEER_STATUSES = {"active", "paused", "blocked", "pending"}
 IOC_TYPES = {"sha256", "domain", "ipv4", "ipv6", "url", "email", "ja3", "btc_address", "mutex"}
 SEVERITIES = {"low", "medium", "high", "critical"}
+_SENSITIVE_IOC_TYPES = {"email", "ipv4", "ipv6", "url", "domain"}
 
 
 def _require(principal: DeveloperPrincipal, scope: str) -> str:
@@ -108,10 +109,24 @@ async def create_peer(body: PeerCreate, principal: DeveloperPrincipal = Depends(
 async def update_peer_status(peer_id: UUID, body: PeerStatusUpdate, principal: DeveloperPrincipal = Depends(authenticate_request)) -> dict[str, Any]:
     tenant_id = _require(principal, "federation:manage")
 
+    async def _load():
+        return await (await supabase._ensure()).table("federation_peers").select(
+            "id,tenant_id,kind"
+        ).eq("id", str(peer_id)).limit(1).execute()
+
+    rows = (await supabase._retry(_load, attempts=2)).data or []
+    if not rows:
+        raise HTTPException(404, "peer not found")
+    peer = rows[0]
+    # External CERT/ISAC/vendor/research peers are platform-managed integration
+    # identities. A tenant may only mutate its own tenant peer.
+    if peer.get("kind") != "tenant" or peer.get("tenant_id") != tenant_id:
+        raise HTTPException(403, "external peers are platform-managed")
+
     async def _do():
         return await (await supabase._ensure()).table("federation_peers").update({"status": body.status}).eq(
             "id", str(peer_id)
-        ).or_(f"tenant_id.eq.{tenant_id},tenant_id.is.null").select(
+        ).eq("tenant_id", tenant_id).select(
             "id,tenant_id,external_id,name,kind,country,taxii_url,taxii_collection,trust_level,reputation,share_categories,receive_categories,require_anonymization,status"
         ).limit(1).execute()
 
@@ -168,6 +183,19 @@ async def _validate_active_peer(peer_id: UUID, tenant_id: str) -> dict[str, Any]
     return peer
 
 
+def _sanitize_value_ref(ioc_type: str, value_ref: str) -> str:
+    if ioc_type not in _SENSITIVE_IOC_TYPES:
+        return value_ref
+    anonymizer = FederationAnonymizer()
+    if ioc_type == "email":
+        return anonymizer.email(value_ref)
+    if ioc_type in {"ipv4", "ipv6"}:
+        return anonymizer.ip(value_ref)
+    if ioc_type == "url":
+        return anonymizer.url(value_ref)
+    return anonymizer.domain(value_ref)
+
+
 @router.post("/indicators", status_code=status.HTTP_201_CREATED)
 async def ingest_indicator(body: IndicatorIngest, principal: DeveloperPrincipal = Depends(authenticate_request)) -> dict[str, Any]:
     tenant_id = _require(principal, "federation:ingest")
@@ -179,13 +207,13 @@ async def ingest_indicator(body: IndicatorIngest, principal: DeveloperPrincipal 
     if body.source_tenant is not None and str(body.source_tenant) != tenant_id:
         raise HTTPException(403, "source tenant must match authenticated tenant")
     value_ref = body.value_ref
-    if value_ref and body.ioc_type == "email":
+    if value_ref and body.ioc_type in _SENSITIVE_IOC_TYPES:
         try:
-            value_ref = FederationAnonymizer().email(value_ref)
+            value_ref = _sanitize_value_ref(body.ioc_type, value_ref)
         except RuntimeError as exc:
             raise HTTPException(503, "federation anonymization is not configured") from exc
         except ValueError as exc:
-            raise HTTPException(400, "invalid email indicator") from exc
+            raise HTTPException(400, "invalid indicator value") from exc
     indicator_id = await supabase.rpc("upsert_fed_indicator", {
         "p_peer": str(body.peer_id), "p_tenant": str(body.source_tenant) if body.source_tenant else None,
         "p_ioc_type": body.ioc_type, "p_value_hash": body.value_hash, "p_value_ref": value_ref,
@@ -209,14 +237,17 @@ async def ingest_stix(body: StixIngest, principal: DeveloperPrincipal = Depends(
     failures = 0
     for indicator in parsed:
         try:
+            value_ref = str(indicator["value_ref"])
+            if str(indicator["ioc_type"]) in _SENSITIVE_IOC_TYPES:
+                value_ref = _sanitize_value_ref(str(indicator["ioc_type"]), value_ref)
             await supabase.rpc("upsert_fed_indicator", {
                 "p_peer": str(body.peer_id), "p_tenant": None, "p_ioc_type": indicator["ioc_type"],
-                "p_value_hash": indicator["value_hash"], "p_value_ref": indicator["value_ref"],
+                "p_value_hash": indicator["value_hash"], "p_value_ref": value_ref,
                 "p_category": indicator.get("category"), "p_severity": "medium",
                 "p_confidence": float(indicator.get("confidence", 0.5)),
             })
             accepted += 1
-        except Exception:
+        except (RuntimeError, ValueError, TypeError, KeyError):
             failures += 1
     digest = hashlib.sha256(body.payload.encode("utf-8")).hexdigest()
     await supabase.insert_one("fed_shares", {
