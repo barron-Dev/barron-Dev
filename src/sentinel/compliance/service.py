@@ -4,6 +4,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID, uuid4
 
+from sentinel.compliance.assurance import AssuranceEngine
 from sentinel.compliance.catalog import CONTROLS, FRAMEWORKS
 from sentinel.compliance.evaluator import ComplianceEvaluator
 from sentinel.compliance.freshness import DEFAULT_FRESHNESS, is_stale
@@ -25,12 +26,10 @@ class ComplianceService:
     async def list_controls(self, tenant_id: UUID, framework: str) -> list[dict[str, Any]]:
         self._validate_framework(framework)
         controls = [c for c in CONTROLS if c["framework"] == framework]
-
         async def _do():
             return await (await supabase._ensure()).table("compliance_controls").select("id,stable_id,framework,control_code,title,evidence_sources").eq("framework", framework).execute()
         response = await supabase._retry(_do, attempts=2)
         db = {r.get("stable_id"): r for r in (response.data or [])}
-
         async def _status():
             return await (await supabase._ensure()).table("compliance_control_status").select("control_id,status,score,last_evaluated,evidence,evidence_valid_until,freshness_status").eq("tenant_id", str(tenant_id)).execute()
         status_response = await supabase._retry(_status, attempts=2)
@@ -51,6 +50,38 @@ class ComplianceService:
                 score = 0.0
             out.append({**c, "status": status, "score": score, "last_evaluated": s["last_evaluated"] if s else None, "evidence": s["evidence"] if s else {}, "evidence_valid_until": valid_until, "freshness_status": freshness})
         return out
+
+    async def assurance(self, tenant_id: UUID, framework: str, period_start: datetime, period_end: datetime) -> dict[str, Any]:
+        self._validate_framework(framework)
+        self._validate_period(period_start, period_end)
+        async def _controls():
+            return await (await supabase._ensure()).table("compliance_controls").select("id,stable_id,framework,control_code,title,description,evidence_sources").eq("framework", framework).order("control_code").execute()
+        async def _evidence():
+            return await (await supabase._ensure()).table("compliance_evidence").select("id,control_id,source_ref,collected_at,valid_until,stale").eq("tenant_id", str(tenant_id)).eq("framework", framework).gte("collected_at", period_start.isoformat()).lt("collected_at", period_end.isoformat()).order("collected_at", desc=True).limit(10000).execute()
+        async def _results():
+            return await (await supabase._ensure()).table("compliance_collection_results").select("id,control_id,source_ref,status,row_count,collected_at,valid_until,stale,error_code").eq("tenant_id", str(tenant_id)).eq("framework", framework).gte("collected_at", period_start.isoformat()).lt("collected_at", period_end.isoformat()).order("collected_at", desc=True).limit(10000).execute()
+        controls = list((await supabase._retry(_controls, attempts=2)).data or [])
+        evidence = list((await supabase._retry(_evidence, attempts=2)).data or [])
+        results = list((await supabase._retry(_results, attempts=2)).data or [])
+        observations = AssuranceEngine.observations(controls, evidence, results, period_start, period_end)
+        return {
+            "framework": framework,
+            "period": {"start": period_start.isoformat(), "end": period_end.isoformat()},
+            "control_count": len(observations),
+            "observations": [
+                {
+                    "control_id": item.control_id,
+                    "first_seen": item.first_seen.isoformat() if item.first_seen else None,
+                    "last_seen": item.last_seen.isoformat() if item.last_seen else None,
+                    "evidence_count": item.evidence_count,
+                    "fresh": item.fresh,
+                    "coverage": item.coverage,
+                    "operating_effectiveness": item.operating_effectiveness,
+                }
+                for item in observations
+            ],
+            "period_mode": AssuranceEngine.period_mode("type2", period_start, period_end),
+        }
 
     async def evaluate(self, tenant_id: UUID, framework: str, period_start: datetime, period_end: datetime, created_by: UUID | None = None) -> dict[str, Any]:
         self._validate_period(period_start, period_end)
@@ -89,10 +120,9 @@ class ComplianceService:
                 return await q.limit(1).execute()
             response = await supabase._retry(_do, attempts=2)
             count = int(response.count or 0)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             await self._record_collection_result(tenant_id, run_id, framework, control, source, "failed", 0, type(exc).__name__, str(exc)[:500], start, end)
             return 0
-
         stable_id = str(control["id"])
         async def _control():
             return await (await supabase._ensure()).table("compliance_controls").select("id").eq("stable_id", stable_id).limit(1).execute()
@@ -100,7 +130,6 @@ class ComplianceService:
         if not control_rows:
             await self._record_collection_result(tenant_id, run_id, framework, control, source, "failed", 0, "control_missing", "control catalog row not found", start, end)
             return 0
-
         canonical = {"tenant_id": str(tenant_id), "framework": framework, "control_id": stable_id, "source": source, "row_count": count, "period_start": start.isoformat(), "period_end": end.isoformat()}
         import hashlib, json
         digest = hashlib.sha256(json.dumps(canonical, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
