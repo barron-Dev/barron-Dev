@@ -31,14 +31,28 @@ class ComplianceService:
         db = {r.get("stable_id"): r for r in (response.data or [])}
 
         async def _status():
-            return await (await supabase._ensure()).table("compliance_control_status").select("control_id,status,score,last_evaluated,evidence").eq("tenant_id", str(tenant_id)).execute()
+            return await (await supabase._ensure()).table("compliance_control_status").select("control_id,status,score,last_evaluated,evidence,evidence_valid_until,freshness_status").eq("tenant_id", str(tenant_id)).execute()
         status_response = await supabase._retry(_status, attempts=2)
         statuses = {r["control_id"]: r for r in (status_response.data or [])}
+        now = datetime.now(UTC)
         out = []
         for c in controls:
             r = db.get(c["id"])
             s = statuses.get(r["id"]) if r else None
-            out.append({**c, "status": s["status"] if s else "unknown", "score": s["score"] if s else 0.0, "last_evaluated": s["last_evaluated"] if s else None, "evidence": s["evidence"] if s else {}})
+            freshness = s.get("freshness_status", "unknown") if s else "unknown"
+            valid_until = s.get("evidence_valid_until") if s else None
+            if valid_until:
+                try:
+                    expires = datetime.fromisoformat(str(valid_until).replace("Z", "+00:00"))
+                    freshness = "fresh" if expires > now else "stale"
+                except ValueError:
+                    freshness = "unknown"
+            status = s["status"] if s else "unknown"
+            score = s["score"] if s else 0.0
+            if freshness == "stale" and status in {"passing", "partial"}:
+                status = "unknown"
+                score = 0.0
+            out.append({**c, "status": status, "score": score, "last_evaluated": s["last_evaluated"] if s else None, "evidence": s["evidence"] if s else {}, "evidence_valid_until": valid_until, "freshness_status": freshness})
         return out
 
     async def evaluate(self, tenant_id: UUID, framework: str, period_start: datetime, period_end: datetime, created_by: UUID | None = None) -> dict[str, Any]:
