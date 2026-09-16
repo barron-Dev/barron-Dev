@@ -36,7 +36,13 @@ class QueryExecutor:
     DEFAULT_LIMIT = 500
 
     async def run(self, tenant_id: UUID, source: str) -> tuple[list[dict[str, Any]], int]:
-        query = parse(source)
+        try:
+            query = parse(source)
+        except SyntaxError as exc:
+            # Parser failures are client input errors, not server failures. Keep
+            # parser internals out of the API response and never reach Supabase.
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "invalid hunting query") from exc
+
         table = query.table
         fields = ALLOWED_FIELDS.get(table)
         if fields is None:
