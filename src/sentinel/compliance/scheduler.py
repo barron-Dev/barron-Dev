@@ -4,10 +4,12 @@ import asyncio
 import logging
 from datetime import UTC, datetime, timedelta
 
+from sentinel.compliance.catalog import FRAMEWORKS
 from sentinel.compliance.evaluator import ComplianceEvaluator
 from sentinel.storage.supabase_client import supabase
 
 logger = logging.getLogger(__name__)
+
 
 class ComplianceScheduler:
     EVAL_INTERVAL_SECONDS = 6 * 3600
@@ -22,7 +24,10 @@ class ComplianceScheduler:
         if self._tasks and any(not t.done() for t in self._tasks):
             return
         self._stop.clear()
-        self._tasks = [asyncio.create_task(self._eval_loop(), name="sentinel-compliance-eval"), asyncio.create_task(self._stale_loop(), name="sentinel-compliance-stale")]
+        self._tasks = [
+            asyncio.create_task(self._eval_loop(), name="sentinel-compliance-eval"),
+            asyncio.create_task(self._stale_loop(), name="sentinel-compliance-stale"),
+        ]
 
     async def stop(self) -> None:
         self._stop.set()
@@ -71,13 +76,18 @@ class ComplianceScheduler:
     async def _eval_all(self) -> None:
         async def _tenants():
             return await (await supabase._ensure()).table("tenants").select("id").execute()
+
         tenants = (await supabase._retry(_tenants, attempts=2)).data or []
         evaluator = ComplianceEvaluator()
+        frameworks = tuple(FRAMEWORKS.keys())
         now = datetime.now(UTC)
         start = now - timedelta(days=1)
         for tenant in tenants:
-            for framework in ("soc2", "iso27001", "gdpr", "hipaa"):
+            for framework in frameworks:
                 try:
                     await evaluator.evaluate(tenant["id"], framework, start, now)
                 except Exception:
-                    logger.warning("compliance evaluation failed for tenant=%s framework=%s", tenant["id"], framework, exc_info=True)
+                    logger.warning(
+                        "compliance evaluation failed for tenant=%s framework=%s",
+                        tenant["id"], framework, exc_info=True,
+                    )
