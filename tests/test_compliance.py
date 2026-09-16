@@ -9,7 +9,7 @@ from sentinel.compliance.service import ComplianceError, ComplianceService
 
 def test_invalid_framework_rejected():
     with pytest.raises(ComplianceError):
-        ComplianceService._validate_framework("pci_dss")
+        ComplianceService._validate_framework("not_a_framework")
 
 
 def test_naive_period_rejected():
