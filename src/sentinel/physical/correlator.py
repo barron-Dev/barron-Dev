@@ -58,7 +58,7 @@ class PhysicalCorrelator:
         count = 0
         for row in grants:
             uid, ts = row.get("user_id"), self._parse_ts(row.get("ts"))
-            if not uid or not ts or AFTER_HOURS_END <= ts.hour < AFTER_HOURS_START:
+            if not uid or not ts or not self._is_after_hours(ts):
                 continue
             if await self._group(uid, "after_hours") or await self._duplicate(tenant_id, "after_hours_access", row["id"], "access_event_id"):
                 continue
@@ -156,6 +156,10 @@ class PhysicalCorrelator:
             return datetime.fromisoformat(str(value).replace("Z", "+00:00")) if value else None
         except (TypeError, ValueError):
             return None
+
+    @staticmethod
+    def _is_after_hours(value: datetime) -> bool:
+        return value.hour >= AFTER_HOURS_START or value.hour < AFTER_HOURS_END
 
     @staticmethod
     def _is_uuid(value: str) -> bool:
