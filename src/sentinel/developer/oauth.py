@@ -27,10 +27,10 @@ async def create_authorization_code(client_id: str, user_id: str, redirect_uri: 
     app = await supabase.select_one("developer_apps", "allowed_scopes,redirect_uris,active", id=client["app_id"])
     if not app or not app["active"] or redirect_uri not in (app.get("redirect_uris") or []) or not set(scope).issubset(set(app.get("allowed_scopes") or [])):
         raise ValueError("invalid_request")
-    if not code_challenge or method not in {"S256", "plain"}:
+    if not code_challenge or method != "S256":
         raise ValueError("invalid_request")
     code, code_hash = new_token("snc_")
-    await supabase.insert_one("oauth_authorization_codes", {"code_hash": code_hash, "client_id": client["id"], "user_id": user_id, "app_id": client["app_id"], "redirect_uri": redirect_uri, "scope": sorted(set(scope)), "code_challenge": code_challenge, "code_challenge_method": method, "expires_at": expires(0.167).isoformat()})
+    await supabase.insert_one("oauth_authorization_codes", {"code_hash": code_hash, "client_id": client["id"], "user_id": user_id, "app_id": client["app_id"], "redirect_uri": redirect_uri, "scope": sorted(set(scope)), "code_challenge": code_challenge, "code_challenge_method": "S256", "expires_at": expires(0.167).isoformat()})
     return code
 
 
@@ -38,9 +38,16 @@ async def exchange_authorization_code(code: str, client_id: str, redirect_uri: s
     row = await supabase.select_one("oauth_authorization_codes", "id,client_id,user_id,app_id,redirect_uri,scope,code_challenge,code_challenge_method,expires_at,consumed_at", code_hash=hash_secret(code))
     if not row or row["client_id"] != client_id or row["redirect_uri"] != redirect_uri or row.get("consumed_at"):
         raise ValueError("invalid_grant")
-    if datetime.fromisoformat(str(row["expires_at"]).replace("Z", "+00:00")) <= datetime.now(UTC) or not verify_pkce(verifier, row["code_challenge"], row["code_challenge_method"]):
+    if datetime.fromisoformat(str(row["expires_at"]).replace("Z", "+00:00")) <= datetime.now(UTC) or row.get("code_challenge_method") != "S256" or not verify_pkce(verifier, row["code_challenge"], "S256"):
         raise ValueError("invalid_grant")
-    await supabase.update("oauth_authorization_codes", {"consumed_at": datetime.now(UTC).isoformat()}, id=row["id"])
+
+    async def _consume():
+        client = await supabase._ensure()
+        return await client.table("oauth_authorization_codes").update({"consumed_at": datetime.now(UTC).isoformat()}).eq("id", str(row["id"])).is_("consumed_at", "null").select("id").execute()
+
+    consumed = await supabase._retry(_consume, attempts=2)
+    if not consumed.data:
+        raise ValueError("invalid_grant")
     return await _issue(row["client_id"], row["app_id"], row["user_id"], list(row.get("scope") or []), refresh=True)
 
 
