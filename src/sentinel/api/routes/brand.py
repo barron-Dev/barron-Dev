@@ -27,7 +27,7 @@ async def threats(brand_id:UUID|None=None,status_filter:str|None=Query(None,alia
  principal.require(('brand:read',))
  tenant_id=str(principal.tenant_id)
  async def q():
-  x=(await supabase._ensure()).table('brand_threats').select('*').eq('tenant_id',str(principal.tenant_id))
+  x=(await supabase._ensure()).table('brand_threats').select('*').eq("tenant_id", str(principal.tenant_id))
   if brand_id:x=x.eq('brand_id',str(brand_id))
   if status_filter:x=x.eq('status',status_filter)
   if severity:x=x.eq('severity',severity)
