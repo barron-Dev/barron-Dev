@@ -9,19 +9,15 @@ from urllib.parse import urlsplit, urlunsplit
 
 
 class FederationAnonymizer:
-    """Apply deterministic, one-way minimisation before intelligence leaves Sentinel.
-
-    A dedicated secret is mandatory. There is deliberately no development/default
-    salt: federation sharing must fail closed when the key is not configured.
-    """
+    """Apply deterministic, one-way minimisation before intelligence leaves Sentinel."""
 
     def __init__(self, secret: bytes | None = None) -> None:
         raw = secret if secret is not None else os.getenv("SENTINEL_FED_SALT")
-        if not raw:
+        if raw is None:
             raise RuntimeError("SENTINEL_FED_SALT is required for federation anonymization")
-        if len(raw.encode("utf-8")) < 32:
+        self._secret = raw if isinstance(raw, bytes) else raw.encode("utf-8")
+        if len(self._secret) < 32:
             raise RuntimeError("SENTINEL_FED_SALT must contain at least 32 bytes")
-        self._secret = raw.encode("utf-8")
 
     def token(self, value: str, *, context: str) -> str:
         if not value:
@@ -35,21 +31,14 @@ class FederationAnonymizer:
         local, sep, domain = value.strip().lower().partition("@")
         if not sep or not local or not domain or len(domain) > 253:
             raise ValueError("invalid email")
-        # Internal/private domains must not be disclosed. Public domains remain
-        # useful as classification context while the identity is one-way hashed.
-        if "." not in domain or domain.endswith((".local", ".internal", ".localhost")):
-            domain_ref = self.token(domain, context="email-domain")
-        else:
-            domain_ref = domain
+        domain_ref = domain if "." in domain and not domain.endswith((".local", ".internal", ".localhost")) else self.token(domain, context="email-domain")
         return f"{self.token(local, context='email-local')}@{domain_ref}"
 
     def ip(self, value: str) -> str:
         address = ipaddress.ip_address(value.strip())
-        if address.version == 4:
-            network = ipaddress.ip_network(f"{address}/24", strict=False)
-        else:
-            network = ipaddress.ip_network(f"{address}/48", strict=False)
-        return str(network.network_address) + ("/24" if address.version == 4 else "/48")
+        prefix = 24 if address.version == 4 else 48
+        network = ipaddress.ip_network(f"{address}/{prefix}", strict=False)
+        return f"{network.network_address}/{prefix}"
 
     def domain(self, value: str) -> str:
         domain = value.strip().lower().rstrip(".")
@@ -74,8 +63,7 @@ class FederationAnonymizer:
             if parsed.port not in (80, 443):
                 raise ValueError("non-standard URL ports are not shareable")
             netloc = f"{host}:{parsed.port}"
-        path = parsed.path or "/"
-        return urlunsplit((parsed.scheme.lower(), netloc, path, "", ""))
+        return urlunsplit((parsed.scheme.lower(), netloc, parsed.path or "/", "", ""))
 
     @staticmethod
     def timestamp(value: datetime) -> str:
@@ -86,6 +74,5 @@ class FederationAnonymizer:
 
     @staticmethod
     def redact_metadata(metadata: dict[str, object]) -> dict[str, object]:
-        """Remove tenant/device/user/credential material from outbound metadata."""
         forbidden = {"tenant_id", "device_id", "user_id", "access_token", "refresh_token", "cookie", "password", "secret", "api_key", "authorization"}
         return {k: v for k, v in metadata.items() if k.lower() not in forbidden}
