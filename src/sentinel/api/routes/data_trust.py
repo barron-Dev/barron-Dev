@@ -6,12 +6,14 @@ from uuid import UUID
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
+from sentinel.data_trust.enforcement import DataTrustEnforcementService
 from sentinel.data_trust.models import TransferRequest
 from sentinel.data_trust.service import DataTrustControlPlane
 from sentinel.developer.auth import DeveloperPrincipal, authenticate_request
 
 router = APIRouter(prefix="/data-trust", tags=["data-trust"])
 _control_plane = DataTrustControlPlane()
+_enforcement = DataTrustEnforcementService()
 
 
 class TransferBody(BaseModel):
@@ -25,6 +27,11 @@ class TransferBody(BaseModel):
     content_inspected: bool = False
     content_hash: str | None = Field(default=None, min_length=64, max_length=64)
     observed_at: datetime
+    metadata: dict[str, object] = Field(default_factory=dict)
+
+
+class EnforcementBody(BaseModel):
+    enforced: bool
     metadata: dict[str, object] = Field(default_factory=dict)
 
 
@@ -52,4 +59,24 @@ async def evaluate_transfer(body: TransferBody, principal: DeveloperPrincipal = 
         "reason_codes": list(decision.reason_codes),
         "policy_id": str(decision.policy_id) if decision.policy_id else None,
         "classification": decision.classification,
+    }
+
+
+@router.post("/transfers/{event_id}/enforcement")
+async def report_enforcement(
+    event_id: UUID,
+    body: EnforcementBody,
+    principal: DeveloperPrincipal = Depends(authenticate_request),
+):
+    principal.require(("data:transfer",))
+    result = await _enforcement.acknowledge(
+        tenant_id=UUID(principal.tenant_id),
+        event_id=event_id,
+        enforced=body.enforced,
+        metadata=body.metadata,
+    )
+    return {
+        "event_id": str(result["id"]),
+        "enforcement_status": result["enforcement_status"],
+        "detection_id": str(result["detection_id"]) if result.get("detection_id") else None,
     }
