@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import secrets
+from datetime import UTC, datetime
 from typing import Any
 
 from sentinel.developer.crypto import hash_secret
@@ -19,14 +20,18 @@ async def create_api_key(app_id: str, scopes: list[str], expires_at: str | None 
 
 
 async def authenticate_api_key(raw_key: str) -> dict[str, Any] | None:
-    if not raw_key.startswith("snk_"):
+    raw_key = raw_key.strip()
+    if not raw_key.startswith("snk_") or len(raw_key) < 16:
         return None
     row = await supabase.select_one("developer_api_keys", "id,app_id,scopes,active,expires_at,revoked_at", key_hash=hash_secret(raw_key))
     if not row or not row["active"] or row.get("revoked_at"):
         return None
     if row.get("expires_at"):
-        from datetime import UTC, datetime
-        if datetime.fromisoformat(str(row["expires_at"]).replace("Z", "+00:00")) <= datetime.now(UTC):
+        try:
+            expires_at = datetime.fromisoformat(str(row["expires_at"]).replace("Z", "+00:00"))
+        except (TypeError, ValueError):
+            return None
+        if expires_at <= datetime.now(UTC):
             return None
     app = await supabase.select_one("developer_apps", "tenant_id,active", id=row["app_id"])
     if not app or not app["active"]:
