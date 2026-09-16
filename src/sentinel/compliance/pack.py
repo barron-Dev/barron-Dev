@@ -8,6 +8,7 @@ from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from sentinel.compliance.catalog import FRAMEWORKS
+from sentinel.compliance.freshness import coverage_summary
 from sentinel.compliance.signing import sign_digest
 from sentinel.storage.supabase_client import supabase
 
@@ -24,11 +25,13 @@ class EvidencePackBuilder:
         controls = await self._controls(framework)
         statuses = await self._statuses(tenant_id, framework)
         evidence = await self._evidence(tenant_id, framework, start, end)
+        collection_results = await self._collection_results(tenant_id, framework, start)
+        coverage = self._coverage(controls, collection_results)
         attestations = await self._attestations(tenant_id, start)
         audit = await self._audit(tenant_id, start, end)
 
         body = {
-            "schema_version": "1.1",
+            "schema_version": "1.2",
             "generated_at": end.isoformat(),
             "tenant_id": str(tenant_id),
             "framework": FRAMEWORKS[framework],
@@ -37,6 +40,8 @@ class EvidencePackBuilder:
             "controls": controls,
             "control_status": statuses,
             "evidence": evidence,
+            "collection_results": collection_results,
+            "evidence_coverage": coverage,
             "attestations": attestations,
             "audit_extract": audit,
         }
@@ -50,6 +55,8 @@ class EvidencePackBuilder:
             "controls.json": json.dumps(controls, indent=2, default=str).encode(),
             "control_status.json": json.dumps(statuses, indent=2, default=str).encode(),
             "evidence.json": json.dumps(evidence, indent=2, default=str).encode(),
+            "collection_results.json": json.dumps(collection_results, indent=2, default=str).encode(),
+            "evidence_coverage.json": json.dumps(coverage, indent=2, default=str).encode(),
             "attestations.json": json.dumps(attestations, indent=2, default=str).encode(),
             "audit_extract.json": json.dumps(audit, indent=2, default=str).encode(),
             "README.txt": self._readme(framework, start, end).encode(),
@@ -79,7 +86,7 @@ class EvidencePackBuilder:
             "generated_by": str(generated_by) if generated_by else None,
         }
         await self._insert("compliance_evidence_snapshots", snapshot)
-        return {"snapshot": snapshot, "framework": framework, "pack_sha256": pack_sha, "manifest_sha256": manifest_sha, "signature": signature.signature_b64, "signer_kid": signature.kid, "object_ref": object_ref, "controls_total": total, "controls_passing": passing, "evidence_count": len(evidence), "overall_score": round(score, 4)}
+        return {"snapshot": snapshot, "framework": framework, "pack_sha256": pack_sha, "manifest_sha256": manifest_sha, "signature": signature.signature_b64, "signer_kid": signature.kid, "object_ref": object_ref, "controls_total": total, "controls_passing": passing, "evidence_count": len(evidence), "overall_score": round(score, 4), "evidence_coverage": coverage}
 
     async def _controls(self, framework: str) -> list[dict]:
         async def _do():
@@ -95,8 +102,39 @@ class EvidencePackBuilder:
 
     async def _evidence(self, tenant_id: UUID, framework: str, start: datetime, end: datetime) -> list[dict]:
         async def _do():
-            return await (await supabase._ensure()).table("compliance_evidence").select("id,control_id,title,evidence_type,source_ref,sha256,collected_at,valid_from,valid_until,metadata,provenance").eq("tenant_id", str(tenant_id)).eq("framework", framework).gte("collected_at", start.isoformat()).lt("collected_at", end.isoformat()).order("collected_at", desc=True).limit(10000).execute()
+            return await (await supabase._ensure()).table("compliance_evidence").select("id,control_id,title,evidence_type,source_ref,sha256,collected_at,valid_from,valid_until,freshness_window_seconds,stale,metadata,provenance").eq("tenant_id", str(tenant_id)).eq("framework", framework).gte("collected_at", start.isoformat()).lt("collected_at", end.isoformat()).order("collected_at", desc=True).limit(10000).execute()
         return list((await supabase._retry(_do, attempts=2)).data or [])
+
+    async def _collection_results(self, tenant_id: UUID, framework: str, start: datetime) -> list[dict]:
+        async def _do():
+            return await (await supabase._ensure()).table("compliance_collection_results").select("id,run_id,control_id,source_ref,status,row_count,error_code,error_detail,collected_at,valid_from,valid_until,freshness_window_seconds,stale,provenance").eq("tenant_id", str(tenant_id)).eq("framework", framework).gte("collected_at", start.isoformat()).order("collected_at", desc=True).limit(10000).execute()
+        return list((await supabase._retry(_do, attempts=2)).data or [])
+
+    @staticmethod
+    def _coverage(controls: list[dict], results: list[dict]) -> list[dict]:
+        now = datetime.now(UTC)
+        by_control: dict[str, list[dict]] = {}
+        for row in results:
+            by_control.setdefault(str(row.get("control_id")), []).append(row)
+        output = []
+        for control in controls:
+            expected = [str(source) for source in (control.get("evidence_sources") or [])]
+            rows = by_control.get(str(control["id"]), [])
+            latest = {}
+            for row in rows:
+                source = str(row.get("source_ref", ""))
+                if source and source not in latest:
+                    latest[source] = row
+            summary = coverage_summary(list(latest.values()), expected)
+            summary.update({"control_id": control["id"], "stable_id": control.get("stable_id"), "control_code": control.get("control_code")})
+            # Re-evaluate staleness at pack generation time, not only at collection time.
+            for source in summary["sources"]:
+                row = latest.get(source["source_ref"])
+                if row:
+                    value = row.get("valid_until")
+                    source["stale"] = source["stale"] or (not value) or str(value).replace("Z", "+00:00") <= now.isoformat()
+            output.append(summary)
+        return output
 
     async def _attestations(self, tenant_id: UUID, start: datetime) -> list[dict]:
         async def _do():
@@ -131,4 +169,4 @@ class EvidencePackBuilder:
 
     @staticmethod
     def _readme(framework: str, start: datetime, end: datetime) -> str:
-        return f"Sentinel Compliance Evidence Pack\nFramework: {framework}\nPeriod: {start.isoformat()} to {end.isoformat()}\n\nmanifest_sha256 is the signed canonical manifest digest. pack_sha256 is the SHA-256 of the ZIP object. file_hashes.json permits per-file integrity verification.\n\nThis pack contains automated evidence summaries and cryptographic integrity metadata. It is not legal certification or an auditor's opinion.\n"
+        return f"Sentinel Compliance Evidence Pack\nFramework: {framework}\nPeriod: {start.isoformat()} to {end.isoformat()}\n\nThe pack records collector coverage and evidence freshness explicitly. Missing, failed, or stale collectors are not treated as successful evidence.\n\nmanifest_sha256 is the signed canonical manifest digest. pack_sha256 is the SHA-256 of the ZIP object. file_hashes.json permits per-file integrity verification.\n\nThis pack contains automated evidence summaries and cryptographic integrity metadata. It is not legal certification or an auditor's opinion.\n"
