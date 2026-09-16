@@ -39,41 +39,30 @@ class EnforcementBody(BaseModel):
 async def evaluate_transfer(body: TransferBody, principal: DeveloperPrincipal = Depends(authenticate_request)):
     principal.require(("data:transfer",))
     request = TransferRequest(
-        tenant_id=UUID(principal.tenant_id),
-        asset_id=body.asset_id,
-        device_id=body.device_id,
-        actor_id=None,
-        source_type=body.source_type,
-        destination_type=body.destination_type,
-        destination_ref=body.destination_ref,
-        destination_trust=body.destination_trust,
-        bytes_transferred=body.bytes_transferred,
-        content_inspected=body.content_inspected,
-        content_hash=body.content_hash,
-        observed_at=body.observed_at,
-        metadata=body.metadata,
+        tenant_id=UUID(principal.tenant_id), asset_id=body.asset_id, device_id=body.device_id,
+        actor_id=None, source_type=body.source_type, destination_type=body.destination_type,
+        destination_ref=body.destination_ref, destination_trust=body.destination_trust,
+        bytes_transferred=body.bytes_transferred, content_inspected=body.content_inspected,
+        content_hash=body.content_hash, observed_at=body.observed_at, metadata=body.metadata,
     )
     decision = await _control_plane.evaluate_and_record(request)
     return {
+        "event_id": str(decision.event_id) if decision.event_id else None,
+        "detection_id": str(decision.detection_id) if decision.detection_id else None,
         "decision": decision.decision,
         "reason_codes": list(decision.reason_codes),
         "policy_id": str(decision.policy_id) if decision.policy_id else None,
         "classification": decision.classification,
+        "enforcement_required": decision.decision in {"block", "quarantine"},
     }
 
 
 @router.post("/transfers/{event_id}/enforcement")
-async def report_enforcement(
-    event_id: UUID,
-    body: EnforcementBody,
-    principal: DeveloperPrincipal = Depends(authenticate_request),
-):
+async def report_enforcement(event_id: UUID, body: EnforcementBody, principal: DeveloperPrincipal = Depends(authenticate_request)):
     principal.require(("data:transfer",))
     result = await _enforcement.acknowledge(
-        tenant_id=UUID(principal.tenant_id),
-        event_id=event_id,
-        enforced=body.enforced,
-        metadata=body.metadata,
+        tenant_id=UUID(principal.tenant_id), event_id=event_id,
+        enforced=body.enforced, metadata=body.metadata,
     )
     return {
         "event_id": str(result["id"]),
