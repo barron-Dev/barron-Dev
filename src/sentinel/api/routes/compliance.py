@@ -12,12 +12,14 @@ from sentinel.compliance.catalog import FRAMEWORKS
 from sentinel.compliance.pack import EvidencePackBuilder
 from sentinel.compliance.service import ComplianceError, ComplianceService
 from sentinel.compliance.signing import sign_digest
+from sentinel.compliance.verification import ComplianceVerificationError, EvidencePackVerifier
 from sentinel.developer.auth import DeveloperPrincipal, authenticate_request
 from sentinel.storage.supabase_client import supabase
 
 router = APIRouter(prefix="/compliance", tags=["compliance"])
 _service = ComplianceService()
 _builder = EvidencePackBuilder()
+_verifier = EvidencePackVerifier()
 
 class ComplianceRunRequest(BaseModel):
     framework: str = Field(min_length=2, max_length=32)
@@ -74,11 +76,22 @@ async def packs(framework: str | None = Query(default=None), principal: Develope
     if framework and framework not in FRAMEWORKS:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "unsupported framework")
     async def _do():
-        q = (await supabase._ensure()).table("compliance_evidence_snapshots").select("id,framework_id,period_start,period_end,status,overall_score,controls_passing,controls_total,pack_sha256,signature,signer_kid,created_at,pack_path").eq("tenant_id", principal.tenant_id).order("created_at", desc=True).limit(100)
+        q = (await supabase._ensure()).table("compliance_evidence_snapshots").select("id,framework_id,period_start,period_end,status,overall_score,controls_passing,controls_total,pack_sha256,manifest_sha256,signature,signer_kid,evidence_count,verification_status,created_at,pack_path").eq("tenant_id", principal.tenant_id).order("created_at", desc=True).limit(100)
         if framework:
             q = q.eq("framework_id", framework)
         return await q.execute()
     return list((await supabase._retry(_do, attempts=2)).data or [])
+
+@router.post("/packs/{snapshot_id}/verify")
+async def verify_pack(snapshot_id: UUID, principal: DeveloperPrincipal = Depends(authenticate_request)) -> dict:
+    principal.require(("compliance:read",))
+    try:
+        result = await _verifier.verify(UUID(principal.tenant_id), snapshot_id)
+    except ComplianceVerificationError as exc:
+        if str(exc) == "snapshot not found":
+            raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+    return {"snapshot_id": result.snapshot_id, "verified": result.verified, "pack_sha256": result.pack_sha256, "manifest_sha256": result.manifest_sha256, "signer_kid": result.signer_kid, "checks": result.checks}
 
 @router.get("/packs/{snapshot_id}/download")
 async def download_pack(snapshot_id: UUID, principal: DeveloperPrincipal = Depends(authenticate_request)) -> Response:
