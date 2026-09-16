@@ -7,7 +7,20 @@ from sentinel.data_trust.models import TransferDecision, TransferRequest
 from sentinel.storage.supabase_client import supabase
 
 
+_CLOUD_CHANNELS = {"cloud", "browser", "api"}
+_REMOVABLE_CHANNELS = {"usb", "removable_media", "sd_card"}
+_PEER_CHANNELS = {"bluetooth", "airdrop", "nearby_share", "wifi_direct", "nfc"}
+_INTERPERSONAL_CHANNELS = {"email", "messaging"}
+
+
 class DataTrustControlPlane:
+    """Single policy decision point for all data movement channels.
+
+    Endpoint integrations can be written in Rust, Python, TypeScript, Go, or
+    another language as long as they submit the same TransferRequest contract.
+    The policy engine never assumes USB is the only exfiltration path.
+    """
+
     async def evaluate_and_record(self, request: TransferRequest) -> TransferDecision:
         asset = None
         if request.asset_id:
@@ -29,35 +42,42 @@ class DataTrustControlPlane:
 
         if policy is None:
             decision = TransferDecision("review", ("no_active_policy",), None, asset.get("classification") if asset else None)
+        elif not policy.get("enabled"):
+            decision = TransferDecision("review", ("policy_disabled",), UUID(str(policy["id"])), str(asset["classification"]))
         else:
             reasons: list[str] = []
             classification = str(asset["classification"])
             allowed_destinations = set(policy.get("allowed_destinations") or [])
             allowed_trust = set(policy.get("allowed_device_trust") or [])
 
-            if not policy.get("enabled"):
-                decision = TransferDecision("review", ("policy_disabled",), UUID(str(policy["id"])), classification)
+            if request.destination_type == "unknown":
+                reasons.append("unknown_destination")
+            if request.destination_type not in allowed_destinations:
+                reasons.append("destination_not_allowed")
+            if request.destination_trust not in allowed_trust:
+                reasons.append("destination_trust_not_allowed")
+            if request.destination_type in _REMOVABLE_CHANNELS and not policy.get("allow_removable_media"):
+                reasons.append("removable_media_blocked")
+            if request.destination_type in _PEER_CHANNELS and not policy.get("allow_bluetooth"):
+                reasons.append("peer_transfer_blocked")
+            if request.destination_type in _CLOUD_CHANNELS and not policy.get("allow_cloud_upload"):
+                reasons.append("cloud_upload_blocked")
+            if request.destination_type in _INTERPERSONAL_CHANNELS and classification in {"restricted", "regulated"}:
+                reasons.append("interpersonal_channel_restricted")
+            if policy.get("encryption_required") and asset.get("encryption_state") != "encrypted":
+                reasons.append("encryption_required")
+
+            if reasons:
+                decision = TransferDecision("block", tuple(dict.fromkeys(reasons)), UUID(str(policy["id"])), classification)
+            elif classification in {"restricted", "regulated"} and not request.content_inspected:
+                decision = TransferDecision("review", ("inspection_required",), UUID(str(policy["id"])), classification)
             else:
-                if request.destination_type not in allowed_destinations:
-                    reasons.append("destination_not_allowed")
-                if request.destination_trust not in allowed_trust:
-                    reasons.append("destination_trust_not_allowed")
-                if request.destination_type == "usb" and not policy.get("allow_removable_media"):
-                    reasons.append("removable_media_blocked")
-                if request.destination_type == "bluetooth" and not policy.get("allow_bluetooth"):
-                    reasons.append("bluetooth_blocked")
-                if request.destination_type in {"cloud", "browser"} and not policy.get("allow_cloud_upload"):
-                    reasons.append("cloud_upload_blocked")
-                if policy.get("encryption_required") and asset.get("encryption_state") != "encrypted":
-                    reasons.append("encryption_required")
+                decision = TransferDecision("allow", (), UUID(str(policy["id"])), classification)
 
-                if reasons:
-                    decision = TransferDecision("block", tuple(reasons), UUID(str(policy["id"])), classification)
-                elif classification in {"restricted", "regulated"} and not request.content_inspected:
-                    decision = TransferDecision("review", ("inspection_required",), UUID(str(policy["id"])), classification)
-                else:
-                    decision = TransferDecision("allow", (), UUID(str(policy["id"])), classification)
+        await self._record(request, decision)
+        return decision
 
+    async def _record(self, request: TransferRequest, decision: TransferDecision) -> None:
         await supabase.insert_one(
             "data_trust_transfer_events",
             {
@@ -78,4 +98,3 @@ class DataTrustControlPlane:
                 "metadata": request.metadata,
             },
         )
-        return decision
