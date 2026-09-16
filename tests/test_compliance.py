@@ -30,14 +30,24 @@ def test_reversed_period_rejected():
 async def test_list_packs_is_tenant_filtered():
     service = ComplianceService()
     tenant = uuid4()
-    with patch.object(service, "_select", new=AsyncMock(return_value=[{"tenant_id": str(tenant)}])) as select:
-        result = await service.list_packs(tenant, "soc2")
+    fake_response = type("Response", (), {"data": [{"tenant_id": str(tenant)}]})()
+    fake_builder = AsyncMock()
+    fake_builder.eq.return_value = fake_builder
+    fake_builder.order.return_value = fake_builder
+    fake_builder.limit.return_value = fake_builder
+    fake_builder.execute.return_value = fake_response
+    fake_table = AsyncMock()
+    fake_table.select.return_value = fake_builder
+    fake_client = AsyncMock()
+    fake_client.table.return_value = fake_table
+    with patch("sentinel.compliance.service.supabase._ensure", new=AsyncMock(return_value=fake_client)):
+        with patch("sentinel.compliance.service.supabase._retry", new=AsyncMock(side_effect=lambda fn, attempts=2: fn())):
+            result = await service.list_packs(tenant, "soc2")
     assert result == [{"tenant_id": str(tenant)}]
-    select.assert_awaited_once_with(
-        "compliance_packs",
-        "id,run_id,framework,period_start,period_end,status,object_ref,sha256,generated_at,metadata",
-        [("tenant_id", str(tenant)), ("framework", "soc2")],
-    )
+    fake_client.table.assert_called_once_with("compliance_evidence_snapshots")
+    fake_builder.eq.assert_any_call("tenant_id", str(tenant))
+    fake_builder.eq.assert_any_call("framework_id", "soc2")
+    fake_builder.limit.assert_called_once_with(100)
 
 
 @pytest.mark.asyncio
