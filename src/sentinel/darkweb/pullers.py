@@ -11,6 +11,7 @@ import httpx
 logger = logging.getLogger(__name__)
 EMAIL_RE = re.compile(r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}")
 
+
 @dataclass(frozen=True, slots=True)
 class Finding:
     source_id: str
@@ -57,8 +58,7 @@ class HIBPPuller:
                 response.raise_for_status()
                 data = response.json()
         except Exception as exc:
-            logger.warning("HIBP pull failed: %s", exc)
-            return []
+            raise RuntimeError(f"HIBP pull failed for {domain}") from exc
         findings: list[Finding] = []
         for alias, breaches in (data or {}).items():
             email = normalize(alias if "@" in alias else f"{alias}@{domain}")
@@ -78,8 +78,7 @@ class RansomwatchPuller:
                 response.raise_for_status()
                 posts = response.json()
         except Exception as exc:
-            logger.warning("Ransomwatch pull failed: %s", exc)
-            return []
+            raise RuntimeError("Ransomwatch pull failed") from exc
         out: list[Finding] = []
         for post in posts[:5000] if isinstance(posts, list) else []:
             victim = normalize(str(post.get("post_title") or ""))
@@ -103,17 +102,20 @@ class TelegramPublicMonitor:
 
     async def pull(self) -> list[Finding]:
         out: list[Finding] = []
+        failures = 0
         for channel in self.channels:
             try:
                 async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
                     response = await client.get(f"https://t.me/s/{channel}", headers={"user-agent": "sentinel-dw/1.0"})
-                    if response.status_code != 200:
-                        continue
+                    response.raise_for_status()
                     html = response.text
                 for email in dict.fromkeys(EMAIL_RE.findall(html)):
                     out.append(Finding(self.SOURCE, "email", normalize(email), "Monitored identifier appeared in a public Telegram web preview; credential material redacted.", "critical", f"https://t.me/s/{channel}", {"channel": channel}))
             except Exception as exc:
-                logger.debug("Telegram channel %s failed: %s", channel, exc)
+                failures += 1
+                logger.warning("Telegram channel %s failed", channel, exc_info=True)
+        if self.channels and failures == len(self.channels):
+            raise RuntimeError("all configured Telegram public channels failed")
         return out
 
 
@@ -128,8 +130,7 @@ class PastePublicMonitor:
                 response.raise_for_status()
                 text = response.text
         except Exception as exc:
-            logger.debug("Paste feed failed: %s", exc)
-            return []
+            raise RuntimeError("public paste feed pull failed") from exc
         return [Finding(self.SOURCE, "email", normalize(email), "Monitored identifier appeared in a public paste feed.", "medium", self.FEED, {}) for email in dict.fromkeys(EMAIL_RE.findall(text))]
 
 
@@ -143,15 +144,18 @@ class GitHubCodeMonitor:
     async def pull_domain(self, domain: str) -> list[Finding]:
         headers = {"authorization": f"Bearer {self.token}", "accept": "application/vnd.github+json", "user-agent": "sentinel-dw/1.0"}
         out: list[Finding] = []
+        failures = 0
         async with httpx.AsyncClient(timeout=20.0) as client:
             for term in ("password", "api_key", "secret"):
                 try:
                     response = await client.get(self.BASE, params={"q": f'"{normalize(domain)}" {term}', "per_page": 30}, headers=headers)
-                    if response.status_code != 200:
-                        continue
+                    response.raise_for_status()
                     for item in (response.json() or {}).get("items", []) or []:
                         repo = str((item.get("repository") or {}).get("full_name") or "")
                         out.append(Finding(self.SOURCE, "domain", normalize(domain), "Potential secret-related code exposure; secret value is not retained.", "high", item.get("html_url"), {"repository": repo, "query_term": term}))
-                except Exception as exc:
-                    logger.debug("GitHub code search failed: %s", exc)
+                except Exception:
+                    failures += 1
+                    logger.warning("GitHub code search failed for domain=%s term=%s", domain, term, exc_info=True)
+        if failures == 3:
+            raise RuntimeError(f"all GitHub code searches failed for {domain}")
         return out
