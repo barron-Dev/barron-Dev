@@ -46,10 +46,9 @@ async def controls(framework: str = Query(min_length=2, max_length=32), principa
 async def run_compliance(body: ComplianceRunRequest, principal: DeveloperPrincipal = Depends(authenticate_request)) -> dict:
     principal.require(("compliance:run",))
     try:
-        result = await _service.evaluate(UUID(principal.tenant_id), body.framework, body.period_start, body.period_end, await _owner_user_id(principal))
+        return await _service.evaluate(UUID(principal.tenant_id), body.framework, body.period_start, body.period_end, await _owner_user_id(principal))
     except ComplianceError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
-    return result
 
 @router.post("/runs/last-24h", status_code=status.HTTP_201_CREATED)
 async def run_last_24h(principal: DeveloperPrincipal = Depends(authenticate_request)) -> dict:
@@ -61,11 +60,12 @@ async def run_last_24h(principal: DeveloperPrincipal = Depends(authenticate_requ
 async def build_pack(framework: str = Query(min_length=2, max_length=32), period_days: int = Query(default=90, ge=7, le=730), principal: DeveloperPrincipal = Depends(authenticate_request)) -> dict:
     principal.require(("compliance:run",))
     try:
-        # Refresh the selected framework before packaging so a pack is tied to a fresh run.
         end = datetime.now(UTC)
         await _service.evaluate(UUID(principal.tenant_id), framework, end - timedelta(days=period_days), end, await _owner_user_id(principal))
         return await _builder.build(UUID(principal.tenant_id), framework, period_days, await _owner_user_id(principal))
-    except (ComplianceError, ValueError) as exc:
+    except ComplianceError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    except ValueError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
 
 @router.get("/packs")
@@ -102,6 +102,9 @@ async def download_pack(snapshot_id: UUID, principal: DeveloperPrincipal = Depen
 async def attest(body: AttestRequest, principal: DeveloperPrincipal = Depends(authenticate_request)) -> dict:
     principal.require(("compliance:attest",))
     tenant_id = UUID(principal.tenant_id)
+    attested_by = await _owner_user_id(principal)
+    if attested_by is None:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "authenticated developer app has no owner user")
     async def _control():
         return await (await supabase._ensure()).table("compliance_controls").select("id,stable_id,framework,control_code").eq("stable_id", body.control_id).limit(1).execute()
     controls = (await supabase._retry(_control, attempts=2)).data or []
@@ -115,7 +118,7 @@ async def attest(body: AttestRequest, principal: DeveloperPrincipal = Depends(au
             raise HTTPException(status.HTTP_404_NOT_FOUND, "snapshot not found")
     statement_sha = hashlib.sha256(body.statement.encode()).hexdigest()
     signed = sign_digest(statement_sha)
-    row = {"tenant_id":str(tenant_id),"control_id":controls[0]["id"],"snapshot_id":snapshot_id,"attested_by":str(await _owner_user_id(principal) or "00000000-0000-0000-0000-000000000000"),"statement":body.statement,"statement_sha256":statement_sha,"signature":signed.signature_b64,"signer_kid":signed.kid}
+    row = {"tenant_id":str(tenant_id),"control_id":controls[0]["id"],"snapshot_id":snapshot_id,"attested_by":str(attested_by),"statement":body.statement,"statement_sha256":statement_sha,"signature":signed.signature_b64,"signer_kid":signed.kid}
     async def _insert():
         return await (await supabase._ensure()).table("compliance_attestations").insert(row).execute()
     try:
