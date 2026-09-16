@@ -60,11 +60,19 @@ class PromptInjectionDetector:
 
     @staticmethod
     def _has_hidden_payload(s:str)->bool:
-        for m in re.finditer(r"[A-Za-z0-9+/=]{80,}",s):
+        # Prompt-smuggling payloads are commonly short enough to evade the old
+        # 80-character threshold. Require a bounded base64-looking token and
+        # strict decoding so ordinary prose is not treated as encoded content.
+        for m in re.finditer(r"(?<![A-Za-z0-9+/=])[A-Za-z0-9+/=]{32,}(?![A-Za-z0-9+/=])",s):
+            candidate=m.group()
+            if len(candidate) % 4:
+                candidate += "=" * (-len(candidate) % 4)
             try:
-                text=base64.b64decode(m.group()+"==",validate=False).decode("utf-8",errors="ignore").lower()
-                if any(k in text for k in ("ignore","system","instruction","execute","admin")): return True
-            except (ValueError,UnicodeError): pass
+                text=base64.b64decode(candidate,validate=True).decode("utf-8",errors="strict").lower()
+            except (ValueError,UnicodeError):
+                continue
+            if any(k in text for k in ("ignore","system","instruction","execute","admin")):
+                return True
         return False
 
     @staticmethod
