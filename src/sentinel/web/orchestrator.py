@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
@@ -24,8 +24,15 @@ class WebIntelligenceOrchestrator:
         targets = await self._targets()
         pages = errors = 0
         for target in targets:
+            if not self._is_due(target):
+                continue
             try:
-                results = await self.crawler.crawl(str(target["url"]), layer=str(target["layer"]), respect_robots=bool(target.get("respect_robots", True)), depth=int(target.get("max_depth") or 0))
+                results = await self.crawler.crawl(
+                    str(target["url"]),
+                    layer=str(target["layer"]),
+                    respect_robots=bool(target.get("respect_robots", True)),
+                    depth=int(target.get("max_depth") or 0),
+                )
                 for page in results:
                     await self._persist_page(target, page)
                     pages += 1
@@ -36,39 +43,66 @@ class WebIntelligenceOrchestrator:
                 logger.warning("web target failed id=%s", target.get("id"), exc_info=True)
         return {"targets": len(targets), "pages": pages, "errors": errors}
 
+    @staticmethod
+    def _is_due(target: dict[str, Any]) -> bool:
+        raw = target.get("last_crawl_at")
+        if not raw:
+            return True
+        try:
+            last = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+            if last.tzinfo is None:
+                last = last.replace(tzinfo=UTC)
+            interval = max(60, min(604800, int(target.get("crawl_interval") or 3600)))
+            return datetime.now(UTC) >= last + timedelta(seconds=interval)
+        except (TypeError, ValueError):
+            return True
+
     async def _persist_page(self, target: dict[str, Any], page: WebPage) -> None:
         layer = str(target["layer"])
         severity = "critical" if page.credential_indicators or page.wallets else "high" if page.emails else "medium"
         row = {
-            "target_id": str(target["id"]), "url": page.url[:2000], "content_hash": page.content_hash,
-            "status_code": page.status_code, "content_type": page.content_type,
+            "target_id": str(target["id"]),
+            "url": page.url[:2000],
+            "content_hash": page.content_hash,
+            "status_code": page.status_code,
+            "content_type": page.content_type,
             "matched_terms": (["credential_indicator"] if page.credential_indicators else []) + (["wallet"] if page.wallets else []),
-            "emails_found": list(page.emails), "urls_found": list(page.urls), "wallets_found": list(page.wallets),
-            "credentials_found": page.credential_indicators, "severity": severity, "tenant_id": target.get("tenant_id"),
+            "emails_found": list(page.emails),
+            "urls_found": list(page.urls),
+            "wallets_found": list(page.wallets),
+            "credentials_found": page.credential_indicators,
+            "severity": severity,
+            "tenant_id": target.get("tenant_id"),
         }
+
         async def _insert():
             return await (await supabase._ensure()).table("web_crawl_pages").upsert(row, on_conflict="target_id,content_hash").execute()
-        await supabase._retry(_insert, attempts=2)
 
+        await supabase._retry(_insert, attempts=2)
+        source_id = "web_surface" if layer == "surface" else "web_deep" if layer == "deep" else "web_dark"
         for email in page.emails[:50]:
             await self.matcher.process({
-                "source_id": "web_surface" if layer == "surface" else "web_deep" if layer == "deep" else "web_dark",
-                "kind": "email", "matched_value": email,
+                "source_id": source_id,
+                "kind": "email",
+                "matched_value": email,
                 "context": f"Monitored identifier observed on configured {layer} source.",
-                "severity": severity, "source_url": page.url,
+                "severity": severity,
+                "source_url": page.url,
                 "metadata": {"exposure_layer": layer, "target_id": str(target["id"])},
             })
         for wallet in page.wallets[:20]:
             await self.matcher.process({
-                "source_id": "web_surface" if layer == "surface" else "web_deep" if layer == "deep" else "web_dark",
-                "kind": "wallet", "matched_value": wallet,
+                "source_id": source_id,
+                "kind": "wallet",
+                "matched_value": wallet,
                 "context": f"Wallet indicator observed on configured {layer} source.",
-                "severity": severity, "source_url": page.url,
+                "severity": severity,
+                "source_url": page.url,
                 "metadata": {"exposure_layer": layer, "target_id": str(target["id"])},
             })
 
     async def query_deep(self, tenant_id: UUID, identifier: str) -> dict[str, Any]:
-        """Return provider availability; licensed provider adapters must be metadata-only."""
+        """Return configured licensed-provider availability without exposing secret material."""
         identifier = identifier.strip().lower()
         if not identifier or len(identifier) > 320:
             raise ValueError("invalid identifier")
@@ -79,7 +113,6 @@ class WebIntelligenceOrchestrator:
             configured.append("intelx")
         if os.getenv("SENTINEL_SPYCLOUD_KEY"):
             configured.append("spycloud")
-        # Do not fetch, return, or persist passwords, cookies, tokens, or combo-list material.
         return {"tenant_id": str(tenant_id), "identifier": identifier, "configured_providers": configured, "hits": 0}
 
     async def _targets(self) -> list[dict[str, Any]]:
