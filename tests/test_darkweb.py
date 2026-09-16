@@ -51,5 +51,5 @@ async def test_watchlist_match_fans_out_per_tenant():
             "source_id": "telegram_public", "kind": "email", "matched_value": "user@example.com",
             "context": "public leak", "severity": "high", "source_url": "https://t.me/s/example", "metadata": {},
         })
-    assert result == {"matched": 2, "alerts": 2}
+    assert result == {"matched": 2, "alerts": 2, "errors": 0}
     assert record.await_count == 2
