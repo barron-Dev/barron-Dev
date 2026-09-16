@@ -6,13 +6,22 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from sentinel.api.deps import get_principal, require_role
-from sentinel.security.jwt import Principal
+from sentinel.developer.auth import DeveloperPrincipal, authenticate_request
 from sentinel.physical.correlator import PhysicalCorrelator
 from sentinel.storage.supabase_client import supabase
 
 router = APIRouter(prefix="/physical", tags=["physical"])
 correlator = PhysicalCorrelator()
+
+
+def _principal(principal: DeveloperPrincipal = Depends(authenticate_request)) -> DeveloperPrincipal:
+    principal.require(("physical:read",))
+    return principal
+
+
+def _manager(principal: DeveloperPrincipal = Depends(authenticate_request)) -> DeveloperPrincipal:
+    principal.require(("physical:manage",))
+    return principal
 
 
 class SiteCreate(BaseModel):
@@ -35,8 +44,8 @@ _SITE_PUBLIC_COLUMNS = "id,name,address,country,timezone,acs_kind,cctv_kind,iot_
 
 
 @router.post("/sites", status_code=201)
-async def create_site(body: SiteCreate, principal: Principal = Depends(require_role("owner", "admin"))):
-    row = {"tenant_id": str(principal.tenant_id), **body.model_dump()}
+async def create_site(body: SiteCreate, principal: DeveloperPrincipal = Depends(_manager)):
+    row = {"tenant_id": principal.tenant_id, **body.model_dump()}
 
     async def _do():
         client = await supabase._ensure()
@@ -49,10 +58,10 @@ async def create_site(body: SiteCreate, principal: Principal = Depends(require_r
 
 
 @router.get("/sites")
-async def list_sites(principal: Principal = Depends(get_principal)):
+async def list_sites(principal: DeveloperPrincipal = Depends(_principal)):
     async def _do():
         client = await supabase._ensure()
-        return await client.table("physical_sites").select(_SITE_PUBLIC_COLUMNS).eq("tenant_id", str(principal.tenant_id)).order("created_at", desc=True).execute()
+        return await client.table("physical_sites").select(_SITE_PUBLIC_COLUMNS).eq("tenant_id", principal.tenant_id).order("created_at", desc=True).execute()
 
     return list((await supabase._retry(_do)).data or [])
 
@@ -63,11 +72,11 @@ async def list_correlations(
     severity: str | None = None,
     pattern: str | None = None,
     limit: int = Query(200, ge=1, le=1000),
-    principal: Principal = Depends(get_principal),
+    principal: DeveloperPrincipal = Depends(_principal),
 ):
     async def _do():
         client = await supabase._ensure()
-        q = client.table("physical_digital_correlations").select("*").eq("tenant_id", str(principal.tenant_id))
+        q = client.table("physical_digital_correlations").select("*").eq("tenant_id", principal.tenant_id)
         if status:
             q = q.eq("status", status)
         if severity:
@@ -82,9 +91,9 @@ async def list_correlations(
 @router.post("/correlations/run")
 async def run_correlation(
     window_minutes: int = Query(15, ge=1, le=120),
-    principal: Principal = Depends(require_role("owner", "admin")),
+    principal: DeveloperPrincipal = Depends(_manager),
 ):
-    return await correlator.run_window(principal.tenant_id, window_minutes)
+    return await correlator.run_window(UUID(principal.tenant_id), window_minutes)
 
 
 class CorrelationUpdate(BaseModel):
@@ -95,7 +104,7 @@ class CorrelationUpdate(BaseModel):
 async def update_correlation(
     corr_id: UUID,
     body: CorrelationUpdate,
-    principal: Principal = Depends(require_role("owner", "admin", "member")),
+    principal: DeveloperPrincipal = Depends(_manager),
 ):
     now = datetime.now(timezone.utc).isoformat()
 
@@ -103,7 +112,7 @@ async def update_correlation(
         client = await supabase._ensure()
         return await client.table("physical_digital_correlations").update(
             {"status": body.status, "last_seen": now}
-        ).eq("id", str(corr_id)).eq("tenant_id", str(principal.tenant_id)).select("*").limit(1).execute()
+        ).eq("id", str(corr_id)).eq("tenant_id", principal.tenant_id).select("*").limit(1).execute()
 
     data = (await supabase._retry(_do)).data or []
     if not data:
@@ -112,7 +121,7 @@ async def update_correlation(
 
 
 @router.get("/stats")
-async def stats(principal: Principal = Depends(get_principal)):
+async def stats(principal: DeveloperPrincipal = Depends(_principal)):
     rows = await list_correlations(limit=1000, principal=principal)
     by_pattern: dict[str, int] = {}
     by_severity: dict[str, int] = {}
