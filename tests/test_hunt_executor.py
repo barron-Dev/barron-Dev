@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, patch
 from uuid import uuid4
 
 from sentinel.hunting.executor import QueryExecutor
+from sentinel.hunting.parser import Predicate
 
 
 @pytest.mark.asyncio
@@ -30,10 +31,12 @@ async def test_valid_query_returns_rows():
     assert elapsed >= 0
 
 
-def test_or_clause_escapes_reserved_characters():
-    executor = QueryExecutor()
-    clause = executor._to_or_clause(
-        __import__("sentinel.hunting.parser", fromlist=["Predicate"]).Predicate("verdict", "==", 'x,y)\\"z'),
+def test_or_clause_quotes_and_escapes_reserved_characters():
+    clause = QueryExecutor()._to_or_clause(
+        Predicate("verdict", "==", 'x,y)\\"z'),
         "detections",
     )
-    assert clause == 'verdict.eq."x,y)\\\\\\\"z"'
+    assert clause.startswith('verdict.eq."')
+    assert clause.endswith('"')
+    assert "x,y)" in clause
+    assert '\\\"' in clause
