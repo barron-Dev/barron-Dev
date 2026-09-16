@@ -60,13 +60,14 @@ async def test_record_evidence_source_rows_are_bounded():
     tenant = uuid4()
     run_id = uuid4()
     control = {"id": "AC-1", "code": "CC1.1"}
-    fake_response = type("Response", (), {"count": 7, "data": []})()
+    evidence_response = type("Response", (), {"count": 7, "data": []})()
+    control_response = type("Response", (), {"count": None, "data": [{"id": str(uuid4())}]})()
     fake_builder = MagicMock()
     fake_builder.eq.return_value = fake_builder
     fake_builder.gte.return_value = fake_builder
     fake_builder.lt.return_value = fake_builder
     fake_builder.limit.return_value = fake_builder
-    fake_builder.execute = AsyncMock(return_value=fake_response)
+    fake_builder.execute = AsyncMock(side_effect=[evidence_response, control_response])
     fake_client = MagicMock()
     fake_client.table.return_value.select.return_value = fake_builder
 
@@ -84,4 +85,4 @@ async def test_record_evidence_source_rows_are_bounded():
                             None, run_id,
                         )
     assert result == 1
-    fake_builder.limit.assert_called_once_with(1)
+    fake_builder.limit.assert_any_call(1)
