@@ -3,8 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import secrets
-from dataclasses import asdict
-from typing import Any, BinaryIO, Mapping
+from typing import Any, Mapping
 from urllib.parse import quote
 from uuid import UUID
 
@@ -42,6 +41,8 @@ class DeceptionEngine:
                 "artifact_type": spec.artifact_type,
                 "name": spec.name,
                 "target": spec.target,
+                "device_id": str(spec.device_id) if spec.device_id else None,
+                "auto_case_rule_id": str(spec.auto_case_rule_id) if spec.auto_case_rule_id else None,
                 "token_prefix": prefix,
                 "token_hash": token_hash,
                 "metadata": metadata,
@@ -101,14 +102,20 @@ class DeceptionEngine:
         if not rows:
             return None
         row = rows[0]
+        trigger_id = UUID(str(row["trigger_id"]))
+        finalized = await supabase.rpc("deception_finalize_trigger", {"p_trigger_id": str(trigger_id)})
+        final = finalized[0] if finalized else {}
         return TriggerResult(
-            trigger_id=UUID(str(row["trigger_id"])),
+            trigger_id=trigger_id,
             tenant_id=UUID(str(row["tenant_id"])),
             artifact_id=UUID(str(row["artifact_id"])),
             artifact_type=str(row["artifact_type"]),
             severity=str(row["severity"]),
             observed_at=utcnow(),
             evidence=dict(evidence or {}),
+            detection_id=UUID(str(final["detection_id"])) if final.get("detection_id") else None,
+            case_id=UUID(str(final["case_id"])) if final.get("case_id") else None,
+            case_status=str(final.get("case_status") or "pending"),
         )
 
 
