@@ -103,9 +103,7 @@ def _request(url: str, *, method: str, token: str | None, payload: bytes | None 
         raise RuntimeError("peer network request failed") from exc
 
 
-def _share_value(anon: FederationAnonymizer | None, ioc_type: str, value: str) -> str:
-    if anon is None:
-        return value
+def _share_value(anon: FederationAnonymizer, ioc_type: str, value: str) -> str:
     if ioc_type == "email":
         return anon.email(value)
     if ioc_type in {"ipv4", "ipv6"}:
@@ -118,6 +116,11 @@ def _share_value(anon: FederationAnonymizer | None, ioc_type: str, value: str) -
             return anon.token(domain, context="internal-domain")
         return anon.domain(domain)
     return value
+
+
+def _sanitize_inbound(anon: FederationAnonymizer, ioc_type: str, value: str) -> str:
+    """Minimise foreign-sourced values before persistence; never retain raw sensitive values."""
+    return _share_value(anon, ioc_type, value)
 
 
 class FederationExchange:
@@ -137,27 +140,46 @@ class FederationExchange:
         token = _bearer(peer)
         payload = await asyncio.to_thread(_request, endpoint, method="GET", token=token)
         parsed = parse_stix_bundle(payload)[:5000]
+        receive_categories = {str(x) for x in (peer.get("receive_categories") or []) if str(x)}
+        if receive_categories:
+            parsed = [x for x in parsed if str(x.get("category") or "") in receive_categories]
+
+        anon = FederationAnonymizer()
         accepted = 0
+        rejected = 0
         for indicator in parsed:
-            await supabase.rpc(
-                "upsert_fed_indicator",
-                {
-                    "p_peer": str(peer_id), "p_tenant": None,
-                    "p_ioc_type": indicator["ioc_type"], "p_value_hash": indicator["value_hash"],
-                    "p_value_ref": indicator["value_ref"], "p_category": indicator.get("category"),
-                    "p_severity": "medium", "p_confidence": float(indicator.get("confidence", 0.5)),
-                },
-            )
-            accepted += 1
+            try:
+                value_ref = indicator.get("value_ref")
+                if not isinstance(value_ref, str) or not value_ref:
+                    raise ValueError("foreign indicator has no value")
+                sanitized = _sanitize_inbound(anon, str(indicator["ioc_type"]), value_ref)
+                await supabase.rpc(
+                    "upsert_fed_indicator",
+                    {
+                        "p_peer": str(peer_id), "p_tenant": None,
+                        "p_ioc_type": indicator["ioc_type"], "p_value_hash": indicator["value_hash"],
+                        "p_value_ref": sanitized, "p_category": indicator.get("category"),
+                        "p_severity": "medium", "p_confidence": float(indicator.get("confidence", 0.5)),
+                    },
+                )
+                accepted += 1
+            except (ValueError, TypeError, KeyError):
+                rejected += 1
+
         digest = hashlib.sha256(payload).hexdigest()
+        status_value = "success" if rejected == 0 else ("partial" if accepted else "failed")
         await supabase.insert_one(
             "fed_shares",
             {"peer_id": str(peer_id), "direction": "inbound", "ioc_count": accepted,
              "categories": sorted({str(x.get("category")) for x in parsed if x.get("category")} ),
-             "anonymized": True, "status": "success", "payload_sha256": digest},
+             "anonymized": True, "status": status_value,
+             "error": None if rejected == 0 else f"{rejected} indicators rejected",
+             "payload_sha256": digest},
         )
         await supabase.update("federation_peers", {"last_receive_at": datetime.now(timezone.utc).isoformat()}, id=str(peer_id))
-        return ExchangeResult(peer_id=peer_id, direction="inbound", received=len(parsed), accepted=accepted, payload_sha256=digest)
+        return ExchangeResult(peer_id=peer_id, direction="inbound", received=len(parsed), accepted=accepted,
+                              status=status_value, error=None if rejected == 0 else f"{rejected} indicators rejected",
+                              payload_sha256=digest)
 
     async def share_peer(self, *, peer_id: UUID, limit: int = 500) -> ExchangeResult:
         peer = await supabase.select_one(
@@ -182,17 +204,21 @@ class FederationExchange:
             return await q.execute()
 
         rows = list((await supabase._retry(_load, attempts=2)).data or [])
-        anon = FederationAnonymizer() if bool(peer.get("require_anonymization", True)) else None
+        # Minimisation is always applied to sensitive indicator types. The peer flag
+        # controls whether the general exchange requires it, but never permits raw
+        # tenant-identifying email/IP/URL data to leave the platform.
+        anon = FederationAnonymizer()
         export_rows: list[dict[str, object]] = []
         for row in rows:
             value = row.get("value_ref")
             if not isinstance(value, str) or not value:
                 continue
             try:
-                value = _share_value(anon, str(row["ioc_type"]), value)
+                if bool(peer.get("require_anonymization", True)) or str(row["ioc_type"]) in {"email", "ipv4", "ipv6", "url"}:
+                    value = _share_value(anon, str(row["ioc_type"]), value)
+                export_rows.append({**row, "value_ref": value})
             except ValueError:
                 continue
-            export_rows.append({**row, "value_ref": value})
 
         payload = bundle_from_indicators(export_rows)
         digest = hashlib.sha256(payload).hexdigest()
@@ -202,14 +228,14 @@ class FederationExchange:
             await supabase.insert_one(
                 "fed_shares",
                 {"peer_id": str(peer_id), "direction": "outbound", "ioc_count": len(export_rows),
-                 "categories": categories, "anonymized": anon is not None, "status": "failed",
+                 "categories": categories, "anonymized": True, "status": "failed",
                  "error": str(exc)[:500], "payload_sha256": digest},
             )
             raise
         await supabase.insert_one(
             "fed_shares",
             {"peer_id": str(peer_id), "direction": "outbound", "ioc_count": len(export_rows),
-             "categories": categories, "anonymized": anon is not None, "status": "success",
+             "categories": categories, "anonymized": True, "status": "success",
              "payload_sha256": digest},
         )
         await supabase.update("federation_peers", {"last_share_at": datetime.now(timezone.utc).isoformat()}, id=str(peer_id))
