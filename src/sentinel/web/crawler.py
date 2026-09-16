@@ -13,7 +13,7 @@ import httpx
 
 logger = logging.getLogger(__name__)
 EMAIL_RE = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}")
-URL_RE = re.compile(r"https?://[^\s<>\"']+")
+URL_RE = re.compile(r"https?://[^\s<>\"']+", re.I)
 WALLET_RE = re.compile(r"\b(?:bc1[a-z0-9]{25,62}|[13][a-km-zA-HJ-NP-Z1-9]{25,34}|0x[a-fA-F0-9]{40})\b")
 CRED_PAIR_RE = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}:[^\s<>&]{6,64}")
 
@@ -160,12 +160,15 @@ class WebCrawler:
         urls = tuple(dict.fromkeys(URL_RE.findall(text)))[:200]
         wallets = tuple(dict.fromkeys(WALLET_RE.findall(text)))[:50]
         credentials = len(CRED_PAIR_RE.findall(text))
+        # Preserve provenance via the original content hash, but never expose
+        # recovered credential pairs through the WebPage body to downstream code.
+        redacted_body = CRED_PAIR_RE.sub(lambda m: m.group(0).split(":", 1)[0] + ":[REDACTED]", text).encode("utf-8")
         return WebPage(
             url=str(response.url),
             content_hash=hashlib.sha256(body).hexdigest(),
             status_code=response.status_code,
             content_type=content_type[:120],
-            body=body,
+            body=redacted_body[: self.max_bytes],
             emails=emails,
             urls=urls,
             wallets=wallets,
