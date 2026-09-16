@@ -24,27 +24,14 @@ class EvidencePackBuilder:
         evidence = await self._evidence(tenant_id, framework, start, end)
         attestations = await self._attestations(tenant_id, start)
         audit = await self._audit(tenant_id, start, end)
-        body = {
-            "schema_version": "1.0",
-            "generated_at": end.isoformat(),
-            "tenant_id": str(tenant_id),
-            "framework": FRAMEWORKS[framework],
-            "framework_id": framework,
-            "period": {"start": start.isoformat(), "end": end.isoformat()},
-            "controls": controls,
-            "control_status": statuses,
-            "evidence": evidence,
-            "attestations": attestations,
-            "audit_extract": audit,
-        }
-        manifest = json.dumps(body, sort_keys=True, separators=(",", ":"), default=str).encode()
-        digest = hashlib.sha256(manifest).hexdigest()
+        body = {"schema_version":"1.0","generated_at":end.isoformat(),"tenant_id":str(tenant_id),"framework":FRAMEWORKS[framework],"framework_id":framework,"period":{"start":start.isoformat(),"end":end.isoformat()},"controls":controls,"control_status":statuses,"evidence":evidence,"attestations":attestations,"audit_extract":audit}
+        canonical = json.dumps(body, sort_keys=True, separators=(",", ":"), default=str).encode()
+        digest = hashlib.sha256(canonical).hexdigest()
         signature = sign_digest(digest)
-        pack_manifest = {**body, "pack_sha256": digest, "signature": signature.signature_b64, "signer_kid": signature.kid}
-        manifest_bytes = json.dumps(pack_manifest, sort_keys=True, indent=2, default=str).encode()
+        manifest = {**body,"pack_sha256":digest,"signature":signature.signature_b64,"signer_kid":signature.kid}
         buf = io.BytesIO()
         with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
-            z.writestr("manifest.json", manifest_bytes)
+            z.writestr("manifest.json", json.dumps(manifest, sort_keys=True, indent=2, default=str).encode())
             z.writestr("controls.json", json.dumps(controls, indent=2, default=str).encode())
             z.writestr("control_status.json", json.dumps(statuses, indent=2, default=str).encode())
             z.writestr("evidence.json", json.dumps(evidence, indent=2, default=str).encode())
@@ -58,11 +45,9 @@ class EvidencePackBuilder:
         passing = sum(s.get("status") == "passing" for s in statuses)
         total = len(controls)
         score = sum(float(s.get("score", 0)) for s in statuses) / total if total else 0.0
-        snapshot = {"tenant_id": str(tenant_id), "framework_id": framework, "period_start": start.isoformat(), "period_end": end.isoformat(), "status": "ready", "overall_score": round(score, 4), "controls_passing": passing, "controls_total": total, "pack_path": object_ref, "pack_sha256": pack_sha, "signature": signature.signature_b64, "signer_kid": signature.kid, "generated_by": str(generated_by) if generated_by else None}
+        snapshot = {"tenant_id":str(tenant_id),"framework_id":framework,"period_start":start.isoformat(),"period_end":end.isoformat(),"status":"ready","overall_score":round(score,4),"controls_passing":passing,"controls_total":total,"pack_path":object_ref,"pack_sha256":pack_sha,"signature":signature.signature_b64,"signer_kid":signature.kid,"generated_by":str(generated_by) if generated_by else None}
         await self._insert("compliance_evidence_snapshots", snapshot)
-        # Keep the existing compliance_packs ledger in sync for compatibility.
-        await self._insert("compliance_packs", {"tenant_id": str(tenant_id), "run_id": str(UUID(int=0)), "framework": framework, "period_start": start.isoformat(), "period_end": end.isoformat(), "status": "ready", "object_ref": object_ref, "sha256": pack_sha, "signature": signature.signature_b64, "signer_kid": signature.kid, "metadata": {"snapshot": True}})
-        return {"framework": framework, "period_start": start.isoformat(), "period_end": end.isoformat(), "pack_sha256": pack_sha, "signature": signature.signature_b64, "signer_kid": signature.kid, "object_ref": object_ref, "controls_total": total, "controls_passing": passing, "overall_score": round(score, 4)}
+        return {"snapshot":snapshot,"framework":framework,"pack_sha256":pack_sha,"signature":signature.signature_b64,"signer_kid":signature.kid,"object_ref":object_ref,"controls_total":total,"controls_passing":passing,"overall_score":round(score,4)}
 
     async def _controls(self, framework: str) -> list[dict]:
         async def _do():
@@ -70,12 +55,11 @@ class EvidencePackBuilder:
         return list((await supabase._retry(_do, attempts=2)).data or [])
 
     async def _statuses(self, tenant_id: UUID, framework: str) -> list[dict]:
-        async def _do():
-            return await (await supabase._ensure()).table("compliance_control_status").select("control_id,status,score,last_evaluated,evidence").eq("tenant_id", str(tenant_id)).execute()
-        rows = list((await supabase._retry(_do, attempts=2)).data or [])
         controls = await self._controls(framework)
         ids = {r["id"] for r in controls}
-        return [r for r in rows if r["control_id"] in ids]
+        async def _do():
+            return await (await supabase._ensure()).table("compliance_control_status").select("control_id,status,score,last_evaluated,evidence").eq("tenant_id", str(tenant_id)).execute()
+        return [r for r in ((await supabase._retry(_do, attempts=2)).data or []) if r["control_id"] in ids]
 
     async def _evidence(self, tenant_id: UUID, framework: str, start: datetime, end: datetime) -> list[dict]:
         async def _do():
@@ -99,13 +83,13 @@ class EvidencePackBuilder:
         async def _do():
             client = await supabase._ensure()
             try:
-                return await client.storage.from_("compliance").upload(path, data, {"content-type": "application/zip", "upsert": "false"})
+                return await client.storage.from_("compliance").upload(path, data, {"content-type":"application/zip","upsert":"false"})
             except Exception:
                 try:
-                    await client.storage.create_bucket("compliance", {"public": False})
+                    await client.storage.create_bucket("compliance", {"public":False})
                 except Exception:
                     pass
-                return await client.storage.from_("compliance").upload(path, data, {"content-type": "application/zip", "upsert": "false"})
+                return await client.storage.from_("compliance").upload(path, data, {"content-type":"application/zip","upsert":"false"})
         await supabase._retry(_do, attempts=3)
 
     async def _insert(self, table: str, row: dict) -> None:
@@ -115,4 +99,4 @@ class EvidencePackBuilder:
 
     @staticmethod
     def _readme(framework: str, start: datetime, end: datetime) -> str:
-        return f"Sentinel Compliance Evidence Pack\nFramework: {framework}\nPeriod: {start.isoformat()} to {end.isoformat()}\n\nThe pack contains automated evidence summaries, control status, attestations, and a bounded audit extract. Sentinel evidence automation is not legal certification or an auditor's opinion.\n"
+        return f"Sentinel Compliance Evidence Pack\nFramework: {framework}\nPeriod: {start.isoformat()} to {end.isoformat()}\n\nThis pack contains automated evidence summaries and cryptographic integrity metadata. It is not legal certification or an auditor's opinion.\n"
