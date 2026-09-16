@@ -4,6 +4,7 @@ import hashlib
 import ipaddress
 import logging
 import re
+import socket
 from dataclasses import dataclass
 from urllib.parse import urljoin, urlsplit
 from urllib.robotparser import RobotFileParser
@@ -41,23 +42,26 @@ class RobotsCache:
         if parser is None:
             parser = RobotFileParser(urljoin(root, "/robots.txt"))
             try:
-                async with httpx.AsyncClient(timeout=5.0, follow_redirects=True) as client:
+                async with httpx.AsyncClient(timeout=5.0, follow_redirects=False) as client:
                     response = await client.get(parser.url, headers={"user-agent": user_agent})
-                    response.raise_for_status()
+                    if response.status_code in {401, 403}:
+                        return False
+                    if response.status_code >= 400:
+                        return False
                     parser.parse(response.text.splitlines())
             except Exception:
-                # A robots failure is not an authorization grant. Fail closed for
-                # customer-configured crawling when robots are requested.
                 return False
             cls._cache[root] = parser
         return parser.can_fetch(user_agent, url)
 
 
 class WebCrawler:
-    """Bounded HTTP crawler for explicitly configured public/authorized targets.
+    """Bounded crawler for explicitly configured public/authorized targets.
 
     It never submits credentials, bypasses authentication, or stores credential
-    values. Dark-web .onion targets require an explicitly configured Tor proxy.
+    values. Redirects are validated before following so a public URL cannot
+    pivot the crawler into a private/link-local network. Onion targets require
+    an explicitly configured Tor proxy.
     """
 
     USER_AGENT = "SentinelBot/1.0"
@@ -79,7 +83,7 @@ class WebCrawler:
             seen.add(current)
             if respect_robots and layer != "dark" and not await RobotsCache.allowed(current, self.USER_AGENT):
                 continue
-            page = await self._fetch(current, layer)
+            page, final_url = await self._fetch(current, layer)
             if page is None:
                 continue
             results.append(page)
@@ -93,8 +97,8 @@ class WebCrawler:
                     queue.append((link, current_depth + 1))
         return results
 
-    @staticmethod
-    def _validate_target(url: str, layer: str) -> None:
+    @classmethod
+    def _validate_target(cls, url: str, layer: str) -> None:
         if layer not in {"surface", "deep", "dark"}:
             raise ValueError("invalid exposure layer")
         parsed = urlsplit(url)
@@ -105,39 +109,57 @@ class WebCrawler:
             raise ValueError("dark-layer crawl targets must use an onion hostname")
         if host.endswith(".onion") and layer != "dark":
             raise ValueError("onion targets must be classified as dark")
-        try:
-            ip = ipaddress.ip_address(host)
-            if ip.is_private or ip.is_loopback or ip.is_link_local:
-                raise ValueError("private network targets are not permitted")
-        except ValueError as exc:
-            if str(exc) == "private network targets are not permitted":
-                raise
+        cls._reject_private_host(host)
 
-    async def _fetch(self, url: str, layer: str) -> WebPage | None:
+    @staticmethod
+    def _reject_private_host(host: str) -> None:
+        try:
+            addresses = {ipaddress.ip_address(host)}
+        except ValueError:
+            try:
+                addresses = {ipaddress.ip_address(item[4][0]) for item in socket.getaddrinfo(host, None, type=socket.SOCK_STREAM)}
+            except socket.gaierror as exc:
+                raise ValueError("target hostname cannot be resolved") from exc
+        for ip in addresses:
+            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_reserved:
+                raise ValueError("private or non-public network targets are not permitted")
+
+    async def _fetch(self, url: str, layer: str) -> tuple[WebPage | None, str | None]:
         parsed = urlsplit(url)
+        self._validate_target(url, layer)
         kwargs = {
             "timeout": 20.0,
-            "follow_redirects": True,
+            "follow_redirects": False,
             "headers": {"user-agent": self.USER_AGENT, "accept": "text/html,text/plain,application/json;q=0.9,*/*;q=0.1"},
         }
         if parsed.hostname and parsed.hostname.endswith(".onion"):
             if not self.tor_proxy:
                 logger.warning("dark target skipped because no Tor proxy is configured")
-                return None
+                return None, None
             kwargs["proxy"] = self.tor_proxy
         try:
             async with httpx.AsyncClient(**kwargs) as client:
                 response = await client.get(url)
+                redirects = 0
+                while response.status_code in {301, 302, 303, 307, 308} and redirects < 5:
+                    location = response.headers.get("location")
+                    if not location:
+                        break
+                    next_url = urljoin(str(response.url), location)
+                    self._validate_target(next_url, layer)
+                    if respect_same_origin := ((urlsplit(next_url).hostname or "").lower() != (urlsplit(url).hostname or "").lower()):
+                        raise ValueError("cross-origin redirects are not permitted")
+                    response = await client.get(next_url)
+                    redirects += 1
                 body = response.content[: self.max_bytes]
         except Exception as exc:
             logger.info("web fetch failed target=%s layer=%s error=%s", url, layer, type(exc).__name__)
-            return None
+            return None, None
         content_type = response.headers.get("content-type", "")
         text = body.decode("utf-8", errors="ignore")
         emails = tuple(dict.fromkeys(EMAIL_RE.findall(text)))[:200]
         urls = tuple(dict.fromkeys(URL_RE.findall(text)))[:200]
         wallets = tuple(dict.fromkeys(WALLET_RE.findall(text)))[:50]
-        # Count only; never persist or emit the password component of a pair.
         credentials = len(CRED_PAIR_RE.findall(text))
         return WebPage(
             url=str(response.url),
@@ -149,4 +171,4 @@ class WebCrawler:
             urls=urls,
             wallets=wallets,
             credential_indicators=credentials,
-        )
+        ), str(response.url)
