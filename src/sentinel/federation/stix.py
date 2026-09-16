@@ -34,7 +34,10 @@ def _canonical_value(ioc_type: str, value: str) -> str:
     raise ValueError(f"unsupported IOC type: {ioc_type}")
 
 
-def _value_hash(ioc_type: str, value: str) -> str:
+def canonical_ioc_hash(ioc_type: str, value: str) -> str:
+    """Return the federation value_hash for the canonical IOC representation."""
+    if ioc_type not in SUPPORTED_TYPES:
+        raise ValueError(f"unsupported IOC type: {ioc_type}")
     return hashlib.sha256(_canonical_value(ioc_type, value).encode("utf-8")).hexdigest()
 
 
@@ -60,8 +63,7 @@ def indicator_to_stix(indicator: dict[str, Any], *, source_name: str = "Sentinel
         raise ValueError("unsupported IOC type or invalid value_hash")
     if not isinstance(value_ref, str) or not value_ref:
         raise ValueError("value_ref is required to export an indicator")
-    canonical_hash = _value_hash(ioc_type, value_ref)
-    if canonical_hash != value_hash:
+    if canonical_ioc_hash(ioc_type, value_ref) != value_hash:
         raise ValueError("value_ref does not match value_hash")
     now = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
     created = str(indicator.get("created_at") or now)
@@ -106,16 +108,16 @@ def parse_stix_bundle(payload: bytes | str) -> list[dict[str, Any]]:
         if not ioc_type or (ioc_type == "sha256" and property_name != "hashes.'SHA-256'") or (ioc_type != "sha256" and property_name != "value"):
             continue
         try:
-            canonical_hash = _value_hash(ioc_type, value)
+            value_hash = canonical_ioc_hash(ioc_type, value)
         except ValueError:
             continue
         external = obj.get("external_references") or []
         supplied_hash = next((str(ref.get("external_id")) for ref in external if isinstance(ref, dict) and _SHA256.fullmatch(str(ref.get("external_id", "")))), None)
-        if supplied_hash is not None and supplied_hash != canonical_hash:
+        if supplied_hash is not None and supplied_hash != value_hash:
             continue
         result.append({
             "stix_id": obj.get("id"), "ioc_type": ioc_type, "value_ref": value,
-            "value_hash": canonical_hash, "confidence": float(obj.get("confidence", 50)) / 100.0,
+            "value_hash": value_hash, "confidence": float(obj.get("confidence", 50)) / 100.0,
             "category": (obj.get("labels") or ["threat-intelligence"])[0], "source": "stix",
         })
     return result
