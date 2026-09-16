@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import ipaddress
+import re
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, Iterable
-from uuid import UUID
+from uuid import NAMESPACE_URL, UUID, uuid5
 
 from sentinel.federation.stix import SUPPORTED_TYPES, canonical_ioc_hash
 from sentinel.storage.supabase_client import supabase
@@ -123,9 +126,10 @@ class FederationDetectionPromoter:
         observations: Iterable[dict[str, Any]],
         limit: int = 100,
     ) -> list[UUID]:
+        observation_list = list(observations)
         matches = await self.find_matches(
             tenant_id=tenant_id,
-            observations=observations,
+            observations=observation_list,
             limit=limit,
         )
         if not matches:
@@ -133,7 +137,7 @@ class FederationDetectionPromoter:
 
         by_hash = {
             canonical_ioc_hash(str(item.get("ioc_type")), str(item.get("value"))): item
-            for item in observations
+            for item in observation_list
             if item.get("ioc_type") in SUPPORTED_TYPES and isinstance(item.get("value"), str)
         }
         detections: list[UUID] = []
@@ -149,3 +153,74 @@ class FederationDetectionPromoter:
                 observation=observation,
             ))
         return detections
+
+
+def canonical_event_uuid(event_id: str) -> UUID:
+    """Map the agent's stable event identifier into the canonical events UUID."""
+    try:
+        return UUID(str(event_id))
+    except (ValueError, TypeError, AttributeError):
+        return uuid5(NAMESPACE_URL, f"sentinel:endpoint-event:{event_id}")
+
+
+def extract_federation_observations(
+    *,
+    kind: str,
+    image: str | None,
+    command_line: str | None,
+    remote_address: str | None,
+    payload: dict[str, Any],
+) -> list[dict[str, str]]:
+    """Extract bounded IOC candidates from canonical endpoint telemetry.
+
+    Only normalized public indicators are emitted. The promotion path stores
+    hashes/evidence, not these raw values, and matching still requires a
+    verified, non-whitelisted federation indicator.
+    """
+    values: list[str] = []
+
+    def collect(value: Any, depth: int = 0) -> None:
+        if depth > 3 or len(values) >= 128:
+            return
+        if isinstance(value, str):
+            values.append(value[:8192])
+        elif isinstance(value, dict):
+            for item in value.values():
+                collect(item, depth + 1)
+        elif isinstance(value, (list, tuple)):
+            for item in value[:32]:
+                collect(item, depth + 1)
+
+    collect(image)
+    collect(command_line)
+    collect(remote_address)
+    collect(payload)
+
+    observations: dict[tuple[str, str], dict[str, str]] = {}
+    sha_re = re.compile(r"(?<![0-9a-f])[0-9a-f]{64}(?![0-9a-f])", re.I)
+    url_re = re.compile(r"https?://[^\s'\"<>]+", re.I)
+    email_re = re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.I)
+    domain_re = re.compile(r"(?<![@A-Za-z0-9_-])(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}(?![A-Za-z0-9_-])", re.I)
+    ip_re = re.compile(r"(?<![0-9])(?:\d{1,3}\.){3}\d{1,3}(?![0-9])")
+
+    for text in values:
+        for value in sha_re.findall(text):
+            observations[('sha256', value.lower())] = {'ioc_type': 'sha256', 'value': value.lower(), 'source': kind}
+        for value in url_re.findall(text):
+            observations[('url', value)] = {'ioc_type': 'url', 'value': value, 'source': kind}
+        for value in email_re.findall(text):
+            observations[('email', value)] = {'ioc_type': 'email', 'value': value, 'source': kind}
+        for value in ip_re.findall(text):
+            try:
+                ip = ipaddress.ip_address(value)
+            except ValueError:
+                continue
+            if ip.version == 4 and not (ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_reserved):
+                observations[('ipv4', value)] = {'ioc_type': 'ipv4', 'value': value, 'source': kind}
+        for value in domain_re.findall(text):
+            lowered = value.lower()
+            if lowered.endswith((".local", ".internal", ".corp", ".test", ".invalid")):
+                continue
+            observations[('domain', lowered)] = {'ioc_type': 'domain', 'value': lowered, 'source': kind}
+
+    return list(observations.values())
