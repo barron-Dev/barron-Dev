@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit, urlunsplit
-from urllib.request import Request, build_opener
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 from uuid import UUID
 
 from sentinel.federation.anon import FederationAnonymizer
@@ -44,6 +44,24 @@ def _public_host(host: str) -> None:
     for value in addresses:
         if not ipaddress.ip_address(value).is_global:
             raise ValueError("peer endpoint must resolve to a public address")
+
+
+def _validated_redirect(url: str) -> str:
+    parsed = urlsplit(url)
+    if parsed.scheme.lower() != "https" or parsed.username or parsed.password or not parsed.hostname:
+        raise ValueError("peer endpoint redirected to an invalid URL")
+    if parsed.port not in (None, 443):
+        raise ValueError("peer endpoint redirect must use port 443")
+    _public_host(parsed.hostname)
+    return url
+
+
+class _SafeRedirectHandler(HTTPRedirectHandler):
+    """Allow HTTPS redirects only when the redirected host is also public."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # type: ignore[override]
+        _validated_redirect(newurl)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
 def _endpoint(peer: dict[str, object]) -> str:
@@ -90,9 +108,10 @@ def _request(url: str, *, method: str, token: str | None, payload: bytes | None 
         headers["Content-Type"] = "application/stix+json;version=2.1"
     response_request = Request(url, data=payload, headers=headers, method=method)
     try:
-        with build_opener().open(response_request, timeout=_TIMEOUT) as response:
-            if not response.geturl().lower().startswith("https://"):
-                raise ValueError("peer endpoint redirected to a non-HTTPS URL")
+        opener = build_opener(_SafeRedirectHandler())
+        with opener.open(response_request, timeout=_TIMEOUT) as response:
+            final_url = response.geturl()
+            _validated_redirect(final_url)
             body = response.read(_MAX_PAYLOAD + 1)
             if len(body) > _MAX_PAYLOAD:
                 raise ValueError("peer response exceeds federation payload limit")
@@ -204,9 +223,6 @@ class FederationExchange:
             return await q.execute()
 
         rows = list((await supabase._retry(_load, attempts=2)).data or [])
-        # Minimisation is always applied to sensitive indicator types. The peer flag
-        # controls whether the general exchange requires it, but never permits raw
-        # tenant-identifying email/IP/URL data to leave the platform.
         anon = FederationAnonymizer()
         export_rows: list[dict[str, object]] = []
         for row in rows:
@@ -214,7 +230,9 @@ class FederationExchange:
             if not isinstance(value, str) or not value:
                 continue
             try:
-                if bool(peer.get("require_anonymization", True)) or str(row["ioc_type"]) in {"email", "ipv4", "ipv6", "url"}:
+                # The peer flag controls general minimisation, but sensitive
+                # tenant-derived types are always minimised before leaving Sentinel.
+                if bool(peer.get("require_anonymization", True)) or str(row["ioc_type"]) in {"email", "ipv4", "ipv6", "url", "domain"}:
                     value = _share_value(anon, str(row["ioc_type"]), value)
                 export_rows.append({**row, "value_ref": value})
             except ValueError:
