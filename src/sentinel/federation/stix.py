@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import ipaddress
 import json
 import re
 from datetime import datetime, timezone
@@ -15,6 +16,26 @@ _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 
 def _stix_id(kind: str, ioc_type: str, value_hash: str) -> str:
     return f"{kind}--{uuid5(STIX_NS, f'{ioc_type}:{value_hash}')}"
+
+
+def _canonical_value(ioc_type: str, value: str) -> str:
+    value = value.strip()
+    if not value:
+        raise ValueError("indicator value is empty")
+    if ioc_type == "sha256":
+        value = value.lower()
+        if not _SHA256.fullmatch(value):
+            raise ValueError("sha256 IOC value must be lowercase SHA-256 hex")
+        return value
+    if ioc_type in {"domain", "email", "url", "ja3", "btc_address", "mutex"}:
+        return value.lower()
+    if ioc_type in {"ipv4", "ipv6"}:
+        return str(ipaddress.ip_address(value))
+    raise ValueError(f"unsupported IOC type: {ioc_type}")
+
+
+def _value_hash(ioc_type: str, value: str) -> str:
+    return hashlib.sha256(_canonical_value(ioc_type, value).encode("utf-8")).hexdigest()
 
 
 def _pattern_for(ioc_type: str, value: str) -> str:
@@ -39,6 +60,9 @@ def indicator_to_stix(indicator: dict[str, Any], *, source_name: str = "Sentinel
         raise ValueError("unsupported IOC type or invalid value_hash")
     if not isinstance(value_ref, str) or not value_ref:
         raise ValueError("value_ref is required to export an indicator")
+    canonical_hash = _value_hash(ioc_type, value_ref)
+    if canonical_hash != value_hash:
+        raise ValueError("value_ref does not match value_hash")
     now = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
     created = str(indicator.get("created_at") or now)
     modified = str(indicator.get("last_seen") or created)
@@ -79,9 +103,19 @@ def parse_stix_bundle(payload: bytes | str) -> list[dict[str, Any]]:
         value = value.replace("\\'", "'").replace("\\\\", "\\")
         field_map = {"file": "sha256", "domain-name": "domain", "ipv4-addr": "ipv4", "ipv6-addr": "ipv6", "url": "url", "email-addr": "email", "x-sentinel-ja3": "ja3", "x-sentinel-btc-address": "btc_address", "x-sentinel-mutex": "mutex"}
         ioc_type = field_map.get(field)
-        if not ioc_type or (ioc_type == "sha256" and property_name != "hashes.'SHA-256'"):
+        if not ioc_type or (ioc_type == "sha256" and property_name != "hashes.'SHA-256'") or (ioc_type != "sha256" and property_name != "value"):
+            continue
+        try:
+            canonical_hash = _value_hash(ioc_type, value)
+        except ValueError:
             continue
         external = obj.get("external_references") or []
-        value_hash = next((str(ref.get("external_id")) for ref in external if isinstance(ref, dict) and _SHA256.fullmatch(str(ref.get("external_id", "")))), hashlib.sha256(f"{ioc_type}:{value}".encode()).hexdigest())
-        result.append({"stix_id": obj.get("id"), "ioc_type": ioc_type, "value_ref": value, "value_hash": value_hash, "confidence": float(obj.get("confidence", 50)) / 100.0, "category": (obj.get("labels") or ["threat-intelligence"])[0], "source": "stix"})
+        supplied_hash = next((str(ref.get("external_id")) for ref in external if isinstance(ref, dict) and _SHA256.fullmatch(str(ref.get("external_id", "")))), None)
+        if supplied_hash is not None and supplied_hash != canonical_hash:
+            continue
+        result.append({
+            "stix_id": obj.get("id"), "ioc_type": ioc_type, "value_ref": value,
+            "value_hash": canonical_hash, "confidence": float(obj.get("confidence", 50)) / 100.0,
+            "category": (obj.get("labels") or ["threat-intelligence"])[0], "source": "stix",
+        })
     return result
