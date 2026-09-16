@@ -1,0 +1,3 @@
+-- Physical-digital convergence schema. Applied as physical_digital_convergence.
+-- Keep this migration source synchronized with the live schema.
+-- The live migration uses the same objects plus production RLS/tenant validation.
