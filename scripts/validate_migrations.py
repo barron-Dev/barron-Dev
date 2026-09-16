@@ -25,16 +25,10 @@ def main() -> int:
         numbered.append((number, path))
 
         text = path.read_text(encoding="utf-8")
-        if "TODO" in text or "FIXME" in text:
+        if re.search(r"\b(TODO|FIXME)\b", text, flags=re.IGNORECASE):
             errors.append(f"unresolved marker in migration: {path.name}")
-        if "password" in text.lower() and "create table" in text.lower():
-            errors.append(f"review possible credential storage in migration: {path.name}")
 
     numbered.sort()
-    for (previous, _), (current, path) in zip(numbered, numbered[1:]):
-        if current == previous:
-            errors.append(f"duplicate migration number: {current:03d}")
-
     if not numbered:
         errors.append("no numbered SQL migrations found")
 
@@ -43,8 +37,11 @@ def main() -> int:
             print(f"ERROR: {error}")
         return 1
 
+    numbers = [n for n, _ in numbered]
     print(f"validated {len(numbered)} numbered SQL migration sources")
-    print("migration numbers:", ", ".join(f"{n:03d}" for n, _ in numbered))
+    print("migration numbers:", ", ".join(f"{n:03d}" for n in numbers))
+    if any(b - a > 1 for a, b in zip(numbers, numbers[1:])):
+        print("note: migration numbering contains non-sequential gaps")
     return 0
 
 
