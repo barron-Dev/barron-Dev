@@ -44,6 +44,14 @@ async def controls(framework: str = Query(min_length=2, max_length=32), principa
     except ComplianceError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
 
+@router.get("/assurance")
+async def assurance(framework: str = Query(min_length=2, max_length=32), period_start: datetime = Query(...), period_end: datetime = Query(...), principal: DeveloperPrincipal = Depends(authenticate_request)) -> dict:
+    principal.require(("compliance:read",))
+    try:
+        return await _service.assurance(UUID(principal.tenant_id), framework, period_start, period_end)
+    except ComplianceError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+
 @router.post("/runs", status_code=status.HTTP_201_CREATED)
 async def run_compliance(body: ComplianceRunRequest, principal: DeveloperPrincipal = Depends(authenticate_request)) -> dict:
     principal.require(("compliance:run",))
@@ -105,7 +113,7 @@ async def download_pack(snapshot_id: UUID, principal: DeveloperPrincipal = Depen
         async def _dl():
             return await (await supabase._ensure()).storage.from_("compliance").download(rows[0]["pack_path"])
         data = await supabase._retry(_dl, attempts=3)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, "storage error") from exc
     if hashlib.sha256(data).hexdigest() != rows[0]["pack_sha256"]:
         raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "stored pack integrity check failed")
@@ -136,7 +144,7 @@ async def attest(body: AttestRequest, principal: DeveloperPrincipal = Depends(au
         return await (await supabase._ensure()).table("compliance_attestations").insert(row).execute()
     try:
         return ((await supabase._retry(_insert, attempts=2)).data or [{}])[0]
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "attestation persistence failed") from exc
 
 async def _owner_user_id(principal: DeveloperPrincipal) -> UUID | None:
