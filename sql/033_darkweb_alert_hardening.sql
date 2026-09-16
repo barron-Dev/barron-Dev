@@ -1,10 +1,6 @@
 -- Sentinel Dark Web Monitoring: atomic alert/detection ingestion.
--- Findings and alerts are tenant-bound and detection creation is idempotent.
+-- Findings and alerts are tenant-bound and detection creation is race-safe.
 -- Case creation remains owned by the existing AutoCase engine/rules.
-
-create unique index if not exists detections_darkweb_finding_unique
-    on public.detections (tenant_id, detector, ((evidence ->> 'finding_id')))
-    where detector = 'darkweb' and evidence ? 'finding_id';
 
 create unique index if not exists dw_alerts_watch_finding_unique
     on public.dw_alerts(watchlist_id, finding_id);
@@ -30,10 +26,12 @@ declare
     v_alert uuid;
     v_detection uuid;
     v_watch_tenant uuid;
+    v_existing_score real;
     v_score real;
     v_verdict text;
     v_title text;
     v_severity text;
+    v_existing_verdict text;
 begin
     if p_source_id is null or length(trim(p_source_id)) = 0 then
         raise exception 'invalid source';
@@ -127,34 +125,50 @@ begin
         end;
         v_verdict := case when v_severity = 'critical' then 'malicious' else 'suspicious' end;
 
-        -- Detection is the durable bridge into the existing Detection ->
-        -- Playbook/AutoCase pipeline. We deliberately do not create a case here:
-        -- AutoCase rules remain the policy boundary for automatic case creation.
-        insert into public.detections(
-            tenant_id, device_id, event_id, detector, score, verdict, reasons,
-            evidence, mitre_technique, processed_by_playbooks, processed_by_autocase
-        )
-        values (
-            p_tenant_id, null, null, 'darkweb', v_score, v_verdict,
-            array['external_exposure','darkweb_watchlist_match'],
-            jsonb_build_object(
-                'alert_id', v_alert,
-                'finding_id', v_finding,
-                'source_id', p_source_id,
-                'kind', p_kind
-            ),
-            null, false, false
-        )
-        on conflict (tenant_id, detector, ((evidence ->> 'finding_id')))
-            where detector = 'darkweb' and evidence ? 'finding_id'
-        do update set
-            score = greatest(public.detections.score, excluded.score),
-            verdict = case
-                when public.detections.verdict = 'malicious' or excluded.verdict = 'malicious' then 'malicious'
-                else 'suspicious'
-            end,
-            evidence = public.detections.evidence || excluded.evidence
-        returning id into v_detection;
+        -- Serialize repeated ingestion for this tenant/finding. This avoids
+        -- duplicate detections without requiring a risky global unique index
+        -- over a JSON expression that may already have historical duplicates.
+        perform pg_advisory_xact_lock(
+            hashtextextended(format('%s:%s', p_tenant_id::text, v_finding::text), 0)
+        );
+
+        select d.id, d.score, d.verdict
+          into v_detection, v_existing_score, v_existing_verdict
+          from public.detections d
+         where d.tenant_id = p_tenant_id
+           and d.detector = 'darkweb'
+           and d.evidence ->> 'finding_id' = v_finding::text
+         order by d.created_at
+         limit 1
+         for update;
+
+        if v_detection is null then
+            insert into public.detections(
+                tenant_id, device_id, event_id, detector, score, verdict, reasons,
+                evidence, mitre_technique, processed_by_playbooks, processed_by_autocase
+            )
+            values (
+                p_tenant_id, null, null, 'darkweb', v_score, v_verdict,
+                array['external_exposure','darkweb_watchlist_match'],
+                jsonb_build_object(
+                    'alert_id', v_alert,
+                    'finding_id', v_finding,
+                    'source_id', p_source_id,
+                    'kind', p_kind
+                ),
+                null, false, false
+            )
+            returning id into v_detection;
+        else
+            update public.detections
+               set score = greatest(coalesce(v_existing_score, 0), v_score),
+                   verdict = case
+                       when v_existing_verdict = 'malicious' or v_verdict = 'malicious' then 'malicious'
+                       else 'suspicious'
+                   end,
+                   evidence = evidence || jsonb_build_object('alert_id', v_alert, 'source_id', p_source_id, 'kind', p_kind)
+             where id = v_detection;
+        end if;
     end if;
 
     return query select v_finding, v_alert, v_detection;
