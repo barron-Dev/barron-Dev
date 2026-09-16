@@ -11,7 +11,7 @@ from sentinel.developer.auth import DeveloperPrincipal, authenticate_request
 from sentinel.federation.anon import FederationAnonymizer
 from sentinel.federation.exchange import FederationExchange
 from sentinel.federation.reputation import FederationReputation
-from sentinel.federation.stix import bundle_from_indicators, parse_stix_bundle
+from sentinel.federation.stix import bundle_from_indicators, canonical_ioc_hash, parse_stix_bundle
 from sentinel.storage.supabase_client import supabase
 
 router = APIRouter(prefix="/federation", tags=["threat-intelligence-federation"])
@@ -110,16 +110,12 @@ async def update_peer_status(peer_id: UUID, body: PeerStatusUpdate, principal: D
     tenant_id = _require(principal, "federation:manage")
 
     async def _load():
-        return await (await supabase._ensure()).table("federation_peers").select(
-            "id,tenant_id,kind"
-        ).eq("id", str(peer_id)).limit(1).execute()
+        return await (await supabase._ensure()).table("federation_peers").select("id,tenant_id,kind").eq("id", str(peer_id)).limit(1).execute()
 
     rows = (await supabase._retry(_load, attempts=2)).data or []
     if not rows:
         raise HTTPException(404, "peer not found")
     peer = rows[0]
-    # External CERT/ISAC/vendor/research peers are platform-managed integration
-    # identities. A tenant may only mutate its own tenant peer.
     if peer.get("kind") != "tenant" or peer.get("tenant_id") != tenant_id:
         raise HTTPException(403, "external peers are platform-managed")
 
@@ -152,7 +148,7 @@ async def list_indicators(
 
     async def _do():
         q = (await supabase._ensure()).table("fed_indicators").select(
-            "id,source_peer_id,source_tenant,ioc_type,value_hash,value_ref,category,severity,confidence,sightings,distinct_peers,first_seen,last_seen,expires_at,verified,whitelisted,created_at"
+            "id,source_peer_id,source_tenant,ioc_type,value_hash,value_ref,category,severity,confidence,sightings,distinct_peers,verified,whitelisted,first_seen,last_seen,expires_at,created_at"
         )
         if ioc_type:
             q = q.eq("ioc_type", ioc_type)
@@ -206,6 +202,13 @@ async def ingest_indicator(body: IndicatorIngest, principal: DeveloperPrincipal 
         raise HTTPException(400, "invalid severity")
     if body.source_tenant is not None and str(body.source_tenant) != tenant_id:
         raise HTTPException(403, "source tenant must match authenticated tenant")
+    if body.value_ref is not None:
+        try:
+            expected_hash = canonical_ioc_hash(body.ioc_type, body.value_ref)
+        except ValueError as exc:
+            raise HTTPException(400, "invalid indicator value") from exc
+        if expected_hash != body.value_hash:
+            raise HTTPException(400, "value_ref does not match value_hash")
     value_ref = body.value_ref
     if value_ref and body.ioc_type in _SENSITIVE_IOC_TYPES:
         try:
@@ -252,7 +255,7 @@ async def ingest_stix(body: StixIngest, principal: DeveloperPrincipal = Depends(
     digest = hashlib.sha256(body.payload.encode("utf-8")).hexdigest()
     await supabase.insert_one("fed_shares", {
         "peer_id": str(body.peer_id), "direction": "inbound", "ioc_count": accepted,
-        "categories": sorted({str(x.get("category")) for x in parsed if x.get("category")} ),
+        "categories": sorted({str(x.get("category")) for x in parsed if x.get("category")}),
         "anonymized": True, "status": "success" if failures == 0 else ("partial" if accepted else "failed"),
         "error": None if failures == 0 else f"{failures} indicators rejected",
         "payload_sha256": digest,
@@ -269,13 +272,16 @@ async def export_stix(limit: int = Query(500, ge=1, le=5000), principal: Develop
     async def _do():
         return await (await supabase._ensure()).table("fed_indicators").select(
             "id,ioc_type,value_hash,value_ref,category,confidence,created_at,last_seen"
-        ).or_(f"source_tenant.eq.{tenant_id},source_tenant.is.null").eq("whitelisted", False).order("last_seen", desc=True).limit(limit).execute()
+        ).eq("source_tenant", tenant_id).eq("whitelisted", False).order("last_seen", desc=True).limit(limit).execute()
 
     indicators = list((await supabase._retry(_do, attempts=2)).data or [])
     if not indicators:
         empty = b"{}"
         return {"content_type": "application/stix+json;version=2.1", "sha256": hashlib.sha256(empty).hexdigest(), "bundle": {}}
-    payload = bundle_from_indicators(indicators)
+    try:
+        payload = bundle_from_indicators(indicators)
+    except ValueError as exc:
+        raise HTTPException(422, "one or more tenant indicators are not exportable") from exc
     return {"content_type": "application/stix+json;version=2.1", "sha256": hashlib.sha256(payload).hexdigest(), "bundle": payload.decode("utf-8")}
 
 
@@ -297,7 +303,7 @@ async def share_peer(peer_id: UUID, limit: int = Query(500, ge=1, le=5000), prin
     tenant_id = _require(principal, "federation:export")
     await _validate_active_peer(peer_id, tenant_id)
     try:
-        result = await _exchange.share_peer(peer_id=peer_id, limit=limit)
+        result = await _exchange.share_peer(peer_id=peer_id, tenant_id=UUID(tenant_id), limit=limit)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     except RuntimeError as exc:
@@ -313,3 +319,22 @@ async def peer_reputation(peer_id: UUID, principal: DeveloperPrincipal = Depends
     if reputation is None:
         raise HTTPException(404, "peer not found")
     return {"peer_id": str(reputation.peer_id), "reputation": reputation.reputation}
+
+
+@router.post("/poisoning/report")
+async def report_poisoning(body: BaseModel, principal: DeveloperPrincipal = Depends(authenticate_request)) -> dict[str, Any]:
+    tenant_id = _require(principal, "federation:manage")
+    data = body.model_dump()
+    try:
+        peer_id = UUID(str(data["peer_id"]))
+        ioc_hash = str(data["ioc_hash"])
+        reason = str(data["reason"])
+        details = data.get("details") or {}
+    except (KeyError, ValueError, TypeError) as exc:
+        raise HTTPException(400, "invalid poisoning report") from exc
+    await _validate_active_peer(peer_id, tenant_id)
+    try:
+        await _reputation.record_poisoning(peer_id=peer_id, ioc_hash=ioc_hash, reason=reason, reporter_tenant=UUID(tenant_id), details=details)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"reported": True}
