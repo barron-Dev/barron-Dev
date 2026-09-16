@@ -60,7 +60,8 @@ class DarkWebMatcher:
             return rows
 
         try:
-            matches = list(await supabase._retry(_lookup, attempts=2))
+            response = await supabase._retry(_lookup, attempts=2)
+            matches = list(response.data or []) if hasattr(response, "data") else list(response or [])
         except Exception:
             logger.exception("dark web watchlist lookup failed for kind=%s", kind)
             return {"matched": 0, "alerts": 0, "errors": 1}
