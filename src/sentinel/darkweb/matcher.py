@@ -123,7 +123,9 @@ class DarkWebMatcher:
 
 
 def max_severity(a: str, b: str) -> str:
-    """Return the higher known severity, failing closed to medium for unknown inputs."""
-    left = a if a in SEVERITY else "medium"
-    right = b if b in SEVERITY else "medium"
-    return left if SEVERITY[left] >= SEVERITY[right] else right
+    """Return the higher known severity, failing closed to the known medium baseline."""
+    left = a.strip().lower()
+    right = b.strip().lower()
+    left_known = left if left in SEVERITY else "medium"
+    right_known = right if right in SEVERITY else "medium"
+    return left_known if SEVERITY[left_known] >= SEVERITY[right_known] else right_known
