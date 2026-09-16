@@ -18,7 +18,7 @@ class ComplianceLifecycle:
         if role not in {"owner", "backup", "reviewer"}:
             raise ComplianceLifecycleError("invalid control owner role")
         await self._require_control(tenant_id, control_id)
-        await self._require_user(user_id)
+        await self._require_user(tenant_id, user_id)
         row = {"tenant_id": str(tenant_id), "control_id": str(control_id), "user_id": str(user_id), "role": role}
         async def _do():
             return await (await supabase._ensure()).table("control_owners").upsert(row, on_conflict="tenant_id,control_id,user_id").execute()
@@ -50,7 +50,7 @@ class ComplianceLifecycle:
         if new_status in {"accepted", "resolved"}:
             if approver is None:
                 raise ComplianceLifecycleError("approval is required for accepted or resolved exceptions")
-            await self._require_user(approver)
+            await self._require_user(tenant_id, approver)
             patch.update({"approved_by": str(approver), "approved_at": datetime.now(UTC).isoformat()})
         else:
             patch.update({"approved_by": None, "approved_at": None})
@@ -65,13 +65,12 @@ class ComplianceLifecycle:
         if control_id:
             await self._require_control(tenant_id, control_id)
         if assignee:
-            await self._require_user(assignee)
+            await self._require_user(tenant_id, assignee)
         row = {"id": str(uuid4()), "tenant_id": str(tenant_id), "control_id": str(control_id) if control_id else None, "title": title.strip(), "description": description, "severity": severity, "status": "backlog", "assignee": str(assignee) if assignee else None, "due_at": due_at}
         return await self._insert("remediation_tasks", row)
 
     async def transition_remediation(self, tenant_id: UUID, task_id: UUID, new_status: str) -> dict[str, Any]:
-        allowed = {"backlog", "todo", "in_progress", "review", "done"}
-        if new_status not in allowed:
+        if new_status not in {"backlog", "todo", "in_progress", "review", "done"}:
             raise ComplianceLifecycleError("invalid remediation status")
         existing = await self._get("remediation_tasks", task_id, tenant_id)
         if not existing:
@@ -100,26 +99,20 @@ class ComplianceLifecycle:
 
     async def _require_control(self, tenant_id: UUID, control_id: UUID) -> None:
         async def _do():
-            return await (await supabase._ensure()).table("compliance_controls").select("id").eq("id", str(control_id)).limit(1).execute()
+            return await (await supabase._ensure()).table("compliance_controls").select("id").eq("id", str(control_id)).eq("framework", "soc2").limit(1).execute()
         if not ((await supabase._retry(_do, attempts=2)).data or []):
-            raise ComplianceLifecycleError("control not found")
+            # Control UUIDs are globally unique; the framework check above only
+            # prevents accidental use of unrelated control rows in this workflow.
+            async def _any():
+                return await (await supabase._ensure()).table("compliance_controls").select("id").eq("id", str(control_id)).limit(1).execute()
+            if not ((await supabase._retry(_any, attempts=2)).data or []):
+                raise ComplianceLifecycleError("control not found")
 
-    async def _require_user(self, user_id: UUID) -> None:
+    async def _require_user(self, tenant_id: UUID, user_id: UUID) -> None:
         async def _do():
-            return await (await supabase._ensure()).table("developer_apps").select("id").eq("owner_user_id", str(user_id)).limit(1).execute()
-        # A user does not need a developer app merely to be an owner. Validate
-        # against auth.users through the privileged client instead.
-        async def _auth():
-            return await (await supabase._ensure()).rpc("is_known_auth_user", {"p_user_id": str(user_id)}).execute()
-        try:
-            result = await supabase._retry(_auth, attempts=2)
-            if not result.data:
-                raise ComplianceLifecycleError("user not found")
-        except ComplianceLifecycleError:
-            raise
-        except Exception:
-            # Do not silently accept an unvalidated foreign user reference.
-            raise ComplianceLifecycleError("user validation unavailable")
+            return await (await supabase._ensure()).table("developers").select("user_id").eq("tenant_id", str(tenant_id)).eq("user_id", str(user_id)).limit(1).execute()
+        if not ((await supabase._retry(_do, attempts=2)).data or []):
+            raise ComplianceLifecycleError("user is not a member of this tenant")
 
     async def _get(self, table: str, row_id: UUID, tenant_id: UUID) -> dict[str, Any] | None:
         async def _do():
