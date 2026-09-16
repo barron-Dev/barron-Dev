@@ -44,7 +44,7 @@ jobs:
       - name: Compile Python sources
         run: python -m compileall -q src tests
       - name: Run Python tests
-        run: python -m pytest -vv --tb=long --maxfail=1
+        run: python -m pytest -q --tb=short -ra --maxfail=5
       - name: Build production image
         run: docker build --pull -t sentinel-platform:ci .
 
