@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
@@ -11,11 +11,20 @@ from sentinel.storage.supabase_client import supabase
 
 logger = logging.getLogger(__name__)
 
+# Automated control results are deliberately short-lived. Historical evidence
+# remains immutable, while the current control projection expires after this
+# window and must be recollected.
+DEFAULT_FRESHNESS_DAYS = 30
+
+
 class ComplianceEvaluator:
     async def evaluate(self, tenant_id: UUID, framework: str, period_start: datetime, period_end: datetime) -> dict[str, Any]:
         controls = [c for c in CONTROLS if c["framework"] == framework]
         await self._sync_catalog(controls)
         rows: list[dict[str, Any]] = []
+        now = datetime.now(UTC)
+        valid_until = now + timedelta(days=DEFAULT_FRESHNESS_DAYS)
+
         for control in controls:
             check_key = str(control["check_key"])
             check = CHECKS.get(check_key)
@@ -27,12 +36,33 @@ class ComplianceEvaluator:
                 except Exception as exc:  # noqa: BLE001
                     logger.warning("compliance check %s failed: %s", check_key, exc)
                     result = ("unknown", 0.0, {"reason": "collector error", "error_type": type(exc).__name__})
+
             status, score, evidence = result
+            evidence = {
+                **evidence,
+                "evaluated_at": now.isoformat(),
+                "evidence_valid_until": valid_until.isoformat() if status != "unknown" else None,
+                "freshness_window_days": DEFAULT_FRESHNESS_DAYS,
+            }
+            if status != "unknown":
+                evidence["freshness_status"] = "fresh"
+
             db_control = await self._control_row(str(control["id"]))
             if db_control:
-                row = {"tenant_id": str(tenant_id), "control_id": db_control["id"], "status": status, "score": score, "last_evaluated": datetime.now(UTC).isoformat(), "evidence": evidence, "updated_at": datetime.now(UTC).isoformat()}
+                row = {
+                    "tenant_id": str(tenant_id),
+                    "control_id": db_control["id"],
+                    "status": status,
+                    "score": score,
+                    "last_evaluated": now.isoformat(),
+                    "evidence_valid_until": valid_until.isoformat() if status != "unknown" else None,
+                    "freshness_status": "fresh" if status != "unknown" else "unknown",
+                    "evidence": evidence,
+                    "updated_at": now.isoformat(),
+                }
                 await self._upsert_status(row)
-            rows.append({**control, "status": status, "score": score, "evidence": evidence})
+            rows.append({**control, "status": status, "score": score, "evidence": evidence, "evidence_valid_until": valid_until.isoformat() if status != "unknown" else None})
+
         return self._summary(framework, rows, period_start, period_end)
 
     async def _sync_catalog(self, controls: list[dict[str, object]]) -> None:
