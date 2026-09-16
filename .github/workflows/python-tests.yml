@@ -46,6 +46,7 @@ jobs:
       - name: Run Python tests
         if: always()
         run: |
+          set -o pipefail
           python -m pytest -q --tb=short -ra --maxfail=5 2>&1 | tee pytest.log
       - name: Upload pytest log
         if: always()
