@@ -39,14 +39,18 @@ class QueryExecutor:
         try:
             query = parse(source)
         except SyntaxError as exc:
-            # Parser failures are client input errors, not server failures. Keep
-            # parser internals out of the API response and never reach Supabase.
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "invalid hunting query") from exc
 
         table = query.table
         fields = ALLOWED_FIELDS.get(table)
         if fields is None:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, f"table not queryable: {table}")
+
+        self._validate_node(query.where, table)
+        order_by = query.order_by or DEFAULT_ORDER.get(table)
+        if order_by and order_by not in fields:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"field not orderable: {order_by}")
+
         limit = min(query.limit or self.DEFAULT_LIMIT, self.MAX_LIMIT)
         selected = ",".join(sorted(fields))
 
@@ -55,10 +59,7 @@ class QueryExecutor:
             builder = client.table(table).select(selected).eq("tenant_id", str(tenant_id))
             if query.where is not None:
                 builder = self._apply(builder, query.where, table)
-            order_by = query.order_by or DEFAULT_ORDER.get(table)
             if order_by:
-                if order_by not in fields:
-                    raise HTTPException(status.HTTP_400_BAD_REQUEST, f"field not orderable: {order_by}")
                 builder = builder.order(order_by, desc=query.order_desc if query.order_by else True)
             return await builder.limit(limit).execute()
 
@@ -71,6 +72,23 @@ class QueryExecutor:
             raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "query execution failed") from exc
         elapsed = int((time.perf_counter() - started) * 1000)
         return list(response.data or []), elapsed
+
+    def _validate_node(self, node: Node | None, table: str) -> None:
+        if node is None:
+            return
+        if isinstance(node, Predicate):
+            if node.field not in ALLOWED_FIELDS[table]:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, f"field not filterable: {node.field}")
+            if node.op not in OPS:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, f"unsupported op: {node.op}")
+            return
+        if isinstance(node, (And, Or)):
+            if isinstance(node, Or) and not node.clauses:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, "empty OR clause")
+            for clause in node.clauses:
+                self._validate_node(clause, table)
+            return
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "invalid clause")
 
     def _apply(self, query: Any, node: Node, table: str) -> Any:
         if isinstance(node, Predicate):
@@ -106,9 +124,6 @@ class QueryExecutor:
             if operation is None:
                 raise HTTPException(status.HTTP_400_BAD_REQUEST, f"unsupported op: {node.op}")
             if isinstance(node.value, str):
-                # PostgREST's OR grammar is a string, so quote and escape the
-                # value before handing it to the client. Field/operator names
-                # never originate from user-controlled text beyond allowlists.
                 escaped = node.value.replace("\\", "\\\\").replace('"', '\\"')
                 value = f'"{escaped}"'
             elif isinstance(node.value, bool):
