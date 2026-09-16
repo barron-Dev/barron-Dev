@@ -14,7 +14,7 @@ from sentinel.federation.stix import canonical_ioc_hash
 
 def test_federation_router_is_mounted() -> None:
     app = create_app()
-    paths = {route.path for route in app.routes}
+    paths = set(app.openapi()["paths"])
     assert "/api/v1/federation/peers" in paths
     assert "/api/v1/federation/indicators" in paths
     assert "/api/v1/federation/stix/ingest" in paths
