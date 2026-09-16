@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -21,11 +22,10 @@ class ComplianceEvaluator:
     async def evaluate(self, tenant_id: UUID, framework: str, period_start: datetime, period_end: datetime) -> dict[str, Any]:
         controls = [c for c in CONTROLS if c["framework"] == framework]
         await self._sync_catalog(controls)
-        rows: list[dict[str, Any]] = []
         now = datetime.now(UTC)
         valid_until = now + timedelta(days=DEFAULT_FRESHNESS_DAYS)
 
-        for control in controls:
+        async def evaluate_control(control: dict[str, Any]) -> dict[str, Any]:
             check_key = str(control["check_key"])
             check = CHECKS.get(check_key)
             if not check:
@@ -43,13 +43,11 @@ class ComplianceEvaluator:
                 "evaluated_at": now.isoformat(),
                 "evidence_valid_until": valid_until.isoformat() if status != "unknown" else None,
                 "freshness_window_days": DEFAULT_FRESHNESS_DAYS,
+                "freshness_status": "fresh" if status != "unknown" else "unknown",
             }
-            if status != "unknown":
-                evidence["freshness_status"] = "fresh"
-
             db_control = await self._control_row(str(control["id"]))
             if db_control:
-                row = {
+                await self._upsert_status({
                     "tenant_id": str(tenant_id),
                     "control_id": db_control["id"],
                     "status": status,
@@ -59,21 +57,22 @@ class ComplianceEvaluator:
                     "freshness_status": "fresh" if status != "unknown" else "unknown",
                     "evidence": evidence,
                     "updated_at": now.isoformat(),
-                }
-                await self._upsert_status(row)
-            rows.append({**control, "status": status, "score": score, "evidence": evidence, "evidence_valid_until": valid_until.isoformat() if status != "unknown" else None})
+                })
+            return {**control, "status": status, "score": score, "evidence": evidence, "evidence_valid_until": valid_until.isoformat() if status != "unknown" else None}
 
+        rows = list(await asyncio.gather(*(evaluate_control(c) for c in controls)))
         return self._summary(framework, rows, period_start, period_end)
 
     async def _sync_catalog(self, controls: list[dict[str, object]]) -> None:
-        for c in controls:
-            async def _do(c=c):
+        async def sync_one(c: dict[str, object]) -> None:
+            async def _do():
                 client = await supabase._ensure()
                 return await client.table("compliance_controls").upsert({
                     "stable_id": c["id"], "framework": c["framework"], "control_code": c["code"],
                     "title": c["title"], "description": c["title"], "evidence_sources": c["evidence_sources"],
                 }, on_conflict="framework,control_code").execute()
             await supabase._retry(_do, attempts=2)
+        await asyncio.gather(*(sync_one(c) for c in controls))
 
     async def _control_row(self, stable_id: str) -> dict[str, Any] | None:
         async def _do():
