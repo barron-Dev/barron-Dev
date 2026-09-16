@@ -2,8 +2,11 @@ from __future__ import annotations
 
 from uuid import UUID
 
+import pytest
+
 from sentinel.api.app import create_app
-from sentinel.api.routes.federation import IndicatorIngest, PeerCreate
+from sentinel.api.routes.federation import IndicatorIngest, PeerCreate, _sanitize_value_ref
+from sentinel.federation.anon import FederationAnonymizer
 
 
 def test_federation_router_is_mounted() -> None:
@@ -16,20 +19,36 @@ def test_federation_router_is_mounted() -> None:
 
 
 def test_peer_model_rejects_invalid_kind() -> None:
-    try:
+    with pytest.raises(Exception):
         PeerCreate(name="peer", kind="invalid")
-    except Exception:
-        return
-    raise AssertionError("invalid peer kind must be rejected")
 
 
 def test_indicator_model_requires_sha256_hex() -> None:
-    try:
+    with pytest.raises(Exception):
         IndicatorIngest(
             peer_id=UUID("00000000-0000-0000-0000-000000000001"),
             ioc_type="domain",
             value_hash="not-a-hash",
         )
-    except Exception:
-        return
-    raise AssertionError("invalid indicator hash must be rejected")
+
+
+def test_anonymizer_requires_strong_secret(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("SENTINEL_FED_SALT", raising=False)
+    with pytest.raises(RuntimeError):
+        FederationAnonymizer()
+
+
+def test_sensitive_indicator_values_are_minimized(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SENTINEL_FED_SALT", "x" * 32)
+    assert _sanitize_value_ref("email", "alice@example.com").endswith("@example.com")
+    assert _sanitize_value_ref("ipv4", "192.0.2.44") == "192.0.2.0/24"
+    assert _sanitize_value_ref("url", "https://example.com/a?token=secret#frag") == "https://example.com/a"
+    assert _sanitize_value_ref("domain", "example.com") == "example.com"
+
+
+def test_anonymizer_strips_sensitive_url_components(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SENTINEL_FED_SALT", "x" * 32)
+    result = FederationAnonymizer().url("https://user:password@example.com/path?q=secret#frag")
+    assert result == "https://example.com/path"
+    assert "password" not in result
+    assert "secret" not in result
