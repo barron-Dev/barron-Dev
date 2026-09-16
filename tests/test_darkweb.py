@@ -28,12 +28,12 @@ async def test_unmatched_finding_is_stored_without_tenant_match():
     matcher = DarkWebMatcher()
     response = AsyncMock()
     response.data = []
-    with patch("sentinel.darkweb.matcher.supabase._retry", return_value=response), patch.object(matcher, "_record", new=AsyncMock()) as record:
+    with patch("sentinel.darkweb.matcher.supabase._retry", return_value=response), patch.object(matcher, "_record", new=AsyncMock(return_value={})) as record:
         result = await matcher.process({
             "source_id": "hibp", "kind": "email", "matched_value": "user@example.com",
             "context": "breach", "severity": "high", "source_url": None, "metadata": {},
         })
-    assert result == {"matched": 0, "alerts": 0}
+    assert result == {"matched": 0, "alerts": 0, "errors": 0}
     record.assert_awaited_once()
     assert record.await_args.args[1:] == (None, None)
 
