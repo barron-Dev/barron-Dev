@@ -86,7 +86,8 @@ class DarkWebScheduler:
         try:
             findings = await pull()
             result = await self._ingest(findings)
-            await self._mark_source(source_id, "ok")
+            source_status = "degraded" if result["errors"] else "ok"
+            await self._mark_source(source_id, source_status)
             logger.info(
                 "dark web source=%s completed findings=%d matched=%d alerts=%d errors=%d duration_ms=%d",
                 source_id, len(findings), result["matched"], result["alerts"], result["errors"], int((time.monotonic() - started) * 1000),
