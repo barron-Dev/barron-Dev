@@ -142,3 +142,52 @@ async def threat_detail(detection_id: UUID, principal: DeveloperPrincipal = Depe
     if not result.data:
         raise HTTPException(404, {"error": "detection_not_found"})
     return dict(result.data)
+
+
+@router.get("/devices")
+async def devices(
+    principal: DeveloperPrincipal = Depends(_principal),
+    status: str | None = Query(None, min_length=1, max_length=40),
+    platform: str | None = Query(None, min_length=1, max_length=80),
+    search: str | None = Query(None, min_length=1, max_length=120),
+    sort: str = Query("last_seen_at", pattern="^(last_seen_at|created_at|hostname|name|status)$"),
+    direction: str = Query("desc", pattern="^(asc|desc)$"),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0, le=100000),
+) -> dict:
+    columns = "id,hostname,name,os,os_version,arch,platform,platform_version,agent_version,last_seen_at,status,created_at,updated_at,cert_fingerprint"
+
+    async def _do():
+        query = (await supabase._ensure()).table("devices").select(columns, count="exact").eq("tenant_id", principal.tenant_id)
+        if status is not None:
+            query = query.eq("status", status)
+        if platform is not None:
+            query = query.eq("platform", platform)
+        if search is not None:
+            escaped = search.replace("%", "\\%").replace("_", "\\_")
+            query = query.or_(f"hostname.ilike.%{escaped}%,name.ilike.%{escaped}%")
+        return await query.order(sort, desc=direction == "desc").range(offset, offset + limit - 1).execute()
+
+    result = await supabase._retry(_do, attempts=2)
+    total = int(result.count or 0)
+    return {
+        "generated_at": datetime.now(UTC).isoformat(),
+        "items": list(result.data or []),
+        "pagination": {"limit": limit, "offset": offset, "total": total, "has_more": offset + limit < total},
+        "filters": {"status": status, "platform": platform, "search": search, "sort": sort, "direction": direction},
+    }
+
+
+@router.get("/devices/{device_id}")
+async def device_detail(device_id: UUID, principal: DeveloperPrincipal = Depends(_principal)) -> dict:
+    async def _do():
+        return await (await supabase._ensure()).table("devices").select(
+            "id,tenant_id,hostname,name,os,os_version,arch,platform,platform_version,agent_version,last_seen_at,status,created_at,updated_at,cert_fingerprint,attestation"
+        ).eq("id", str(device_id)).eq("tenant_id", principal.tenant_id).maybe_single().execute()
+
+    result = await supabase._retry(_do, attempts=2)
+    if not result.data:
+        raise HTTPException(404, {"error": "device_not_found"})
+    item = dict(result.data)
+    item["attestation"] = item.get("attestation") or {}
+    return item
