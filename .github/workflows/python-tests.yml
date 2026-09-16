@@ -1,4 +1,4 @@
-name: Sentinel Python
+name: Sentinel CI
 
 on:
   push:
@@ -11,6 +11,7 @@ on:
       - 'requirements-ml.txt'
       - 'requirements-server.txt'
       - 'pyproject.toml'
+      - 'console/**'
       - '.github/workflows/python-tests.yml'
   pull_request:
     paths:
@@ -22,10 +23,11 @@ on:
       - 'requirements-ml.txt'
       - 'requirements-server.txt'
       - 'pyproject.toml'
+      - 'console/**'
       - '.github/workflows/python-tests.yml'
 
 jobs:
-  tests:
+  python:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -45,3 +47,20 @@ jobs:
         run: python -m pytest -q
       - name: Build production image
         run: docker build --pull -t sentinel-platform:ci .
+
+  console:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: console
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: console/package-lock.json
+      - name: Install console dependencies
+        run: npm install --no-audit --no-fund
+      - name: Build Sentinel Console
+        run: npm run build
