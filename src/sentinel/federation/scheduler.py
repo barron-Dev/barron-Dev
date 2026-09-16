@@ -15,6 +15,7 @@ class FederationScheduler:
     INTERVAL_SECONDS = 1800
     START_DELAY_SECONDS = 180
     MAX_PEERS_PER_TICK = 100
+    MAX_TENANTS_PER_TICK = 500
 
     def __init__(self) -> None:
         self._task: asyncio.Task[None] | None = None
@@ -50,6 +51,20 @@ class FederationScheduler:
             logger.exception("federation peer discovery failed")
             return []
 
+    async def _tenant_ids(self) -> list[str]:
+        """Discover only tenants that currently own federated indicators."""
+        async def _load():
+            return await (await supabase._ensure()).table("fed_indicators").select(
+                "source_tenant"
+            ).not_.is_("source_tenant", "null").limit(self.MAX_TENANTS_PER_TICK).execute()
+
+        try:
+            response = await supabase._retry(_load, attempts=2)
+            return sorted({str(row["source_tenant"]) for row in (response.data or []) if row.get("source_tenant")})
+        except Exception:
+            logger.exception("federation tenant discovery failed")
+            return []
+
     async def _loop(self) -> None:
         try:
             await asyncio.wait_for(self._stop.wait(), timeout=self.START_DELAY_SECONDS)
@@ -58,7 +73,9 @@ class FederationScheduler:
 
         while not self._stop.is_set():
             try:
-                for peer in await self._peers():
+                peers = await self._peers()
+                tenants = await self._tenant_ids()
+                for peer in peers:
                     if self._stop.is_set():
                         break
                     if not peer.get("taxii_url"):
@@ -70,13 +87,18 @@ class FederationScheduler:
                     except Exception:
                         logger.exception("federation inbound sync failed peer=%s", peer.get("id"))
 
-                    if int(peer.get("trust_level") or 0) >= 1:
+                    if int(peer.get("trust_level") or 0) < 1:
+                        continue
+                    for tenant_id in tenants:
+                        if self._stop.is_set():
+                            break
                         try:
-                            await self._exchange.share_peer(peer_id=peer["id"])
+                            from uuid import UUID
+                            await self._exchange.share_peer(peer_id=peer["id"], tenant_id=UUID(tenant_id))
                         except asyncio.CancelledError:
                             raise
                         except Exception:
-                            logger.exception("federation outbound share failed peer=%s", peer.get("id"))
+                            logger.exception("federation outbound share failed peer=%s tenant=%s", peer.get("id"), tenant_id)
             except asyncio.CancelledError:
                 raise
             except Exception:
