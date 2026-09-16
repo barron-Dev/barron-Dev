@@ -5,6 +5,7 @@ on:
     paths:
       - 'src/**'
       - 'tests/**'
+      - 'sql/**'
       - 'requirements-ml.txt'
       - 'requirements-server.txt'
       - 'pyproject.toml'
@@ -13,6 +14,7 @@ on:
     paths:
       - 'src/**'
       - 'tests/**'
+      - 'sql/**'
       - 'requirements-ml.txt'
       - 'requirements-server.txt'
       - 'pyproject.toml'
