@@ -26,6 +26,8 @@ class ArtifactSpec:
     metadata: Mapping[str, Any] = field(default_factory=dict)
     severity: str = "critical"
     created_by: UUID | None = None
+    device_id: UUID | None = None
+    auto_case_rule_id: UUID | None = None
 
     def __post_init__(self) -> None:
         if self.artifact_type not in ARTIFACT_TYPES:
@@ -58,12 +60,17 @@ class TriggerResult:
     severity: str
     observed_at: datetime
     evidence: Mapping[str, Any]
+    detection_id: UUID | None = None
+    case_id: UUID | None = None
+    case_status: str = "pending"
 
     def __post_init__(self) -> None:
         if self.observed_at.tzinfo is None:
             raise ValueError("observed_at must be timezone-aware")
         if self.severity not in {"high", "critical"}:
             raise ValueError("deception triggers must be high or critical")
+        if self.case_status not in {"pending", "created", "failed", "suppressed"}:
+            raise ValueError("invalid deception case status")
 
 
 def utcnow() -> datetime:
