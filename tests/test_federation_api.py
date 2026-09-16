@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+
 from uuid import UUID
 
 import pytest
@@ -7,6 +9,7 @@ import pytest
 from sentinel.api.app import create_app
 from sentinel.api.routes.federation import IndicatorIngest, PeerCreate, _sanitize_value_ref
 from sentinel.federation.anon import FederationAnonymizer
+from sentinel.federation.stix import canonical_ioc_hash
 
 
 def test_federation_router_is_mounted() -> None:
@@ -30,6 +33,11 @@ def test_indicator_model_requires_sha256_hex() -> None:
             ioc_type="domain",
             value_hash="not-a-hash",
         )
+
+
+def test_direct_indicator_hash_is_canonical() -> None:
+    value = "example.com"
+    assert canonical_ioc_hash("domain", value) == hashlib.sha256(value.encode()).hexdigest()
 
 
 def test_anonymizer_requires_strong_secret(monkeypatch: pytest.MonkeyPatch) -> None:
