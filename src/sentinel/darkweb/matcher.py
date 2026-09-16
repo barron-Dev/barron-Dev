@@ -35,8 +35,6 @@ class DarkWebMatcher:
             )
             rows = list(exact.data or [])
             seen = {str(row["id"]) for row in rows}
-            # Ransomware/company correlation and approved aliases are explicit
-            # customer configuration, never inferred from generic names.
             aliases = await (
                 client.table("dw_watch_aliases")
                 .select("watchlist_id,tenant_id,kind")
@@ -62,7 +60,7 @@ class DarkWebMatcher:
             return rows
 
         try:
-            matches = list((await supabase._retry(_lookup, attempts=2)))
+            matches = list(await supabase._retry(_lookup, attempts=2))
         except Exception:
             logger.exception("dark web watchlist lookup failed for kind=%s", kind)
             return {"matched": 0, "alerts": 0, "errors": 1}
