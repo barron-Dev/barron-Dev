@@ -17,7 +17,6 @@ from html.parser import HTMLParser
 from urllib.parse import urljoin, urlparse
 from urllib.request import Request, urlopen
 
-
 _MAX_HTML_BYTES = 2_000_000
 _MAX_IMAGE_BYTES = 5_000_000
 _TIMEOUT_SECONDS = 12
@@ -127,7 +126,7 @@ def _read_limited(response, limit: int) -> bytes:
 def _fetch(url: str, limit: int) -> tuple[str, int, str, bytes]:
     _assert_public_http_url(url)
     request = Request(url, headers={"User-Agent": _USER_AGENT, "Accept": "text/html,image/avif,image/webp,image/png,image/jpeg,image/x-icon,*/*;q=0.5"})
-    with urlopen(request, timeout=_TIMEOUT_SECONDS, follow_redirects=True) as response:  # noqa: S310 - URL is validated above
+    with urlopen(request, timeout=_TIMEOUT_SECONDS) as response:  # noqa: S310 - URL is validated above
         final_url = response.geturl()
         _assert_public_http_url(final_url)
         status = int(getattr(response, "status", 200))
@@ -142,11 +141,10 @@ async def fetch_page(url: str) -> PageArtifact:
         raise ValueError(f"target is not an HTML page: {content_type}")
     parser = _PageParser()
     parser.feed(body.decode("utf-8", errors="replace"))
-    base = final_url
     candidates: list[ImageCandidate] = []
     seen: set[str] = set()
     for candidate in parser.images:
-        absolute = urljoin(base, candidate.url)
+        absolute = urljoin(final_url, candidate.url)
         try:
             _assert_public_http_url(absolute)
         except ValueError:
