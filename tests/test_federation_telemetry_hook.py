@@ -20,13 +20,13 @@ def test_extracts_supported_network_and_hash_iocs():
         kind="network_connect",
         image="powershell.exe",
         command_line="https://evil.example/login?token=secret",
-        remote_address="203.0.113.42",
+        remote_address="8.8.8.8",
         payload={"sha": "a" * 64, "mail": "user@example.com"},
     )
     pairs = {(item["ioc_type"], item["value"]) for item in observations}
     assert ("sha256", "a" * 64) in pairs
     assert ("url", "https://evil.example/login?token=secret") in pairs
-    assert ("ipv4", "203.0.113.42") in pairs
+    assert ("ipv4", "8.8.8.8") in pairs
     assert ("email", "user@example.com") in pairs
 
 
