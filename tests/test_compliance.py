@@ -16,14 +16,14 @@ def test_naive_period_rejected():
     start = datetime(2026, 1, 1)
     end = datetime(2026, 1, 2)
     with pytest.raises(ComplianceError):
-        ComplianceService._validate("soc2", start, end)
+        ComplianceService._validate_period(start, end)
 
 
 def test_reversed_period_rejected():
     start = datetime(2026, 1, 2, tzinfo=UTC)
     end = start - timedelta(hours=1)
     with pytest.raises(ComplianceError):
-        ComplianceService._validate("soc2", start, end)
+        ComplianceService._validate_period(start, end)
 
 
 @pytest.mark.asyncio
