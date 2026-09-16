@@ -7,6 +7,7 @@ from fastapi import Depends, FastAPI
 from sentinel.api.routes.agent_events import router as agent_events_router
 from sentinel.api.routes.agent_model import router as agent_model_router
 from sentinel.api.routes.data_trust import router as data_trust_router
+from sentinel.api.routes.data_trust_channels import router as data_trust_channels_router
 from sentinel.api.routes.deception import router as deception_router
 from sentinel.api.routes.investigation import router as investigation_router
 from sentinel.routing.region_router import current_region_code, enforce_device_region, region_cache
@@ -22,24 +23,13 @@ async def lifespan(application: FastAPI):
 
 
 def create_app() -> FastAPI:
-    application = FastAPI(
-        title="Sentinel API",
-        version="0.1.0",
-        lifespan=lifespan,
-    )
-    application.include_router(
-        agent_model_router,
-        prefix="/api/v1",
-        dependencies=[Depends(enforce_device_region)],
-    )
-    application.include_router(
-        agent_events_router,
-        prefix="/api/v1",
-        dependencies=[Depends(enforce_device_region)],
-    )
+    application = FastAPI(title="Sentinel API", version="0.1.0", lifespan=lifespan)
+    application.include_router(agent_model_router, prefix="/api/v1", dependencies=[Depends(enforce_device_region)])
+    application.include_router(agent_events_router, prefix="/api/v1", dependencies=[Depends(enforce_device_region)])
     application.include_router(investigation_router, prefix="/api/v1")
     application.include_router(deception_router, prefix="/api/v1")
     application.include_router(data_trust_router, prefix="/api/v1")
+    application.include_router(data_trust_channels_router, prefix="/api/v1")
     return application
 
 
