@@ -47,11 +47,29 @@ def test_stix_round_trip() -> None:
     assert parsed[0]["value_hash"] == value_hash
 
 
+def test_stix_rejects_mismatched_external_hash() -> None:
+    value = "example.com"
+    obj = indicator_to_stix({
+        "ioc_type": "domain",
+        "value_hash": hashlib.sha256(value.encode()).hexdigest(),
+        "value_ref": value,
+    })
+    obj["external_references"][0]["external_id"] = "0" * 64
+    parsed = parse_stix_bundle(json.dumps({"type": "bundle", "objects": [obj]}))
+    assert parsed == []
+
+
+def test_stix_rejects_invalid_hash_value() -> None:
+    with pytest.raises(ValueError):
+        indicator_to_stix({"ioc_type": "sha256", "value_hash": "a" * 64, "value_ref": "not-a-sha256"})
+
+
 def test_stix_bundle_is_json() -> None:
+    value = "a" * 64
     payload = bundle_from_indicators([{
         "ioc_type": "sha256",
-        "value_hash": "a" * 64,
-        "value_ref": "a" * 64,
+        "value_hash": hashlib.sha256(value.encode()).hexdigest(),
+        "value_ref": value,
     }])
     document = json.loads(payload)
     assert document["type"] == "bundle"
