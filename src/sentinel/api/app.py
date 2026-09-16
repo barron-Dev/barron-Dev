@@ -19,9 +19,11 @@ from sentinel.api.routes.investigation import router as investigation_router
 from sentinel.api.routes.trust_center import public_router as trust_center_public_router
 from sentinel.api.routes.trust_center import router as trust_center_router
 from sentinel.api.routes.vendor_risk import router as vendor_risk_router
+from sentinel.api.routes.web_intel import router as web_intel_router
 from sentinel.compliance.scheduler import ComplianceScheduler
 from sentinel.darkweb.scheduler import DarkWebScheduler
 from sentinel.routing.region_router import current_region_code, enforce_device_region, region_cache
+from sentinel.web.scheduler import WebIntelligenceScheduler
 
 
 @asynccontextmanager
@@ -32,13 +34,17 @@ async def lifespan(application: FastAPI):
         raise RuntimeError(f"SENTINEL_REGION {region!r} is not present in the active region registry")
     compliance_scheduler = ComplianceScheduler()
     darkweb_scheduler = DarkWebScheduler()
+    web_intelligence_scheduler = WebIntelligenceScheduler()
     compliance_scheduler.start()
     darkweb_scheduler.start()
+    web_intelligence_scheduler.start()
     application.state.compliance_scheduler = compliance_scheduler
     application.state.darkweb_scheduler = darkweb_scheduler
+    application.state.web_intelligence_scheduler = web_intelligence_scheduler
     try:
         yield
     finally:
+        await web_intelligence_scheduler.stop()
         await darkweb_scheduler.stop()
         await compliance_scheduler.stop()
 
@@ -60,6 +66,7 @@ def create_app() -> FastAPI:
     application.include_router(trust_center_public_router, prefix="/api/v1")
     application.include_router(vendor_risk_router, prefix="/api/v1")
     application.include_router(darkweb_router, prefix="/api/v1")
+    application.include_router(web_intel_router, prefix="/api/v1")
     return application
 
 
