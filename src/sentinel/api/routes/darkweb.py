@@ -1,0 +1,148 @@
+from __future__ import annotations
+
+import hashlib
+from datetime import UTC, datetime
+from uuid import UUID, uuid4
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel, Field
+
+from sentinel.developer.auth import DeveloperPrincipal, authenticate_request
+from sentinel.storage.supabase_client import supabase
+
+router = APIRouter(prefix="/darkweb", tags=["darkweb"])
+WATCH_KINDS = {"email", "domain", "ip", "wallet", "phone", "company_name", "executive_name", "api_key_hash", "employee_id", "customer_id"}
+STATUSES = {"new", "acknowledged", "investigating", "remediated", "false_positive"}
+
+
+def _hash(value: str) -> str:
+    return hashlib.sha256(value.strip().lower().encode()).hexdigest()
+
+
+def _require(principal: DeveloperPrincipal, scope: str) -> UUID:
+    principal.require((scope,))
+    return UUID(principal.tenant_id)
+
+
+class WatchCreate(BaseModel):
+    kind: str = Field(min_length=2, max_length=32)
+    value: str = Field(min_length=2, max_length=512)
+    label: str | None = Field(default=None, max_length=200)
+    severity: str = Field(default="high", pattern="^(medium|high|critical)$")
+
+
+@router.post("/watchlist", status_code=status.HTTP_201_CREATED)
+async def add_watch(body: WatchCreate, principal: DeveloperPrincipal = Depends(authenticate_request)) -> dict:
+    tenant_id = _require(principal, "darkweb:manage")
+    kind = body.kind.strip().lower()
+    if kind not in WATCH_KINDS:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "unsupported watchlist kind")
+    value = body.value.strip().lower()
+    row = {"tenant_id": str(tenant_id), "kind": kind, "value": value, "value_hash": _hash(value), "label": body.label, "severity": body.severity}
+    async def _do():
+        return await (await supabase._ensure()).table("dw_watchlist").insert(row).execute()
+    try:
+        data = (await supabase._retry(_do, attempts=2)).data or []
+    except Exception as exc:
+        if "unique" in str(exc).lower():
+            raise HTTPException(status.HTTP_409_CONFLICT, "watch already exists") from exc
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "watchlist persistence failed") from exc
+    return data[0]
+
+
+@router.get("/watchlist")
+async def list_watch(principal: DeveloperPrincipal = Depends(authenticate_request)) -> list[dict]:
+    tenant_id = _require(principal, "darkweb:read")
+    async def _do():
+        return await (await supabase._ensure()).table("dw_watchlist").select("id,kind,value,label,severity,created_at").eq("tenant_id", str(tenant_id)).order("created_at", desc=True).limit(1000).execute()
+    return list((await supabase._retry(_do, attempts=2)).data or [])
+
+
+@router.delete("/watchlist/{watch_id}", status_code=204)
+async def delete_watch(watch_id: UUID, principal: DeveloperPrincipal = Depends(authenticate_request)) -> None:
+    tenant_id = _require(principal, "darkweb:manage")
+    async def _do():
+        return await (await supabase._ensure()).table("dw_watchlist").delete().eq("id", str(watch_id)).eq("tenant_id", str(tenant_id)).execute()
+    await supabase._retry(_do, attempts=2)
+
+
+class AlertPatch(BaseModel):
+    status: str | None = Field(default=None)
+    notes: str | None = Field(default=None, max_length=4000)
+    assigned_to: UUID | None = None
+
+
+@router.get("/alerts")
+async def alerts(status_filter: str | None = Query(default=None, alias="status"), severity: str | None = None, limit: int = Query(default=200, ge=1, le=1000), principal: DeveloperPrincipal = Depends(authenticate_request)) -> list[dict]:
+    tenant_id = _require(principal, "darkweb:read")
+    if status_filter and status_filter not in STATUSES:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "invalid status")
+    if severity and severity not in {"medium", "high", "critical"}:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "invalid severity")
+    async def _do():
+        q = (await supabase._ensure()).table("dw_alerts").select("*").eq("tenant_id", str(tenant_id))
+        if status_filter: q = q.eq("status", status_filter)
+        if severity: q = q.eq("severity", severity)
+        return await q.order("created_at", desc=True).limit(limit).execute()
+    return list((await supabase._retry(_do, attempts=2)).data or [])
+
+
+@router.patch("/alerts/{alert_id}")
+async def patch_alert(alert_id: UUID, body: AlertPatch, principal: DeveloperPrincipal = Depends(authenticate_request)) -> dict:
+    tenant_id = _require(principal, "darkweb:manage")
+    patch: dict = {}
+    if body.status:
+        if body.status not in STATUSES: raise HTTPException(status.HTTP_400_BAD_REQUEST, "invalid status")
+        patch["status"] = body.status
+        if body.status == "acknowledged": patch["acknowledged_at"] = datetime.now(UTC).isoformat()
+        if body.status == "remediated": patch["remediated_at"] = datetime.now(UTC).isoformat()
+    if body.notes is not None: patch["notes"] = body.notes
+    if body.assigned_to is not None: patch["assigned_to"] = str(body.assigned_to)
+    if not patch: raise HTTPException(status.HTTP_400_BAD_REQUEST, "nothing to update")
+    async def _do():
+        return await (await supabase._ensure()).table("dw_alerts").update(patch).eq("id", str(alert_id)).eq("tenant_id", str(tenant_id)).execute()
+    rows = (await supabase._retry(_do, attempts=2)).data or []
+    if not rows: raise HTTPException(status.HTTP_404_NOT_FOUND, "alert not found")
+    return rows[0]
+
+
+@router.post("/alerts/{alert_id}/open-case", status_code=status.HTTP_201_CREATED)
+async def open_case(alert_id: UUID, principal: DeveloperPrincipal = Depends(authenticate_request)) -> dict:
+    tenant_id = _require(principal, "darkweb:manage")
+    async def _find():
+        return await (await supabase._ensure()).table("dw_alerts").select("*").eq("id", str(alert_id)).eq("tenant_id", str(tenant_id)).limit(1).execute()
+    rows = (await supabase._retry(_find, attempts=2)).data or []
+    if not rows: raise HTTPException(status.HTTP_404_NOT_FOUND, "alert not found")
+    alert = rows[0]
+    if alert.get("case_id"): return {"case_id": alert["case_id"], "existing": True}
+    async def _number():
+        return await (await supabase._ensure()).rpc("next_case_number", {"p_tenant": str(tenant_id)}).execute()
+    try: number = (await supabase._retry(_number, attempts=1)).data
+    except Exception: number = None
+    case_number = number if isinstance(number, str) else f"C-{datetime.now(UTC):%Y%m}-{uuid4().hex[:6].upper()}"
+    case = {"tenant_id": str(tenant_id), "case_number": case_number, "title": alert["title"][:200], "category": "data_breach", "severity": alert["severity"], "status": "open", "summary": alert.get("summary"), "evidence": [{"type": "darkweb_alert", "alert_id": str(alert_id), "finding_id": alert["finding_id"]}]}
+    async def _insert(): return await (await supabase._ensure()).table("crime_cases").insert(case).execute()
+    created = (await supabase._retry(_insert, attempts=2)).data or []
+    if not created: raise HTTPException(status.HTTP_502_BAD_GATEWAY, "case creation failed")
+    case_id = created[0]["id"]
+    async def _link(): return await (await supabase._ensure()).table("dw_alerts").update({"case_id": case_id, "status": "investigating"}).eq("id", str(alert_id)).eq("tenant_id", str(tenant_id)).execute()
+    await supabase._retry(_link, attempts=2)
+    return created[0]
+
+
+@router.get("/stats")
+async def stats(principal: DeveloperPrincipal = Depends(authenticate_request)) -> dict:
+    tenant_id = _require(principal, "darkweb:read")
+    async def _do(): return await (await supabase._ensure()).table("dw_alerts").select("status,severity").eq("tenant_id", str(tenant_id)).execute()
+    rows = (await supabase._retry(_do, attempts=2)).data or []
+    return {"total_alerts": len(rows), "new": sum(r.get("status") == "new" for r in rows), "critical": sum(r.get("severity") == "critical" for r in rows), "high": sum(r.get("severity") == "high" for r in rows), "remediated": sum(r.get("status") == "remediated" for r in rows)}
+
+
+@router.get("/ransomware")
+async def ransomware(country: str | None = None, limit: int = Query(default=200, ge=1, le=1000), principal: DeveloperPrincipal = Depends(authenticate_request)) -> list[dict]:
+    tenant_id = _require(principal, "darkweb:read")
+    async def _do():
+        q = (await supabase._ensure()).table("ransomware_victims").select("*").or_(f"tenant_id.eq.{tenant_id},tenant_id.is.null")
+        if country: q = q.eq("country", country)
+        return await q.order("published_at", desc=True).limit(limit).execute()
+    return list((await supabase._retry(_do, attempts=2)).data or [])
