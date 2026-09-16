@@ -173,9 +173,9 @@ def extract_federation_observations(
 ) -> list[dict[str, str]]:
     """Extract bounded IOC candidates from canonical endpoint telemetry.
 
-    Only normalized public indicators are emitted. The promotion path stores
-    hashes/evidence, not these raw values, and matching still requires a
-    verified, non-whitelisted federation indicator.
+    Only normalized network indicators suitable for telemetry correlation are
+    emitted. The promotion path stores hashes/evidence, not these raw values,
+    and matching still requires a verified, non-whitelisted federation indicator.
     """
     values: list[str] = []
 
@@ -215,7 +215,7 @@ def extract_federation_observations(
                 ip = ipaddress.ip_address(value)
             except ValueError:
                 continue
-            if ip.version == 4 and not (ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_reserved):
+            if ip.version == 4 and not (ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_unspecified):
                 observations[('ipv4', value)] = {'ioc_type': 'ipv4', 'value': value, 'source': kind}
         for value in domain_re.findall(text):
             lowered = value.lower()
