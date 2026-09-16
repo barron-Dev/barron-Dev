@@ -13,8 +13,13 @@ def test_parse_ts_rejects_invalid():
 
 
 def test_after_hours_boundaries():
-    assert datetime(2026, 9, 16, 22, tzinfo=timezone.utc).hour >= 20
-    assert 6 <= datetime(2026, 9, 16, 14, tzinfo=timezone.utc).hour < 20
+    assert PhysicalCorrelator._is_after_hours(datetime(2026, 9, 16, 20, tzinfo=timezone.utc))
+    assert PhysicalCorrelator._is_after_hours(datetime(2026, 9, 16, 23, tzinfo=timezone.utc))
+    assert PhysicalCorrelator._is_after_hours(datetime(2026, 9, 16, 0, tzinfo=timezone.utc))
+    assert PhysicalCorrelator._is_after_hours(datetime(2026, 9, 16, 5, tzinfo=timezone.utc))
+    assert not PhysicalCorrelator._is_after_hours(datetime(2026, 9, 16, 6, tzinfo=timezone.utc))
+    assert not PhysicalCorrelator._is_after_hours(datetime(2026, 9, 16, 14, tzinfo=timezone.utc))
+    assert not PhysicalCorrelator._is_after_hours(datetime(2026, 9, 16, 19, tzinfo=timezone.utc))
 
 
 def test_uuid_validation():
