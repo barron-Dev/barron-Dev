@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import Any, Awaitable, Callable
 from uuid import UUID
 
@@ -9,21 +9,6 @@ from sentinel.storage.supabase_client import supabase
 
 logger = logging.getLogger(__name__)
 Check = Callable[[UUID, datetime, datetime], Awaitable[tuple[str, float, dict[str, Any]]]]
-
-async def _count(table: str, tenant_id: UUID, time_field: str | None = None, start: datetime | None = None, end: datetime | None = None) -> int:
-    async def _do():
-        q = (await supabase._ensure()).table(table).select("id", count="exact").eq("tenant_id", str(tenant_id))
-        if time_field and start:
-            q = q.gte(time_field, start.isoformat())
-        if time_field and end:
-            q = q.lt(time_field, end.isoformat())
-        return await q.limit(1).execute()
-    try:
-        response = await supabase._retry(_do, attempts=2)
-        return int(response.count or 0)
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("compliance count failed for %s: %s", table, exc)
-        return 0
 
 async def _safe_count(table: str, tenant_id: UUID, time_field: str | None, start: datetime, end: datetime) -> tuple[int, bool]:
     async def _do():
@@ -34,7 +19,8 @@ async def _safe_count(table: str, tenant_id: UUID, time_field: str | None, start
     try:
         response = await supabase._retry(_do, attempts=2)
         return int(response.count or 0), True
-    except Exception:
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("compliance count failed for %s: %s", table, exc)
         return 0, False
 
 async def check_endpoint_coverage(tenant_id: UUID, start: datetime, end: datetime):
@@ -64,7 +50,8 @@ async def check_backup_active(tenant_id: UUID, start: datetime, end: datetime):
     try:
         response = await supabase._retry(_do, attempts=2)
         policies = response.data or []
-    except Exception:
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("backup policy check failed: %s", exc)
         return "unknown", 0.0, {"source": "recovery_vault_policies", "availability": "unavailable"}
     return ("passing", 1.0, {"enabled_policies": len(policies)}) if policies else ("failing", 0.0, {"enabled_policies": 0})
 
