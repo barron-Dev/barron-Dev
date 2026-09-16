@@ -8,6 +8,7 @@ from sentinel.api.routes.ai_gateway import router as ai_gateway_router
 from sentinel.api.routes.auditor_portal import router as auditor_portal_router
 from sentinel.api.routes.compliance import router as compliance_router
 from sentinel.api.routes.compliance_lifecycle import router as compliance_lifecycle_router
+from sentinel.api.routes.console import router as console_router
 from sentinel.api.routes.data_trust import router as data_trust_router
 from sentinel.api.routes.data_trust_channels import router as data_trust_channels_router
 from sentinel.api.routes.deception import router as deception_router
@@ -46,7 +47,7 @@ def create_app()->FastAPI:
     async def health():
         return {'status':'ok'}
     application.include_router(agent_model_router,prefix='/api/v1',dependencies=[Depends(enforce_device_region)]);application.include_router(agent_events_router,prefix='/api/v1',dependencies=[Depends(enforce_device_region)])
-    application.include_router(investigation_router,prefix='/api/v1');application.include_router(deception_router,prefix='/api/v1');application.include_router(data_trust_router,prefix='/api/v1');application.include_router(data_trust_channels_router,prefix='/api/v1');application.include_router(ai_gateway_router,prefix='/api/v1',tags=['ai-security']);application.include_router(hunts_router,prefix='/api/v1',tags=['hunting']);application.include_router(compliance_router,prefix='/api/v1');application.include_router(compliance_lifecycle_router,prefix='/api/v1');application.include_router(auditor_portal_router,prefix='/api/v1');application.include_router(trust_center_router,prefix='/api/v1');application.include_router(trust_center_public_router,prefix='/api/v1');application.include_router(vendor_risk_router,prefix='/api/v1');application.include_router(darkweb_router,prefix='/api/v1');application.include_router(web_intel_router,prefix='/api/v1');application.include_router(brand_router,prefix='/api/v1');application.include_router(federation_router,prefix='/api/v1');application.include_router(physical_router,prefix='/api/v1')
+    application.include_router(investigation_router,prefix='/api/v1');application.include_router(deception_router,prefix='/api/v1');application.include_router(data_trust_router,prefix='/api/v1');application.include_router(data_trust_channels_router,prefix='/api/v1');application.include_router(ai_gateway_router,prefix='/api/v1',tags=['ai-security']);application.include_router(hunts_router,prefix='/api/v1',tags=['hunting']);application.include_router(compliance_router,prefix='/api/v1');application.include_router(compliance_lifecycle_router,prefix='/api/v1');application.include_router(auditor_portal_router,prefix='/api/v1');application.include_router(trust_center_router,prefix='/api/v1');application.include_router(trust_center_public_router,prefix='/api/v1');application.include_router(vendor_risk_router,prefix='/api/v1');application.include_router(darkweb_router,prefix='/api/v1');application.include_router(web_intel_router,prefix='/api/v1');application.include_router(brand_router,prefix='/api/v1');application.include_router(federation_router,prefix='/api/v1');application.include_router(physical_router,prefix='/api/v1');application.include_router(console_router,prefix='/api/v1')
     return application
 
 app=create_app()
