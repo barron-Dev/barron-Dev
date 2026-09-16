@@ -25,8 +25,8 @@ class InvestigationControlPlane:
         self.providers = providers or {}
 
     async def request(self, request: InvestigationRequest) -> dict[str, Any]:
-        if request.provider not in self.providers:
-            raise ValueError("investigation provider is not configured")
+        # A request is a durable authorization workflow record. Provider
+        # availability is checked when an authorized operator approves/start it.
         row = await supabase.insert_one(
             "investigation_sessions",
             {
@@ -43,13 +43,25 @@ class InvestigationControlPlane:
         return {"id": str(session_id), "status": "requested", "provider": request.provider}
 
     async def approve_and_start(self, session_id: UUID, tenant_id: UUID) -> dict[str, Any]:
-        row = await self._get(session_id, tenant_id)
+        claimed = await supabase.rpc(
+            "claim_investigation_start",
+            {"p_session_id": str(session_id), "p_tenant_id": str(tenant_id)},
+        )
+        if isinstance(claimed, list):
+            row = claimed[0] if claimed else None
+        elif isinstance(claimed, dict):
+            row = claimed
+        else:
+            row = None
         if row is None:
-            raise LookupError("investigation session not found")
-        if row["status"] != "requested":
+            existing = await self._get(session_id, tenant_id)
+            if existing is None:
+                raise LookupError("investigation session not found")
             raise ValueError("investigation session is not awaiting approval")
+
         provider = self.providers.get(str(row["provider"]))
         if provider is None:
+            await self._mark_failed(session_id, tenant_id, "investigation provider is not configured")
             raise ValueError("investigation provider is not configured")
 
         request = InvestigationRequest(
@@ -60,13 +72,27 @@ class InvestigationControlPlane:
             authorization_ref=str(row["authorization_ref"]),
             provider=str(row["provider"]),
         )
-        provider_session_id = await provider.start(request)
+        try:
+            provider_session_id = await provider.start(request)
+        except Exception as exc:
+            await self._mark_failed(session_id, tenant_id, str(exc))
+            raise
+
         now = datetime.now(UTC).isoformat()
         updated = await supabase.update(
             "investigation_sessions",
             {"status": "running", "provider_session_id": provider_session_id, "started_at": now, "updated_at": now},
-            id=str(session_id), tenant_id=str(tenant_id), status="requested",
+            id=str(session_id), tenant_id=str(tenant_id), status="approved",
         )
+        if updated is None:
+            # The provider session exists but Sentinel could not attach it to the
+            # reserved record. Do not silently create a second provider session.
+            try:
+                await provider.stop(provider_session_id)
+            finally:
+                await self._mark_failed(session_id, tenant_id, "failed to persist running investigation session")
+            raise RuntimeError("failed to persist running investigation session")
+
         await self._event(session_id, tenant_id, "started", {"provider": row["provider"]})
         return updated
 
@@ -84,8 +110,10 @@ class InvestigationControlPlane:
         result = await supabase.update(
             "investigation_sessions",
             {"status": "completed", "completed_at": now, "updated_at": now},
-            id=str(session_id), tenant_id=str(tenant_id),
+            id=str(session_id), tenant_id=str(tenant_id), status="running",
         )
+        if result is None:
+            raise ValueError("investigation session is not running")
         await self._event(session_id, tenant_id, "completed", {})
         return result
 
@@ -107,6 +135,15 @@ class InvestigationControlPlane:
                 "metadata": evidence.metadata,
             },
         )
+
+    async def _mark_failed(self, session_id: UUID, tenant_id: UUID, reason: str) -> None:
+        now = datetime.now(UTC).isoformat()
+        await supabase.update(
+            "investigation_sessions",
+            {"status": "failed", "updated_at": now},
+            id=str(session_id), tenant_id=str(tenant_id), status="approved",
+        )
+        await self._event(session_id, tenant_id, "failed", {"reason": reason[:1000]})
 
     async def _get(self, session_id: UUID, tenant_id: UUID) -> dict[str, Any] | None:
         return await supabase.select_one(
