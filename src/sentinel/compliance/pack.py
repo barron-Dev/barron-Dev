@@ -42,13 +42,8 @@ class EvidencePackBuilder:
         }
         canonical = json.dumps(body, sort_keys=True, separators=(",", ":"), default=str).encode()
         manifest_sha = hashlib.sha256(canonical).hexdigest()
-        signature = sign_digest(manifest_sha)
-        manifest = {
-            **body,
-            "manifest_sha256": manifest_sha,
-            "signature": signature.signature_b64,
-            "signer_kid": signature.kid,
-        }
+        signature = await sign_digest(manifest_sha)
+        manifest = {**body, "manifest_sha256": manifest_sha, "signature": signature.signature_b64, "signer_kid": signature.kid}
 
         files = {
             "manifest.json": json.dumps(manifest, sort_keys=True, indent=2, default=str).encode(),
@@ -75,37 +70,16 @@ class EvidencePackBuilder:
         total = len(controls)
         score = sum(float(s.get("score", 0)) for s in statuses) / total if total else 0.0
         snapshot = {
-            "tenant_id": str(tenant_id),
-            "framework_id": framework,
-            "period_start": start.isoformat(),
-            "period_end": end.isoformat(),
-            "status": "ready",
-            "overall_score": round(score, 4),
-            "controls_passing": passing,
-            "controls_total": total,
-            "pack_path": object_ref,
-            "pack_sha256": pack_sha,
-            "manifest_sha256": manifest_sha,
-            "signature": signature.signature_b64,
-            "signer_kid": signature.kid,
-            "evidence_count": len(evidence),
-            "verification_status": "unverified",
+            "tenant_id": str(tenant_id), "framework_id": framework,
+            "period_start": start.isoformat(), "period_end": end.isoformat(), "status": "ready",
+            "overall_score": round(score, 4), "controls_passing": passing, "controls_total": total,
+            "pack_path": object_ref, "pack_sha256": pack_sha, "manifest_sha256": manifest_sha,
+            "signature": signature.signature_b64, "signer_kid": signature.kid,
+            "evidence_count": len(evidence), "verification_status": "unverified",
             "generated_by": str(generated_by) if generated_by else None,
         }
         await self._insert("compliance_evidence_snapshots", snapshot)
-        return {
-            "snapshot": snapshot,
-            "framework": framework,
-            "pack_sha256": pack_sha,
-            "manifest_sha256": manifest_sha,
-            "signature": signature.signature_b64,
-            "signer_kid": signature.kid,
-            "object_ref": object_ref,
-            "controls_total": total,
-            "controls_passing": passing,
-            "evidence_count": len(evidence),
-            "overall_score": round(score, 4),
-        }
+        return {"snapshot": snapshot, "framework": framework, "pack_sha256": pack_sha, "manifest_sha256": manifest_sha, "signature": signature.signature_b64, "signer_kid": signature.kid, "object_ref": object_ref, "controls_total": total, "controls_passing": passing, "evidence_count": len(evidence), "overall_score": round(score, 4)}
 
     async def _controls(self, framework: str) -> list[dict]:
         async def _do():
