@@ -59,7 +59,7 @@ async def evaluate_transfer(body: TransferBody, principal: DeveloperPrincipal = 
 
 @router.post("/transfers/{event_id}/enforcement")
 async def report_enforcement(event_id: UUID, body: EnforcementBody, principal: DeveloperPrincipal = Depends(authenticate_request)):
-    principal.require(("data:transfer",))
+    principal.require(("data:enforce",))
     result = await _enforcement.acknowledge(
         tenant_id=UUID(principal.tenant_id), event_id=event_id,
         enforced=body.enforced, metadata=body.metadata,
