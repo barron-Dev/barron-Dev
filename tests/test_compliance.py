@@ -55,9 +55,12 @@ async def test_list_packs_is_tenant_filtered():
 
 
 @pytest.mark.asyncio
-async def test_source_rows_are_bounded():
+async def test_record_evidence_source_rows_are_bounded():
     service = ComplianceService()
-    fake_response = type("Response", (), {"data": []})()
+    tenant = uuid4()
+    run_id = uuid4()
+    control = {"id": "AC-1", "code": "CC1.1"}
+    fake_response = type("Response", (), {"count": 7, "data": []})()
     fake_builder = AsyncMock()
     fake_builder.eq.return_value = fake_builder
     fake_builder.gte.return_value = fake_builder
@@ -66,12 +69,19 @@ async def test_source_rows_are_bounded():
     fake_builder.execute.return_value = fake_response
     fake_client = AsyncMock()
     fake_client.table.return_value.select.return_value = fake_builder
-    with patch.object(service, "_source_rows", wraps=service._source_rows):
-        with patch("sentinel.compliance.service.supabase._ensure", new=AsyncMock(return_value=fake_client)):
-            with patch("sentinel.compliance.service.supabase._retry", new=AsyncMock(side_effect=lambda fn, attempts=2: fn())):
-                rows = await service._source_rows(
-                    "detections", "id,created_at,verdict,score,detector", uuid4(),
-                    datetime(2026, 1, 1, tzinfo=UTC), datetime(2026, 1, 2, tzinfo=UTC),
-                )
-    assert rows == []
-    fake_builder.limit.assert_called_once_with(1000)
+
+    async def retry(fn, attempts=2):
+        return await fn()
+
+    with patch("sentinel.compliance.service.supabase._ensure", new=AsyncMock(return_value=fake_client)):
+        with patch("sentinel.compliance.service.supabase._retry", new=retry):
+            with patch.object(service, "_record_collection_result", new=AsyncMock()):
+                with patch.object(service, "_insert", new=AsyncMock()):
+                    with patch("sentinel.compliance.service.DEFAULT_FRESHNESS", timedelta(hours=1)):
+                        result = await service._record_evidence(
+                            tenant, "soc2", control, "detections",
+                            datetime(2026, 1, 1, tzinfo=UTC), datetime(2026, 1, 2, tzinfo=UTC),
+                            None, run_id,
+                        )
+    assert result == 1
+    fake_builder.limit.assert_called_once_with(1)
