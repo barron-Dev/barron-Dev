@@ -12,6 +12,7 @@ from sentinel.storage.supabase_client import supabase
 
 router = APIRouter(prefix="/darkweb", tags=["darkweb"])
 WATCH_KINDS = {"email", "domain", "ip", "wallet", "phone", "company_name", "executive_name", "api_key_hash", "employee_id", "customer_id"}
+ALIAS_KINDS = {"email", "domain", "company_name", "executive_name"}
 STATUSES = {"new", "acknowledged", "investigating", "remediated", "false_positive"}
 
 
@@ -63,6 +64,56 @@ async def delete_watch(watch_id: UUID, principal: DeveloperPrincipal = Depends(a
     tenant_id = _require(principal, "darkweb:manage")
     async def _do():
         return await (await supabase._ensure()).table("dw_watchlist").delete().eq("id", str(watch_id)).eq("tenant_id", str(tenant_id)).execute()
+    await supabase._retry(_do, attempts=2)
+
+
+class AliasCreate(BaseModel):
+    kind: str = Field(min_length=2, max_length=32)
+    value: str = Field(min_length=2, max_length=512)
+    label: str | None = Field(default=None, max_length=200)
+
+
+@router.post("/watchlist/{watch_id}/aliases", status_code=status.HTTP_201_CREATED)
+async def add_alias(watch_id: UUID, body: AliasCreate, principal: DeveloperPrincipal = Depends(authenticate_request)) -> dict:
+    tenant_id = _require(principal, "darkweb:manage")
+    kind = body.kind.strip().lower()
+    if kind not in ALIAS_KINDS:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "unsupported alias kind")
+    value = body.value.strip().lower()
+
+    async def _watch():
+        return await (await supabase._ensure()).table("dw_watchlist").select("id,tenant_id,kind").eq("id", str(watch_id)).eq("tenant_id", str(tenant_id)).limit(1).execute()
+    watch_rows = (await supabase._retry(_watch, attempts=2)).data or []
+    if not watch_rows:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "watch not found")
+    if watch_rows[0]["kind"] != kind:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "alias kind must match watch kind")
+
+    row = {"tenant_id": str(tenant_id), "watchlist_id": str(watch_id), "kind": kind, "value": value, "alias_hash": _hash(value), "label": body.label}
+    async def _insert():
+        return await (await supabase._ensure()).table("dw_watch_aliases").insert(row).execute()
+    try:
+        data = (await supabase._retry(_insert, attempts=2)).data or []
+    except Exception as exc:
+        if "unique" in str(exc).lower():
+            raise HTTPException(status.HTTP_409_CONFLICT, "alias already exists") from exc
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "alias persistence failed") from exc
+    return data[0]
+
+
+@router.get("/watchlist/{watch_id}/aliases")
+async def list_aliases(watch_id: UUID, principal: DeveloperPrincipal = Depends(authenticate_request)) -> list[dict]:
+    tenant_id = _require(principal, "darkweb:read")
+    async def _do():
+        return await (await supabase._ensure()).table("dw_watch_aliases").select("id,kind,value,label,created_at").eq("watchlist_id", str(watch_id)).eq("tenant_id", str(tenant_id)).order("created_at", desc=True).limit(500).execute()
+    return list((await supabase._retry(_do, attempts=2)).data or [])
+
+
+@router.delete("/watchlist/{watch_id}/aliases/{alias_id}", status_code=204)
+async def delete_alias(watch_id: UUID, alias_id: UUID, principal: DeveloperPrincipal = Depends(authenticate_request)) -> None:
+    tenant_id = _require(principal, "darkweb:manage")
+    async def _do():
+        return await (await supabase._ensure()).table("dw_watch_aliases").delete().eq("id", str(alias_id)).eq("watchlist_id", str(watch_id)).eq("tenant_id", str(tenant_id)).execute()
     await supabase._retry(_do, attempts=2)
 
 
