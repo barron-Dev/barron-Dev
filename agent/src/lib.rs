@@ -1,4 +1,5 @@
 pub mod config;
+pub mod data_trust;
 pub mod events;
 pub mod ml;
 
@@ -8,6 +9,7 @@ pub mod etw;
 #[cfg(windows)]
 pub mod service;
 
+pub use data_trust::{TransferDecision as DataTrustDecision, TransferRequest as DataTrustTransferRequest};
 pub use events::{EndpointEvent, EventKind};
 pub use ml::{ModelInfo, ModelSync, OnnxDetector};
 
@@ -26,26 +28,17 @@ pub async fn run_agent() -> anyhow::Result<()> {
     let key = config.state_dir.join("device.key.pem");
     let ca = config.state_dir.join("ca.crt.pem");
 
-    let mut sync = ModelSync::new(
-        config.api_url.clone(),
-        model_dir.clone(),
-        &cert,
-        &key,
-        &ca,
-    )?;
+    let mut sync = ModelSync::new(config.api_url.clone(), model_dir.clone(), &cert, &key, &ca)?;
     if let Err(error) = sync.sync_once().await {
         warn!(%error, "initial model sync failed; agent continues without local ML");
     }
 
-    let detector: Arc<RwLock<Option<Arc<OnnxDetector>>>> =
-        Arc::new(RwLock::new(sync.current()));
+    let detector: Arc<RwLock<Option<Arc<OnnxDetector>>>> = Arc::new(RwLock::new(sync.current()));
     let sync_detector = Arc::clone(&detector);
     let sync_config = config.clone();
 
     tokio::spawn(async move {
-        let mut ticker = tokio::time::interval(std::time::Duration::from_secs(
-            sync_config.model_sync_secs,
-        ));
+        let mut ticker = tokio::time::interval(std::time::Duration::from_secs(sync_config.model_sync_secs));
         ticker.tick().await;
         loop {
             ticker.tick().await;
@@ -73,8 +66,6 @@ pub async fn run_agent() -> anyhow::Result<()> {
     let collector = etw::EtwCollector::start(config.host_id)?;
     let _detector = detector;
 
-    // ETW ProcessTrace is a blocking Windows API. Keep it off the Tokio
-    // executor so model synchronization and shutdown remain responsive.
     tokio::task::spawn_blocking(move || {
         collector.run(|event| match serde_json::to_string(&event) {
             Ok(line) => tracing::info!(target = "sentinel.telemetry", "{}", line),
