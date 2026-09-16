@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from typing import Any
 from uuid import UUID
 
@@ -14,12 +16,7 @@ _INTERPERSONAL_CHANNELS = {"email", "messaging"}
 
 
 class DataTrustControlPlane:
-    """Single policy decision point for all data movement channels.
-
-    Endpoint integrations can be written in Rust, Python, TypeScript, Go, or
-    another language as long as they submit the same TransferRequest contract.
-    The policy engine never assumes USB is the only exfiltration path.
-    """
+    """Single policy decision point for all data movement channels."""
 
     async def evaluate_and_record(self, request: TransferRequest) -> TransferDecision:
         asset = None
@@ -78,23 +75,44 @@ class DataTrustControlPlane:
         return decision
 
     async def _record(self, request: TransferRequest, decision: TransferDecision) -> None:
-        await supabase.insert_one(
-            "data_trust_transfer_events",
+        key_material = {
+            "tenant_id": str(request.tenant_id),
+            "asset_id": str(request.asset_id) if request.asset_id else None,
+            "device_id": str(request.device_id) if request.device_id else None,
+            "actor_id": str(request.actor_id) if request.actor_id else None,
+            "source_type": request.source_type,
+            "destination_type": request.destination_type,
+            "destination_ref": request.destination_ref,
+            "destination_trust": request.destination_trust,
+            "bytes_transferred": request.bytes_transferred,
+            "content_hash": request.content_hash,
+            "observed_at": request.observed_at.isoformat(),
+            "decision": decision.decision,
+        }
+        idempotency_key = hashlib.sha256(
+            json.dumps(key_material, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+
+        await supabase.rpc(
+            "record_data_trust_transfer",
             {
-                "tenant_id": str(request.tenant_id),
-                "asset_id": str(request.asset_id) if request.asset_id else None,
-                "device_id": str(request.device_id) if request.device_id else None,
-                "actor_id": str(request.actor_id) if request.actor_id else None,
-                "source_type": request.source_type,
-                "destination_type": request.destination_type,
-                "destination_ref": request.destination_ref,
-                "destination_trust": request.destination_trust,
-                "bytes_transferred": request.bytes_transferred,
-                "content_inspected": request.content_inspected,
-                "content_hash": request.content_hash,
-                "decision": decision.decision,
-                "reason_codes": list(decision.reason_codes),
-                "observed_at": request.observed_at.isoformat(),
-                "metadata": request.metadata,
+                "p_tenant_id": str(request.tenant_id),
+                "p_asset_id": str(request.asset_id) if request.asset_id else None,
+                "p_device_id": str(request.device_id) if request.device_id else None,
+                "p_actor_id": str(request.actor_id) if request.actor_id else None,
+                "p_source_type": request.source_type,
+                "p_destination_type": request.destination_type,
+                "p_destination_ref": request.destination_ref,
+                "p_destination_trust": request.destination_trust,
+                "p_bytes_transferred": request.bytes_transferred,
+                "p_content_inspected": request.content_inspected,
+                "p_content_hash": request.content_hash,
+                "p_observed_at": request.observed_at.isoformat(),
+                "p_metadata": request.metadata,
+                "p_decision": decision.decision,
+                "p_reason_codes": list(decision.reason_codes),
+                "p_policy_id": str(decision.policy_id) if decision.policy_id else None,
+                "p_classification": decision.classification,
+                "p_idempotency_key": idempotency_key,
             },
         )
