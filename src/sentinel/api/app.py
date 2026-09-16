@@ -13,12 +13,14 @@ from sentinel.api.routes.compliance_lifecycle import router as compliance_lifecy
 from sentinel.api.routes.data_trust import router as data_trust_router
 from sentinel.api.routes.data_trust_channels import router as data_trust_channels_router
 from sentinel.api.routes.deception import router as deception_router
+from sentinel.api.routes.darkweb import router as darkweb_router
 from sentinel.api.routes.hunts import router as hunts_router
 from sentinel.api.routes.investigation import router as investigation_router
 from sentinel.api.routes.trust_center import public_router as trust_center_public_router
 from sentinel.api.routes.trust_center import router as trust_center_router
 from sentinel.api.routes.vendor_risk import router as vendor_risk_router
 from sentinel.compliance.scheduler import ComplianceScheduler
+from sentinel.darkweb.scheduler import DarkWebScheduler
 from sentinel.routing.region_router import current_region_code, enforce_device_region, region_cache
 
 
@@ -28,13 +30,17 @@ async def lifespan(application: FastAPI):
     await region_cache.load(force=True)
     if region_cache.get(region) is None:
         raise RuntimeError(f"SENTINEL_REGION {region!r} is not present in the active region registry")
-    scheduler = ComplianceScheduler()
-    scheduler.start()
-    application.state.compliance_scheduler = scheduler
+    compliance_scheduler = ComplianceScheduler()
+    darkweb_scheduler = DarkWebScheduler()
+    compliance_scheduler.start()
+    darkweb_scheduler.start()
+    application.state.compliance_scheduler = compliance_scheduler
+    application.state.darkweb_scheduler = darkweb_scheduler
     try:
         yield
     finally:
-        await scheduler.stop()
+        await darkweb_scheduler.stop()
+        await compliance_scheduler.stop()
 
 
 def create_app() -> FastAPI:
@@ -53,6 +59,7 @@ def create_app() -> FastAPI:
     application.include_router(trust_center_router, prefix="/api/v1")
     application.include_router(trust_center_public_router, prefix="/api/v1")
     application.include_router(vendor_risk_router, prefix="/api/v1")
+    application.include_router(darkweb_router, prefix="/api/v1")
     return application
 
 
