@@ -19,32 +19,53 @@ async def test_create_stores_only_token_hash(monkeypatch: pytest.MonkeyPatch) ->
 
     monkeypatch.setattr("sentinel.deception.engine.supabase.insert_one", insert_one)
     artifact = await DeceptionEngine(callback_base_url="https://sentinel.example").create(
-        ArtifactSpec(tenant_id=tenant_id, artifact_type="fake_aws_key", name="finance-canary", target="finance-share")
+        ArtifactSpec(
+            tenant_id=tenant_id,
+            artifact_type="fake_aws_key",
+            name="finance-canary",
+            target="finance-share",
+            device_id=uuid4(),
+            auto_case_rule_id=uuid4(),
+        )
     )
 
     assert artifact.secret.startswith("AKIA")
     assert captured["token_hash"] != artifact.secret
     assert len(captured["token_hash"]) == 64
     assert captured["metadata"]["inert"] is True
+    assert captured["device_id"] is not None
+    assert captured["auto_case_rule_id"] is not None
     assert artifact.callback_url.startswith("https://sentinel.example/api/v1/deception/callback/sdc_")
 
 
 @pytest.mark.asyncio
-async def test_callback_uses_hashed_token_and_returns_trigger(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_callback_finalizes_trigger_through_autocase_bridge(monkeypatch: pytest.MonkeyPatch) -> None:
     tenant_id = uuid4()
     artifact_id = uuid4()
     trigger_id = uuid4()
-    calls: dict = {}
+    detection_id = uuid4()
+    case_id = uuid4()
+    calls: list[str] = []
 
     async def rpc(function: str, params: dict):
-        calls["function"] = function
-        calls["params"] = params
+        calls.append(function)
+        if function == "deception_record_trigger":
+            assert params["p_token_hash"] != "sdc_opaque-token"
+            assert len(params["p_token_hash"]) == 64
+            return [{
+                "trigger_id": str(trigger_id),
+                "tenant_id": str(tenant_id),
+                "artifact_id": str(artifact_id),
+                "severity": "critical",
+                "artifact_type": "honeyfile",
+            }]
+        assert function == "deception_finalize_trigger"
+        assert params == {"p_trigger_id": str(trigger_id)}
         return [{
             "trigger_id": str(trigger_id),
-            "tenant_id": str(tenant_id),
-            "artifact_id": str(artifact_id),
-            "severity": "critical",
-            "artifact_type": "honeyfile",
+            "detection_id": str(detection_id),
+            "case_id": str(case_id),
+            "case_status": "created",
         }]
 
     monkeypatch.setattr("sentinel.deception.engine.supabase.rpc", rpc)
@@ -54,7 +75,7 @@ async def test_callback_uses_hashed_token_and_returns_trigger(monkeypatch: pytes
 
     assert result is not None
     assert result.trigger_id == trigger_id
-    assert result.tenant_id == tenant_id
-    assert calls["function"] == "deception_record_trigger"
-    assert calls["params"]["p_token_hash"] != "sdc_opaque-token"
-    assert len(calls["params"]["p_token_hash"]) == 64
+    assert result.detection_id == detection_id
+    assert result.case_id == case_id
+    assert result.case_status == "created"
+    assert calls == ["deception_record_trigger", "deception_finalize_trigger"]
