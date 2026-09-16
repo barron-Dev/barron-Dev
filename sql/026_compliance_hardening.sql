@@ -26,16 +26,7 @@ security definer
 set search_path = pg_catalog, public
 as $$
 begin
-    if current_user <> 'service_role' then
-        raise exception 'compliance evidence is append-only';
-    end if;
-    if tg_op = 'DELETE' then
-        raise exception 'compliance evidence cannot be deleted';
-    end if;
-    if tg_op = 'UPDATE' then
-        raise exception 'compliance evidence cannot be updated';
-    end if;
-    return new;
+    raise exception 'compliance evidence is append-only';
 end;
 $$;
 
