@@ -125,7 +125,10 @@ class Parser:
                 self.advance()
                 args[key] = self._parse_value()
             else:
-                args[f"arg{pos}"] = self._parse_value()
+                if name in {"sort", "order"} and self.peek().kind == Tok.IDENT:
+                    args[f"arg{pos}"] = self.advance().value
+                else:
+                    args[f"arg{pos}"] = self._parse_value()
                 pos += 1
             if self.peek().kind == Tok.COMMA:
                 self.advance()
