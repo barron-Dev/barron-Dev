@@ -103,7 +103,7 @@ class RollbackService:
         inverse = builder(row.get("args") or {})
         if inverse is None:
             raise RollbackError(
-                f"cannot build inverse for '{row.get('action')}' with given args"
+                f"no defined inverse for '{row.get('action')}' with given args"
             )
 
         raw_device_id = row.get("device_id")
