@@ -52,6 +52,8 @@ class TransferDecision:
     reason_codes: tuple[str, ...]
     policy_id: UUID | None
     classification: str | None
+    event_id: UUID | None = None
+    detection_id: UUID | None = None
 
     def __post_init__(self) -> None:
         if self.decision not in {"allow", "block", "quarantine", "review"}:
