@@ -101,7 +101,7 @@ def export_onnx(pipeline: Pipeline) -> bytes:
     model = convert_sklearn(
         pipeline,
         initial_types=[("input", FloatTensorType([None, len(FEATURE_NAMES)]))],
-        target_opset=15,
+        target_opset={"": 15, "ai.onnx.ml": 3},
         options={id(pipeline): {"zipmap": False}},
     )
     return model.SerializeToString()
