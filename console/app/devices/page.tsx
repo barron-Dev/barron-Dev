@@ -19,6 +19,7 @@ type Device = {
   created_at: string;
   updated_at: string;
   cert_fingerprint: string | null;
+  attestation?: Record<string, unknown>;
 };
 
 type DeviceResponse = {
@@ -50,6 +51,7 @@ export default function DevicesPage() {
   const [platform, setPlatform] = useState("");
   const [offset, setOffset] = useState(0);
   const [selected, setSelected] = useState<Device | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const limit = 50;
@@ -74,6 +76,20 @@ export default function DevicesPage() {
   }, [offset, platform, search, status]);
 
   useEffect(() => { void load(); }, [load]);
+
+  const openDetail = useCallback(async (device: Device) => {
+    setSelected(device);
+    setDetailLoading(true);
+    try {
+      const response = await fetch(`${API}/api/v1/console/devices/${encodeURIComponent(device.id)}`, { headers: headers(), cache: "no-store" });
+      if (!response.ok) throw new Error(response.status === 401 || response.status === 403 ? "Authentication required" : response.status === 404 ? "Device not found" : `Request failed (${response.status})`);
+      setSelected((await response.json()) as Device);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to load device detail");
+    } finally {
+      setDetailLoading(false);
+    }
+  }, []);
 
   const platforms = useMemo(() => Array.from(new Set((data?.items ?? []).map((item) => item.platform).filter(Boolean))).sort(), [data]);
 
@@ -105,7 +121,7 @@ export default function DevicesPage() {
           <thead><tr><th>Device</th><th>Platform</th><th>Agent</th><th>Status</th><th>Last seen</th><th>Certificate</th></tr></thead>
           <tbody>
             {data?.items.map((device) => (
-              <tr key={device.id} tabIndex={0} onClick={() => setSelected(device)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSelected(device); } }}>
+              <tr key={device.id} tabIndex={0} onClick={() => void openDetail(device)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); void openDetail(device); } }}>
                 <td><strong>{device.name || device.hostname}</strong><small>{device.hostname} · {device.id}</small></td>
                 <td>{device.platform}{device.platform_version ? ` ${device.platform_version}` : ""}</td>
                 <td className="mono">{device.agent_version ?? "—"}</td>
@@ -120,7 +136,7 @@ export default function DevicesPage() {
       </section>
 
       <footer className="pager">
-        <span>{data ? `${data.pagination.offset + 1}–${Math.min(data.pagination.offset + data.pagination.limit, data.pagination.total)} of ${data.pagination.total}` : "—"}</span>
+        <span>{data ? `${data.pagination.total === 0 ? 0 : data.pagination.offset + 1}–${Math.min(data.pagination.offset + data.pagination.limit, data.pagination.total)} of ${data.pagination.total}` : "—"}</span>
         <div><button type="button" onClick={() => setOffset((value) => Math.max(0, value - limit))} disabled={!offset || loading}>Previous</button><button type="button" onClick={() => setOffset((value) => value + limit)} disabled={!data?.pagination.has_more || loading}>Next</button></div>
       </footer>
 
@@ -128,6 +144,7 @@ export default function DevicesPage() {
         <aside className="detail-panel" aria-label="Selected device">
           <button className="close" type="button" onClick={() => setSelected(null)} aria-label="Close device details">×</button>
           <p className="eyebrow">DEVICE DETAIL</p><h2>{selected.name || selected.hostname}</h2>
+          {detailLoading && <p className="muted" aria-live="polite">Loading authoritative device state…</p>}
           <dl>
             <dt>Device ID</dt><dd className="mono">{selected.id}</dd>
             <dt>Hostname</dt><dd>{selected.hostname}</dd>
@@ -137,6 +154,7 @@ export default function DevicesPage() {
             <dt>Status</dt><dd>{selected.status}</dd>
             <dt>Last seen</dt><dd>{selected.last_seen_at ?? "never"}</dd>
             <dt>Certificate fingerprint</dt><dd className="mono break">{selected.cert_fingerprint ?? "—"}</dd>
+            <dt>Attestation fields</dt><dd className="mono break">{selected.attestation && Object.keys(selected.attestation).length ? Object.keys(selected.attestation).join(", ") : "—"}</dd>
           </dl>
         </aside>
       )}
