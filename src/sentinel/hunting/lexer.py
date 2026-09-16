@@ -36,8 +36,8 @@ TOKEN_RE = re.compile(
   | (?P<OP>==|!=|>=|<=|>|<|~|!~)
   | (?P<STRING>\"(?:[^\"\\]|\\.)*\"|'(?:[^'\\]|\\.)*')
   | (?P<NUMBER>-?\d+(?:\.\d+)?)
-  | (?P<IDENT>[A-Za-z_][A-Za-z0-9_\.\*]* )
-    """.replace("* )", "*)"),
+  | (?P<IDENT>[A-Za-z_][A-Za-z0-9_\.\*]*)
+    """,
     re.VERBOSE,
 )
 
@@ -53,11 +53,11 @@ def tokenize(src: str) -> list[Token]:
     tokens: list[Token] = []
     i = 0
     while i < len(src):
-        m = TOKEN_RE.match(src, i)
-        if not m:
+        match = TOKEN_RE.match(src, i)
+        if not match:
             raise SyntaxError(f"unexpected char at {i}: {src[i]!r}")
-        kind = m.lastgroup
-        value = m.group()
+        kind = match.lastgroup
+        value = match.group()
         if kind != "WS":
             if kind == "IDENT" and value.lower() in TABLES and not tokens:
                 tokens.append(Token(Tok.TABLE, value.lower(), i))
@@ -66,13 +66,11 @@ def tokenize(src: str) -> list[Token]:
             elif kind == "IDENT":
                 tokens.append(Token(Tok.IDENT, value, i))
             elif kind == "STRING":
-                # The grammar accepts quoted literals but does not interpret
-                # SQL escapes; the value remains a data value throughout.
                 tokens.append(Token(Tok.STRING, value[1:-1], i))
             elif kind == "NUMBER":
                 tokens.append(Token(Tok.NUMBER, value, i))
             else:
                 tokens.append(Token(Tok(kind), value, i))
-        i = m.end()
+        i = match.end()
     tokens.append(Token(Tok.EOF, "", i))
     return tokens
