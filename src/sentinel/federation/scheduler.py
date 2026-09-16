@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from uuid import UUID
 
 from sentinel.federation.exchange import FederationExchange
 from sentinel.storage.supabase_client import supabase
@@ -16,11 +17,14 @@ class FederationScheduler:
     START_DELAY_SECONDS = 180
     MAX_PEERS_PER_TICK = 100
     MAX_TENANTS_PER_TICK = 500
+    MAX_SHARES_PER_TICK = 2000
+    MAX_CONCURRENCY = 8
 
     def __init__(self) -> None:
         self._task: asyncio.Task[None] | None = None
         self._stop = asyncio.Event()
         self._exchange = FederationExchange()
+        self._semaphore = asyncio.Semaphore(self.MAX_CONCURRENCY)
 
     def start(self) -> None:
         if self._task is None or self._task.done():
@@ -65,6 +69,24 @@ class FederationScheduler:
             logger.exception("federation tenant discovery failed")
             return []
 
+    async def _sync(self, peer: dict) -> None:
+        async with self._semaphore:
+            try:
+                await self._exchange.sync_peer(peer_id=peer["id"])
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception("federation inbound sync failed peer=%s", peer.get("id"))
+
+    async def _share(self, peer: dict, tenant_id: str) -> None:
+        async with self._semaphore:
+            try:
+                await self._exchange.share_peer(peer_id=peer["id"], tenant_id=UUID(tenant_id))
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception("federation outbound share failed peer=%s tenant=%s", peer.get("id"), tenant_id)
+
     async def _loop(self) -> None:
         try:
             await asyncio.wait_for(self._stop.wait(), timeout=self.START_DELAY_SECONDS)
@@ -75,30 +97,24 @@ class FederationScheduler:
             try:
                 peers = await self._peers()
                 tenants = await self._tenant_ids()
-                for peer in peers:
-                    if self._stop.is_set():
-                        break
-                    if not peer.get("taxii_url"):
-                        continue
-                    try:
-                        await self._exchange.sync_peer(peer_id=peer["id"])
-                    except asyncio.CancelledError:
-                        raise
-                    except Exception:
-                        logger.exception("federation inbound sync failed peer=%s", peer.get("id"))
+                sync_tasks = [asyncio.create_task(self._sync(peer)) for peer in peers if peer.get("taxii_url")]
+                if sync_tasks:
+                    await asyncio.gather(*sync_tasks)
 
+                remaining = self.MAX_SHARES_PER_TICK
+                share_tasks: list[asyncio.Task[None]] = []
+                for peer in peers:
+                    if remaining <= 0 or self._stop.is_set():
+                        break
                     if int(peer.get("trust_level") or 0) < 1:
                         continue
                     for tenant_id in tenants:
-                        if self._stop.is_set():
+                        if remaining <= 0 or self._stop.is_set():
                             break
-                        try:
-                            from uuid import UUID
-                            await self._exchange.share_peer(peer_id=peer["id"], tenant_id=UUID(tenant_id))
-                        except asyncio.CancelledError:
-                            raise
-                        except Exception:
-                            logger.exception("federation outbound share failed peer=%s tenant=%s", peer.get("id"), tenant_id)
+                        share_tasks.append(asyncio.create_task(self._share(peer, tenant_id)))
+                        remaining -= 1
+                if share_tasks:
+                    await asyncio.gather(*share_tasks)
             except asyncio.CancelledError:
                 raise
             except Exception:
