@@ -190,7 +190,7 @@ class FederationExchange:
         await supabase.insert_one(
             "fed_shares",
             {"peer_id": str(peer_id), "direction": "inbound", "ioc_count": accepted,
-             "categories": sorted({str(x.get("category")) for x in parsed if x.get("category")} ),
+             "categories": sorted({str(x.get("category")) for x in parsed if x.get("category")}),
              "anonymized": True, "status": status_value,
              "error": None if rejected == 0 else f"{rejected} indicators rejected",
              "payload_sha256": digest},
@@ -200,16 +200,19 @@ class FederationExchange:
                               status=status_value, error=None if rejected == 0 else f"{rejected} indicators rejected",
                               payload_sha256=digest)
 
-    async def share_peer(self, *, peer_id: UUID, limit: int = 500) -> ExchangeResult:
+    async def share_peer(self, *, peer_id: UUID, tenant_id: UUID, limit: int = 500) -> ExchangeResult:
+        """Share only indicators owned by the authenticated/scheduled tenant."""
         peer = await supabase.select_one(
             "federation_peers",
-            "id,kind,status,taxii_url,taxii_collection,auth_ref,require_anonymization,share_categories,receive_categories",
+            "id,tenant_id,kind,status,taxii_url,taxii_collection,auth_ref,require_anonymization,share_categories,receive_categories",
             id=str(peer_id),
         )
         if not peer:
             raise ValueError("peer not found")
         if peer.get("status") != "active":
             raise ValueError("peer is not active")
+        if peer.get("kind") == "tenant" and str(peer.get("tenant_id")) != str(tenant_id):
+            raise ValueError("peer is outside tenant boundary")
         endpoint = _endpoint(peer)
         token = _bearer(peer)
         categories = [str(x) for x in (peer.get("share_categories") or [])][:100]
@@ -217,7 +220,7 @@ class FederationExchange:
         async def _load():
             q = (await supabase._ensure()).table("fed_indicators").select(
                 "ioc_type,value_hash,value_ref,category,confidence,created_at,last_seen"
-            ).eq("whitelisted", False).order("last_seen", desc=True).limit(max(1, min(limit, 5000)))
+            ).eq("source_tenant", str(tenant_id)).eq("whitelisted", False).order("last_seen", desc=True).limit(max(1, min(limit, 5000)))
             if categories:
                 q = q.in_("category", categories)
             return await q.execute()
@@ -230,13 +233,14 @@ class FederationExchange:
             if not isinstance(value, str) or not value:
                 continue
             try:
-                # The peer flag controls general minimisation, but sensitive
-                # tenant-derived types are always minimised before leaving Sentinel.
                 if bool(peer.get("require_anonymization", True)) or str(row["ioc_type"]) in {"email", "ipv4", "ipv6", "url", "domain"}:
                     value = _share_value(anon, str(row["ioc_type"]), value)
                 export_rows.append({**row, "value_ref": value})
             except ValueError:
                 continue
+
+        if not export_rows:
+            return ExchangeResult(peer_id=peer_id, direction="outbound", sent=0, status="success")
 
         payload = bundle_from_indicators(export_rows)
         digest = hashlib.sha256(payload).hexdigest()
