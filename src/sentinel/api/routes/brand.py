@@ -24,6 +24,8 @@ async def brands(p:DeveloperPrincipal=Depends(authenticate_request)):
  return list((await supabase._retry(q,attempts=2)).data or [])
 @router.get('/threats')
 async def threats(brand_id:UUID|None=None,status_filter:str|None=Query(None,alias='status'),severity:str|None=None,kind:str|None=None,limit:int=Query(200,ge=1,le=1000),principal:DeveloperPrincipal=Depends(authenticate_request)):
+ principal.require(('brand:read',))
+ tenant_id=str(principal.tenant_id)
  async def q():
   x=(await supabase._ensure()).table('brand_threats').select('*').eq('tenant_id',str(principal.tenant_id))
   if brand_id:x=x.eq('brand_id',str(brand_id))
@@ -31,7 +33,6 @@ async def threats(brand_id:UUID|None=None,status_filter:str|None=Query(None,alia
   if severity:x=x.eq('severity',severity)
   if kind:x=x.eq('kind',kind)
   return await x.order('first_seen',desc=True).limit(limit).execute()
- principal.require(('brand:read',))
  return list((await supabase._retry(q,attempts=2)).data or [])
 @router.get('/stats')
 async def stats(p:DeveloperPrincipal=Depends(authenticate_request)):
