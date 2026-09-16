@@ -1,0 +1,152 @@
+from __future__ import annotations
+
+import hashlib
+import ipaddress
+import logging
+import re
+from dataclasses import dataclass
+from urllib.parse import urljoin, urlsplit
+from urllib.robotparser import RobotFileParser
+
+import httpx
+
+logger = logging.getLogger(__name__)
+EMAIL_RE = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}")
+URL_RE = re.compile(r"https?://[^\s<>\"']+")
+WALLET_RE = re.compile(r"\b(?:bc1[a-z0-9]{25,62}|[13][a-km-zA-HJ-NP-Z1-9]{25,34}|0x[a-fA-F0-9]{40})\b")
+CRED_PAIR_RE = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}:[^\s<>&]{6,64}")
+
+
+@dataclass(frozen=True, slots=True)
+class WebPage:
+    url: str
+    content_hash: str
+    status_code: int
+    content_type: str
+    body: bytes
+    emails: tuple[str, ...]
+    urls: tuple[str, ...]
+    wallets: tuple[str, ...]
+    credential_indicators: int
+
+
+class RobotsCache:
+    _cache: dict[str, RobotFileParser] = {}
+
+    @classmethod
+    async def allowed(cls, url: str, user_agent: str = "SentinelBot/1.0") -> bool:
+        parts = urlsplit(url)
+        root = f"{parts.scheme}://{parts.netloc}"
+        parser = cls._cache.get(root)
+        if parser is None:
+            parser = RobotFileParser(urljoin(root, "/robots.txt"))
+            try:
+                async with httpx.AsyncClient(timeout=5.0, follow_redirects=True) as client:
+                    response = await client.get(parser.url, headers={"user-agent": user_agent})
+                    response.raise_for_status()
+                    parser.parse(response.text.splitlines())
+            except Exception:
+                # A robots failure is not an authorization grant. Fail closed for
+                # customer-configured crawling when robots are requested.
+                return False
+            cls._cache[root] = parser
+        return parser.can_fetch(user_agent, url)
+
+
+class WebCrawler:
+    """Bounded HTTP crawler for explicitly configured public/authorized targets.
+
+    It never submits credentials, bypasses authentication, or stores credential
+    values. Dark-web .onion targets require an explicitly configured Tor proxy.
+    """
+
+    USER_AGENT = "SentinelBot/1.0"
+
+    def __init__(self, tor_proxy: str | None = None, max_bytes: int = 2 * 1024 * 1024) -> None:
+        self.tor_proxy = tor_proxy
+        self.max_bytes = max_bytes
+
+    async def crawl(self, url: str, *, layer: str = "surface", respect_robots: bool = True, depth: int = 0) -> list[WebPage]:
+        self._validate_target(url, layer)
+        results: list[WebPage] = []
+        queue: list[tuple[str, int]] = [(url, 0)]
+        seen: set[str] = set()
+        root_host = (urlsplit(url).hostname or "").lower()
+        while queue:
+            current, current_depth = queue.pop(0)
+            if current in seen or current_depth > depth:
+                continue
+            seen.add(current)
+            if respect_robots and layer != "dark" and not await RobotsCache.allowed(current, self.USER_AGENT):
+                continue
+            page = await self._fetch(current, layer)
+            if page is None:
+                continue
+            results.append(page)
+            if current_depth >= depth:
+                continue
+            for link in page.urls[:20]:
+                parsed = urlsplit(link)
+                if parsed.scheme not in {"http", "https"}:
+                    continue
+                if (parsed.hostname or "").lower() == root_host and link not in seen:
+                    queue.append((link, current_depth + 1))
+        return results
+
+    @staticmethod
+    def _validate_target(url: str, layer: str) -> None:
+        if layer not in {"surface", "deep", "dark"}:
+            raise ValueError("invalid exposure layer")
+        parsed = urlsplit(url)
+        if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+            raise ValueError("crawl target must be an HTTP(S) URL")
+        host = parsed.hostname.lower().rstrip(".")
+        if layer == "dark" and not host.endswith(".onion"):
+            raise ValueError("dark-layer crawl targets must use an onion hostname")
+        if host.endswith(".onion") and layer != "dark":
+            raise ValueError("onion targets must be classified as dark")
+        try:
+            ip = ipaddress.ip_address(host)
+            if ip.is_private or ip.is_loopback or ip.is_link_local:
+                raise ValueError("private network targets are not permitted")
+        except ValueError as exc:
+            if str(exc) == "private network targets are not permitted":
+                raise
+
+    async def _fetch(self, url: str, layer: str) -> WebPage | None:
+        parsed = urlsplit(url)
+        kwargs = {
+            "timeout": 20.0,
+            "follow_redirects": True,
+            "headers": {"user-agent": self.USER_AGENT, "accept": "text/html,text/plain,application/json;q=0.9,*/*;q=0.1"},
+        }
+        if parsed.hostname and parsed.hostname.endswith(".onion"):
+            if not self.tor_proxy:
+                logger.warning("dark target skipped because no Tor proxy is configured")
+                return None
+            kwargs["proxy"] = self.tor_proxy
+        try:
+            async with httpx.AsyncClient(**kwargs) as client:
+                response = await client.get(url)
+                body = response.content[: self.max_bytes]
+        except Exception as exc:
+            logger.info("web fetch failed target=%s layer=%s error=%s", url, layer, type(exc).__name__)
+            return None
+        content_type = response.headers.get("content-type", "")
+        text = body.decode("utf-8", errors="ignore")
+        emails = tuple(dict.fromkeys(EMAIL_RE.findall(text)))[:200]
+        urls = tuple(dict.fromkeys(URL_RE.findall(text)))[:200]
+        wallets = tuple(dict.fromkeys(WALLET_RE.findall(text)))[:50]
+        # Count only; never persist or emit the password component of a pair.
+        credentials = len(CRED_PAIR_RE.findall(text))
+        return WebPage(
+            url=str(response.url),
+            content_hash=hashlib.sha256(body).hexdigest(),
+            status_code=response.status_code,
+            content_type=content_type[:120],
+            body=body,
+            emails=emails,
+            urls=urls,
+            wallets=wallets,
+            credential_indicators=credentials,
+        )
