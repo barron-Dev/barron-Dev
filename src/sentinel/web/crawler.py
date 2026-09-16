@@ -44,8 +44,6 @@ class RobotsCache:
             try:
                 async with httpx.AsyncClient(timeout=5.0, follow_redirects=False) as client:
                     response = await client.get(parser.url, headers={"user-agent": user_agent})
-                    if response.status_code in {401, 403}:
-                        return False
                     if response.status_code >= 400:
                         return False
                     parser.parse(response.text.splitlines())
@@ -83,7 +81,7 @@ class WebCrawler:
             seen.add(current)
             if respect_robots and layer != "dark" and not await RobotsCache.allowed(current, self.USER_AGENT):
                 continue
-            page, final_url = await self._fetch(current, layer)
+            page = await self._fetch(current, layer, root_host=root_host)
             if page is None:
                 continue
             results.append(page)
@@ -124,7 +122,7 @@ class WebCrawler:
             if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_reserved:
                 raise ValueError("private or non-public network targets are not permitted")
 
-    async def _fetch(self, url: str, layer: str) -> tuple[WebPage | None, str | None]:
+    async def _fetch(self, url: str, layer: str, *, root_host: str) -> WebPage | None:
         parsed = urlsplit(url)
         self._validate_target(url, layer)
         kwargs = {
@@ -135,7 +133,7 @@ class WebCrawler:
         if parsed.hostname and parsed.hostname.endswith(".onion"):
             if not self.tor_proxy:
                 logger.warning("dark target skipped because no Tor proxy is configured")
-                return None, None
+                return None
             kwargs["proxy"] = self.tor_proxy
         try:
             async with httpx.AsyncClient(**kwargs) as client:
@@ -147,14 +145,15 @@ class WebCrawler:
                         break
                     next_url = urljoin(str(response.url), location)
                     self._validate_target(next_url, layer)
-                    if respect_same_origin := ((urlsplit(next_url).hostname or "").lower() != (urlsplit(url).hostname or "").lower()):
+                    next_host = (urlsplit(next_url).hostname or "").lower()
+                    if next_host != root_host:
                         raise ValueError("cross-origin redirects are not permitted")
                     response = await client.get(next_url)
                     redirects += 1
                 body = response.content[: self.max_bytes]
         except Exception as exc:
             logger.info("web fetch failed target=%s layer=%s error=%s", url, layer, type(exc).__name__)
-            return None, None
+            return None
         content_type = response.headers.get("content-type", "")
         text = body.decode("utf-8", errors="ignore")
         emails = tuple(dict.fromkeys(EMAIL_RE.findall(text)))[:200]
@@ -171,4 +170,4 @@ class WebCrawler:
             urls=urls,
             wallets=wallets,
             credential_indicators=credentials,
-        ), str(response.url)
+        )
