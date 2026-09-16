@@ -6,6 +6,7 @@ from uuid import UUID, uuid4
 
 from sentinel.compliance.catalog import CONTROLS, FRAMEWORKS
 from sentinel.compliance.evaluator import ComplianceEvaluator
+from sentinel.compliance.freshness import DEFAULT_FRESHNESS, is_stale
 from sentinel.storage.supabase_client import supabase
 
 
@@ -42,11 +43,7 @@ class ComplianceService:
             freshness = s.get("freshness_status", "unknown") if s else "unknown"
             valid_until = s.get("evidence_valid_until") if s else None
             if valid_until:
-                try:
-                    expires = datetime.fromisoformat(str(valid_until).replace("Z", "+00:00"))
-                    freshness = "fresh" if expires > now else "stale"
-                except ValueError:
-                    freshness = "unknown"
+                freshness = "stale" if is_stale(valid_until, now) else "fresh"
             status = s["status"] if s else "unknown"
             score = float(s["score"]) if s else 0.0
             if freshness == "stale" and status in {"passing", "partial"}:
@@ -108,16 +105,20 @@ class ComplianceService:
         import hashlib, json
         digest = hashlib.sha256(json.dumps(canonical, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
         collected_at = datetime.now(UTC)
-        valid_until = collected_at + timedelta(days=30)
-        await self._insert("compliance_evidence", {"tenant_id": str(tenant_id), "framework": framework, "control_id": control_rows[0]["id"], "title": f"{control['code']} — {source} telemetry summary", "evidence_type": "telemetry", "source_ref": source, "sha256": digest, "valid_from": start.isoformat(), "valid_until": end.isoformat(), "collected_at": collected_at.isoformat(), "metadata": {"row_count": count, "period_start": start.isoformat(), "period_end": end.isoformat()}, "provenance": {"collector": "sentinel.compliance.service", "run_id": str(run_id), "query_source": source, "tenant_bound": True}, "collected_by": str(created_by) if created_by else None})
-        await self._record_collection_result(tenant_id, run_id, framework, control, source, "collected" if count else "empty", count, None, None, start, end, valid_until)
+        freshness_window = DEFAULT_FRESHNESS
+        valid_until = collected_at + freshness_window
+        await self._insert("compliance_evidence", {"tenant_id": str(tenant_id), "framework": framework, "control_id": control_rows[0]["id"], "title": f"{control['code']} — {source} telemetry summary", "evidence_type": "telemetry", "source_ref": source, "sha256": digest, "valid_from": collected_at.isoformat(), "valid_until": valid_until.isoformat(), "collected_at": collected_at.isoformat(), "freshness_window_seconds": int(freshness_window.total_seconds()), "stale": False, "metadata": {"row_count": count, "period_start": start.isoformat(), "period_end": end.isoformat()}, "provenance": {"collector": "sentinel.compliance.service", "run_id": str(run_id), "query_source": source, "tenant_bound": True}, "collected_by": str(created_by) if created_by else None})
+        await self._record_collection_result(tenant_id, run_id, framework, control, source, "collected" if count else "empty", count, None, None, start, end, valid_until, collected_at, freshness_window)
         return 1
 
-    async def _record_collection_result(self, tenant_id: UUID, run_id: UUID, framework: str, control: dict[str, Any], source: str, result_status: str, row_count: int, error_code: str | None, error_detail: str | None, start: datetime, end: datetime, valid_until: datetime | None = None) -> None:
+    async def _record_collection_result(self, tenant_id: UUID, run_id: UUID, framework: str, control: dict[str, Any], source: str, result_status: str, row_count: int, error_code: str | None, error_detail: str | None, start: datetime, end: datetime, valid_until: datetime | None = None, collected_at: datetime | None = None, freshness_window: timedelta | None = None) -> None:
         async def _control():
             return await (await supabase._ensure()).table("compliance_controls").select("id").eq("stable_id", str(control["id"])).limit(1).execute()
         control_rows = (await supabase._retry(_control, attempts=2)).data or []
-        await self._insert("compliance_collection_results", {"tenant_id": str(tenant_id), "run_id": str(run_id), "framework": framework, "control_id": control_rows[0]["id"] if control_rows else None, "source_ref": source, "status": result_status, "row_count": row_count, "error_code": error_code, "error_detail": error_detail, "collected_at": datetime.now(UTC).isoformat(), "valid_until": (valid_until or end).isoformat(), "provenance": {"collector": "sentinel.compliance.service", "period_start": start.isoformat(), "period_end": end.isoformat()}})
+        collected = collected_at or datetime.now(UTC)
+        window = freshness_window or DEFAULT_FRESHNESS
+        expiry = valid_until or (collected + window if result_status != "failed" else collected)
+        await self._insert("compliance_collection_results", {"tenant_id": str(tenant_id), "run_id": str(run_id), "framework": framework, "control_id": control_rows[0]["id"] if control_rows else None, "source_ref": source, "status": result_status, "row_count": row_count, "error_code": error_code, "error_detail": error_detail, "collected_at": collected.isoformat(), "valid_from": collected.isoformat(), "valid_until": expiry.isoformat(), "freshness_window_seconds": int(window.total_seconds()), "stale": is_stale(expiry, collected), "provenance": {"collector": "sentinel.compliance.service", "period_start": start.isoformat(), "period_end": end.isoformat()}})
 
     async def _insert(self, table: str, row: dict[str, Any]) -> None:
         async def _do():
