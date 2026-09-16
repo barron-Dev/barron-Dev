@@ -40,8 +40,12 @@ async def test_list_packs_is_tenant_filtered():
     fake_table.select.return_value = fake_builder
     fake_client = AsyncMock()
     fake_client.table.return_value = fake_table
+
+    async def retry(fn, attempts=2):
+        return await fn()
+
     with patch("sentinel.compliance.service.supabase._ensure", new=AsyncMock(return_value=fake_client)):
-        with patch("sentinel.compliance.service.supabase._retry", new=AsyncMock(side_effect=lambda fn, attempts=2: fn())):
+        with patch("sentinel.compliance.service.supabase._retry", new=retry):
             result = await service.list_packs(tenant, "soc2")
     assert result == [{"tenant_id": str(tenant)}]
     fake_client.table.assert_called_once_with("compliance_evidence_snapshots")
