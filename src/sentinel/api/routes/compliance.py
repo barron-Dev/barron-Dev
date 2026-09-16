@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 
 from sentinel.compliance.service import ComplianceError, ComplianceService, FRAMEWORKS
 from sentinel.developer.auth import DeveloperPrincipal, authenticate_request
+from sentinel.storage.supabase_client import supabase
 
 router = APIRouter(prefix="/compliance", tags=["compliance"])
 _service = ComplianceService()
@@ -26,19 +27,10 @@ async def frameworks(principal: DeveloperPrincipal = Depends(authenticate_reques
 
 
 @router.post("/runs", status_code=status.HTTP_201_CREATED)
-async def run_compliance(
-    body: ComplianceRunRequest,
-    principal: DeveloperPrincipal = Depends(authenticate_request),
-) -> dict:
+async def run_compliance(body: ComplianceRunRequest, principal: DeveloperPrincipal = Depends(authenticate_request)) -> dict:
     principal.require(("compliance:run",))
     try:
-        return await _service.collect(
-            UUID(principal.tenant_id),
-            body.framework,
-            body.period_start,
-            body.period_end,
-            await _owner_user_id(principal),
-        )
+        return await _service.collect(UUID(principal.tenant_id), body.framework, body.period_start, body.period_end, await _owner_user_id(principal))
     except ComplianceError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
 
@@ -47,17 +39,11 @@ async def run_compliance(
 async def run_last_24h(principal: DeveloperPrincipal = Depends(authenticate_request)) -> dict:
     principal.require(("compliance:run",))
     end = datetime.now(UTC)
-    return await _service.collect(
-        UUID(principal.tenant_id), "soc2", end - timedelta(hours=24), end,
-        await _owner_user_id(principal),
-    )
+    return await _service.collect(UUID(principal.tenant_id), "soc2", end - timedelta(hours=24), end, await _owner_user_id(principal))
 
 
 @router.get("/packs")
-async def packs(
-    framework: str | None = Query(default=None),
-    principal: DeveloperPrincipal = Depends(authenticate_request),
-) -> list[dict]:
+async def packs(framework: str | None = Query(default=None), principal: DeveloperPrincipal = Depends(authenticate_request)) -> list[dict]:
     principal.require(("compliance:read",))
     if framework and framework not in FRAMEWORKS:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "unsupported framework")
@@ -65,9 +51,7 @@ async def packs(
 
 
 async def _owner_user_id(principal: DeveloperPrincipal) -> UUID | None:
-    app = await __import__("sentinel.storage.supabase_client", fromlist=["supabase"]).supabase.select_one(
-        "developer_apps", "owner_user_id", id=principal.app_id
-    )
+    app = await supabase.select_one("developer_apps", "owner_user_id", id=principal.app_id)
     value = app.get("owner_user_id") if app else None
     try:
         return UUID(str(value)) if value else None
