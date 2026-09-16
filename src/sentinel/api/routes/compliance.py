@@ -117,7 +117,7 @@ async def attest(body: AttestRequest, principal: DeveloperPrincipal = Depends(au
         if not ((await supabase._retry(_snapshot, attempts=2)).data or []):
             raise HTTPException(status.HTTP_404_NOT_FOUND, "snapshot not found")
     statement_sha = hashlib.sha256(body.statement.encode()).hexdigest()
-    signed = sign_digest(statement_sha)
+    signed = await sign_digest(statement_sha)
     row = {"tenant_id":str(tenant_id),"control_id":controls[0]["id"],"snapshot_id":snapshot_id,"attested_by":str(attested_by),"statement":body.statement,"statement_sha256":statement_sha,"signature":signed.signature_b64,"signer_kid":signed.kid}
     async def _insert():
         return await (await supabase._ensure()).table("compliance_attestations").insert(row).execute()
