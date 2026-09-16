@@ -132,6 +132,8 @@ class Parser:
                 pos += 1
             if self.peek().kind == Tok.COMMA:
                 self.advance()
+            elif name in {"sort", "order"} and self.peek().kind in (Tok.IDENT, Tok.STRING, Tok.NUMBER, Tok.BOOL):
+                continue
             else:
                 break
         return Command(name, args)
