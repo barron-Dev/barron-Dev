@@ -18,7 +18,8 @@ def test_credential_indicator_is_count_only():
     assert not hasattr(WebCrawler, "extract_credentials")
 
 
-def test_layer_validation():
+def test_layer_validation(monkeypatch):
+    monkeypatch.setattr(WebCrawler, "_reject_private_host", staticmethod(lambda host: None))
     WebCrawler._validate_target("https://example.com", "surface")
     WebCrawler._validate_target("https://example.com", "deep")
     WebCrawler._validate_target("http://example.onion", "dark")
