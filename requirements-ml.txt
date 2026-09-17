@@ -1,8 +1,9 @@
 # Pinned ML runtime/training dependencies for Sentinel.
 numpy==1.26.4
 scikit-learn==1.5.2
-skl2onnx==1.19.1
-onnx==1.15.0
+lightgbm==4.5.0
+onnxmltools==1.14.0
+onnx==1.16.2
 onnxruntime==1.19.2
 pytest==8.3.4
 pytest-asyncio==0.25.3
