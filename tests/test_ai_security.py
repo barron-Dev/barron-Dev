@@ -1,5 +1,5 @@
-from sentinel.ai.injection import PromptInjectionDetector
-from sentinel.ai.tool_policy import ToolPolicyEngine
+from cyclothone.ai.injection import PromptInjectionDetector
+from cyclothone.ai.tool_policy import ToolPolicyEngine
 
 
 def test_instruction_override_detected():
