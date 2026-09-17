@@ -1,4 +1,4 @@
-name: Sentinel CI
+name: Cyclothone CI
 
 on:
   push:
@@ -61,7 +61,7 @@ jobs:
           path: pytest.log
           retention-days: 14
       - name: Build production image
-        run: docker build --pull -t sentinel-platform:ci .
+        run: docker build --pull -t cyclothone-platform:ci .
 
   console:
     runs-on: ubuntu-latest
@@ -75,5 +75,5 @@ jobs:
           node-version: '20'
       - name: Install console dependencies
         run: npm install --no-audit --no-fund
-      - name: Build Sentinel Console
+      - name: Build Cyclothone Console
         run: npm run build

@@ -10,10 +10,10 @@ RUN pip install --no-cache-dir -r requirements-server.txt -r requirements-ml.txt
 
 COPY src ./src
 
-RUN useradd --system --uid 10001 --create-home sentinel \
-    && chown -R sentinel:sentinel /app
-USER sentinel
+RUN useradd --system --uid 10001 --create-home cyclothone \
+    && chown -R cyclothone:cyclothone /app
+USER cyclothone
 
 EXPOSE 8000
 
-CMD ["uvicorn", "sentinel.api.app:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "cyclothone.api.app:app", "--host", "0.0.0.0", "--port", "8000"]

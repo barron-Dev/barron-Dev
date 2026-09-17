@@ -1,14 +1,14 @@
-name: Sentinel Agent
+name: Cyclothone Agent
 
 on:
   push:
     paths:
       - 'agent/**'
-      - '.github/workflows/sentinel-agent.yml'
+      - '.github/workflows/cyclothone-agent.yml'
   pull_request:
     paths:
       - 'agent/**'
-      - '.github/workflows/sentinel-agent.yml'
+      - '.github/workflows/cyclothone-agent.yml'
 
 jobs:
   windows-agent:

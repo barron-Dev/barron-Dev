@@ -4,10 +4,10 @@ services:
       context: ../..
       dockerfile: deploy/region/Dockerfile.api
     environment:
-      SENTINEL_REGION: ${SENTINEL_REGION:?SENTINEL_REGION must be set}
+      CYCLOTHONE_REGION: ${CYCLOTHONE_REGION:?CYCLOTHONE_REGION must be set}
       SUPABASE_URL: ${SUPABASE_URL:?SUPABASE_URL must be set}
       SUPABASE_SECRET_KEY: ${SUPABASE_SECRET_KEY:?SUPABASE_SECRET_KEY must be set}
-      SENTINEL_SANDBOX_URL: http://sandbox:8080
+      CYCLOTHONE_SANDBOX_URL: http://sandbox:8080
     expose:
       - "8000"
     restart: unless-stopped
@@ -27,7 +27,7 @@ services:
       context: ../../sandbox
       dockerfile: Dockerfile
     environment:
-      SENTINEL_REGION: ${SENTINEL_REGION:?SENTINEL_REGION must be set}
+      CYCLOTHONE_REGION: ${CYCLOTHONE_REGION:?CYCLOTHONE_REGION must be set}
     expose:
       - "8080"
     restart: unless-stopped
