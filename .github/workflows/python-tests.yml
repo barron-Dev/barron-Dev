@@ -39,6 +39,7 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements-ml.txt -r requirements-server.txt reportlab
           python -m pip install -e .
+          python -c "import skl2onnx, onnx, onnxruntime, sklearn; print('skl2onnx', skl2onnx.__version__); print('onnx', onnx.__version__); print('onnxruntime', onnxruntime.__version__); print('sklearn', sklearn.__version__)"
       - name: Validate migration sources
         run: python scripts/validate_migrations.py
       - name: Compile Python sources
