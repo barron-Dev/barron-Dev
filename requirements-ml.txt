@@ -3,6 +3,7 @@ numpy==1.26.4
 scikit-learn==1.5.2
 onnx==1.16.2
 onnxruntime==1.19.2
-skl2onnx==1.17.1
+# 1.17.1 was never published on PyPI; 1.17.0 is the corresponding released version.
+skl2onnx==1.17.0
 pytest==8.3.4
 pytest-asyncio==0.25.3
