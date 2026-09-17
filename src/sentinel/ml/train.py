@@ -7,11 +7,9 @@ from typing import Any
 from uuid import UUID
 
 import numpy as np
-from sklearn.ensemble import GradientBoostingClassifier
+from lightgbm import LGBMClassifier
 from sklearn.metrics import average_precision_score, f1_score, precision_score, recall_score, roc_auc_score
 from sklearn.model_selection import train_test_split
-from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import StandardScaler
 
 from sentinel.ml.features import FEATURE_NAMES, extract
 
@@ -60,7 +58,7 @@ def _build_matrix(rows: list[dict[str, Any]]) -> tuple[np.ndarray, np.ndarray, n
     )
 
 
-def train_model(X: np.ndarray, y: np.ndarray, sample_weight: np.ndarray) -> tuple[Pipeline, dict[str, float]]:
+def train_model(X: np.ndarray, y: np.ndarray, sample_weight: np.ndarray) -> tuple[LGBMClassifier, dict[str, float]]:
     if len(y) < MIN_SAMPLES:
         raise NotEnoughData(f"need >= {MIN_SAMPLES} samples, have {len(y)}")
     positives = int(y.sum())
@@ -73,15 +71,16 @@ def train_model(X: np.ndarray, y: np.ndarray, sample_weight: np.ndarray) -> tupl
     X_train, X_test, y_train, y_test, w_train, _ = train_test_split(
         X, y, sample_weight, test_size=0.2, random_state=42, stratify=y,
     )
-    pipeline = Pipeline([
-        ("scaler", StandardScaler()),
-        ("classifier", GradientBoostingClassifier(
-            n_estimators=200, max_depth=4, learning_rate=0.05,
-            subsample=0.9, random_state=42,
-        )),
-    ])
-    pipeline.fit(X_train, y_train, classifier__sample_weight=w_train)
-    probability = pipeline.predict_proba(X_test)[:, 1]
+    clf = LGBMClassifier(
+        n_estimators=200,
+        max_depth=4,
+        learning_rate=0.05,
+        subsample=0.9,
+        random_state=42,
+        verbose=-1,
+    )
+    clf.fit(X_train, y_train, sample_weight=w_train)
+    probability = clf.predict_proba(X_test)[:, 1]
     prediction = (probability >= 0.5).astype(np.int32)
     metrics = {
         "auc": float(roc_auc_score(y_test, probability)) if len(set(y_test)) > 1 else 0.0,
@@ -91,20 +90,19 @@ def train_model(X: np.ndarray, y: np.ndarray, sample_weight: np.ndarray) -> tupl
         "f1": float(f1_score(y_test, prediction, zero_division=0)),
         "n_train": float(len(y_train)), "n_test": float(len(y_test)),
     }
-    return pipeline, metrics
+    return clf, metrics
 
 
-def export_onnx(pipeline: Pipeline) -> bytes:
-    from skl2onnx import convert_sklearn
-    from skl2onnx.common.data_types import FloatTensorType
+def export_onnx(clf: LGBMClassifier) -> bytes:
+    from onnxmltools.convert import convert_lightgbm
+    from onnxmltools.convert.common.data_types import FloatTensorType
 
-    model = convert_sklearn(
-        pipeline,
+    onnx_model = convert_lightgbm(
+        clf,
         initial_types=[("input", FloatTensorType([None, len(FEATURE_NAMES)]))],
-        target_opset={"": 15, "ai.onnx.ml": 3},
-        options={id(pipeline): {"zipmap": False}},
+        target_opset=15,
     )
-    return model.SerializeToString()
+    return onnx_model.SerializeToString()
 
 
 def _artifact_path(tenant_id: UUID | None, version: int) -> str:
@@ -152,8 +150,8 @@ async def run_training(tenant_id: UUID | None) -> dict[str, Any]:
     try:
         rows = await _load_labeled_events(tenant_id)
         X, y, weights = _build_matrix(rows)
-        pipeline, metrics = train_model(X, y, weights)
-        artifact = export_onnx(pipeline)
+        clf, metrics = train_model(X, y, weights)
+        artifact = export_onnx(clf)
         sha256 = hashlib.sha256(artifact).hexdigest()
         version = await _next_version(tenant_id)
         path = _artifact_path(tenant_id, version)
