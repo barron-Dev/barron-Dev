@@ -42,11 +42,11 @@ impl OnnxDetector {
         let outputs = session
             .run(ort::inputs!["input" => tensor]?)
             .map_err(|error| anyhow!("run ONNX model: {error:?}"))?;
-        let (_, data) = outputs[0]
-            .try_extract_tensor::<f32>()
+        let data = outputs[0]
+            .try_extract_array::<f32>()
             .map_err(|error| anyhow!("extract ONNX output: {error}"))?;
         if data.is_empty() { return Err(anyhow!("empty onnx output")); }
-        let p = if data.len() >= 2 { data[1] } else { data[0] };
+        let p = data.iter().nth(1).copied().unwrap_or_else(|| data.iter().next().copied().unwrap());
         anyhow::ensure!(p.is_finite(), "non-finite onnx probability");
         anyhow::ensure!((0.0..=1.0).contains(&p), "onnx probability outside [0,1]");
         Ok(p)

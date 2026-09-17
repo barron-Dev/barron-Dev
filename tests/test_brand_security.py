@@ -26,21 +26,21 @@ def test_brand_rpc_binds_brand_to_tenant():
 
 
 def test_brand_routes_use_developer_auth_boundary():
-    source = _read("src/sentinel/api/routes/brand.py")
+    source = _read("src/cyclothone/api/routes/brand.py")
     tree = ast.parse(source)
     imports = {node.module for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)}
-    assert "sentinel.developer.auth" in imports
-    assert "sentinel.security.jwt" not in imports
-    assert "sentinel.api.deps" not in imports
+    assert "cyclothone.developer.auth" in imports
+    assert "cyclothone.security.jwt" not in imports
+    assert "cyclothone.api.deps" not in imports
 
 
 def test_brand_routes_filter_tenant_on_threat_reads():
-    source = _read("src/sentinel/api/routes/brand.py")
+    source = _read("src/cyclothone/api/routes/brand.py")
     assert '.eq("tenant_id", str(principal.tenant_id))' in source
 
 
 def test_brand_takedown_does_not_send_requests_automatically():
-    source = _read("src/sentinel/brand/takedown.py")
+    source = _read("src/cyclothone/brand/takedown.py")
     assert "httpx" not in source
     assert "AsyncClient" not in source
     assert "request_takedown" in source
