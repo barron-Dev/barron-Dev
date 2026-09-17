@@ -1,9 +1,9 @@
 [package]
-name = "sentinel-agent"
+name = "cyclothone-agent"
 version = "0.1.0"
 edition = "2021"
 license = "MIT"
-description = "Sentinel endpoint telemetry agent"
+description = "Cyclothone endpoint telemetry agent"
 
 [dependencies]
 anyhow = "1"
