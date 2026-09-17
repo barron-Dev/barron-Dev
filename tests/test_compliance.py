@@ -4,7 +4,7 @@ from uuid import uuid4
 
 import pytest
 
-from sentinel.compliance.service import ComplianceError, ComplianceService
+from cyclothone.compliance.service import ComplianceError, ComplianceService
 
 
 def test_invalid_framework_rejected():
@@ -44,8 +44,8 @@ async def test_list_packs_is_tenant_filtered():
     async def retry(fn, attempts=2):
         return await fn()
 
-    with patch("sentinel.compliance.service.supabase._ensure", new=AsyncMock(return_value=fake_client)):
-        with patch("sentinel.compliance.service.supabase._retry", new=retry):
+    with patch("cyclothone.compliance.service.supabase._ensure", new=AsyncMock(return_value=fake_client)):
+        with patch("cyclothone.compliance.service.supabase._retry", new=retry):
             result = await service.list_packs(tenant, "soc2")
     assert result == [{"tenant_id": str(tenant)}]
     fake_client.table.assert_called_once_with("compliance_evidence_snapshots")
@@ -74,11 +74,11 @@ async def test_record_evidence_source_rows_are_bounded():
     async def retry(fn, attempts=2):
         return await fn()
 
-    with patch("sentinel.compliance.service.supabase._ensure", new=AsyncMock(return_value=fake_client)):
-        with patch("sentinel.compliance.service.supabase._retry", new=retry):
+    with patch("cyclothone.compliance.service.supabase._ensure", new=AsyncMock(return_value=fake_client)):
+        with patch("cyclothone.compliance.service.supabase._retry", new=retry):
             with patch.object(service, "_record_collection_result", new=AsyncMock()):
                 with patch.object(service, "_insert", new=AsyncMock()):
-                    with patch("sentinel.compliance.service.DEFAULT_FRESHNESS", timedelta(hours=1)):
+                    with patch("cyclothone.compliance.service.DEFAULT_FRESHNESS", timedelta(hours=1)):
                         result = await service._record_evidence(
                             tenant, "soc2", control, "detections",
                             datetime(2026, 1, 1, tzinfo=UTC), datetime(2026, 1, 2, tzinfo=UTC),
