@@ -18,10 +18,11 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 ort = { version = "=2.0.0-rc.9", features = ["download-binaries"] }
 ort-sys = "=2.0.0-rc.9"
 
-[target.'cfg(windows)'.dependencies]
-windows = { version = "0.62.2", features = [
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "0.58", features = [
     "Win32_Foundation",
     "Win32_System_Diagnostics_Etw",
+    "Win32_System_Diagnostics_ToolHelp",
     "Win32_System_Threading",
 ] }
 windows-service = "0.8"

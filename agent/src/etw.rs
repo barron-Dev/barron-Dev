@@ -14,6 +14,11 @@ use tracing::{debug, info};
 use windows::core::{PCWSTR, PWSTR};
 use windows::Win32::Foundation::WIN32_ERROR;
 use windows::Win32::System::Diagnostics::Etw::*;
+#[cfg(target_os = "windows")]
+use windows::Win32::System::Diagnostics::Etw::{
+    EVENT_TRACE_LOGFILEW, OpenTraceW, PROCESS_TRACE_MODE_EVENT_RECORD,
+    PROCESS_TRACE_MODE_REAL_TIME,
+};
 
 use crate::{EndpointEvent, EventKind};
 

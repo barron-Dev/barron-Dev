@@ -42,7 +42,9 @@ impl OnnxDetector {
         let outputs = session
             .run(ort::inputs!["input" => tensor]?)
             .map_err(|error| anyhow!("run ONNX model: {error:?}"))?;
-        let (_, data) = outputs[0]\n            .try_extract_tensor::<f32>()\n            .map_err(|error| anyhow!("extract ONNX output tensor: {error:?}"))?;
+        let (_, data) = outputs[0]
+            .try_extract_tensor::<f32>()
+            .map_err(|error| anyhow!("extract ONNX output: {error}"))?;
         if data.is_empty() { return Err(anyhow!("empty onnx output")); }
         let p = if data.len() >= 2 { data[1] } else { data[0] };
         anyhow::ensure!(p.is_finite(), "non-finite onnx probability");
