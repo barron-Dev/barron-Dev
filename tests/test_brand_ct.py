@@ -1,4 +1,4 @@
-from sentinel.brand.ct_logs import CTLogMonitor
+from cyclothone.brand.ct_logs import CTLogMonitor
 def test_extract():
  s=CTLogMonitor._extract_sans({'common_name':'acme-bank.com','name_value':'acme-bank.com\nsecure.acme-bank.com'});assert 'secure.acme-bank.com' in s
 def test_classify():
