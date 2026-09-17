@@ -11,7 +11,7 @@ use std::{
 use anyhow::{anyhow, Context, Result};
 use serde_json::json;
 use tracing::{debug, info};
-use windows::core::PCWSTR;
+use windows::core::{PCWSTR, PWSTR};
 use windows::Win32::Foundation::WIN32_ERROR;
 use windows::Win32::System::Diagnostics::Etw::*;
 
@@ -46,23 +46,22 @@ impl EtwCollector {
         let (tx, receiver) = mpsc::channel();
         let context = Box::into_raw(Box::new(CallbackContext { host_id, tx }));
 
-        // Windows 0.62 exposes the modern real-time consumer API directly;
-        // use it instead of the legacy EVENT_TRACE_LOGFILEW/OpenTraceW pair.
-        let options = ETW_OPEN_TRACE_OPTIONS {
-            ProcessTraceModes: ETW_PROCESS_TRACE_MODE_NONE,
-            EventCallback: Some(event_record_callback),
-            EventCallbackContext: context as *mut c_void,
-            BufferCallback: None,
-            BufferCallbackContext: null_mut(),
-        };
+        // Use the stable EVENT_TRACE_LOGFILEW consumer API. The newer
+        // OpenTraceFromRealTimeLogger bindings are not exposed consistently
+        // across the Windows crate versions used by the agent toolchain.
+        let mut logger_name: Vec<u16> = "CyclothoneKernel\\0".encode_utf16().collect();
+        let mut logfile = EVENT_TRACE_LOGFILEW::default();
+        logfile.LoggerName = PWSTR(logger_name.as_mut_ptr());
+        logfile.Anonymous1.ProcessTraceMode =
+            PROCESS_TRACE_MODE_REAL_TIME | PROCESS_TRACE_MODE_EVENT_RECORD;
+        logfile.Anonymous2.EventRecordCallback = Some(event_record_callback);
+        logfile.Context = context as *mut c_void;
 
-        let consumer = unsafe {
-            OpenTraceFromRealTimeLogger(SESSION_NAME, &options, null_mut())
-        };
+        let consumer = unsafe { OpenTraceW(&mut logfile) };
         if consumer.Value == u64::MAX {
             let _ = stop_kernel_session(session);
             unsafe { drop(Box::from_raw(context)); }
-            return Err(anyhow!("OpenTraceFromRealTimeLogger failed"));
+            return Err(anyhow!("OpenTraceW failed"));
         }
 
         info!("Sentinel kernel ETW session started");
