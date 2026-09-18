@@ -7,8 +7,8 @@ from uuid import UUID, uuid4
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
-from sentinel.developer.auth import DeveloperPrincipal, authenticate_request
-from sentinel.storage.supabase_client import supabase
+from cyclothone.developer.auth import DeveloperPrincipal, authenticate_request
+from cyclothone.storage.supabase_client import supabase
 
 router = APIRouter(prefix="/darkweb", tags=["darkweb"])
 WATCH_KINDS = {"email", "domain", "ip", "wallet", "phone", "company_name", "executive_name", "api_key_hash", "employee_id", "customer_id"}
