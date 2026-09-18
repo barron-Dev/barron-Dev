@@ -68,7 +68,7 @@ pub async fn run_agent() -> anyhow::Result<()> {
 
     tokio::task::spawn_blocking(move || {
         collector.run(|event| match serde_json::to_string(&event) {
-            Ok(line) => tracing::info!(target = "sentinel.telemetry", "{}", line),
+            Ok(line) => tracing::info!(target = "cyclothone.telemetry", "{}", line),
             Err(error) => tracing::error!(%error, "failed to serialize ETW event"),
         })
     })
