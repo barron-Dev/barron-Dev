@@ -7,7 +7,7 @@ from cryptography import x509
 from cryptography.hazmat.primitives.serialization import Encoding
 from fastapi import HTTPException, Request, status
 
-from sentinel.storage.supabase_client import supabase
+from cyclothone.storage.supabase_client import supabase
 
 
 @dataclass(frozen=True, slots=True)
