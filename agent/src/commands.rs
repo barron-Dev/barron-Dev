@@ -219,6 +219,20 @@ fn safe_firewall_token(value: &str) -> Result<String> {
     Ok(token)
 }
 
+#[cfg(windows)]
+async fn kill_process(args: &Value) -> Result<Value> {
+    let pid = args.get("pid").and_then(Value::as_u64).ok_or_else(|| anyhow!("pid required"))?;
+    anyhow::ensure!(pid > 0 && pid <= u32::MAX as u64, "invalid process id");
+    let script = format!("Stop-Process -Id {} -Force -ErrorAction Stop", pid);
+    powershell(&script).await?;
+    Ok(serde_json::json!({"action":"kill_process","pid":pid}))
+}
+
+#[cfg(not(windows))]
+async fn kill_process(_args: &Value) -> Result<Value> {
+    Err(anyhow!("kill_process is Windows-only"))
+}
+
 async fn block_ip(args: &Value) -> Result<Value> {
     let ip = args.get("ip").and_then(Value::as_str).ok_or_else(|| anyhow!("ip required"))?;
     let ip = ip.parse::<std::net::IpAddr>().map_err(|_| anyhow!("invalid IP address"))?;
@@ -256,7 +270,7 @@ fn protected_path(path: &Path, state_dir: &Path) -> bool {
     let state = state_dir.to_string_lossy().to_ascii_lowercase();
     lower == state || lower.starts_with(&(state.clone() + "\\"))
         || lower == r"c:\windows" || lower.starts_with(r"c:\windows\system32")
-        || lower == r"c:\program files" || lower.starts_with(r"c:\program files\")
+        || lower == r#"c:\program files"# || lower.starts_with(r#"c:\program files\"#)
 }
 
 async fn quarantine_file(args: &Value, state_dir: &Path) -> Result<Value> {
