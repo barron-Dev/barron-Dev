@@ -23,6 +23,12 @@ pub struct Command {
 }
 
 #[derive(Clone)]
+#[derive(Debug, Deserialize)]
+struct CommandEnvelope {
+    commands: Vec<Command>,
+}
+
+#[derive(Clone)]
 pub struct CommandWorker {
     api_url: String,
     device_id: String,
@@ -87,7 +93,8 @@ impl CommandWorker {
 
     async fn poll_once(&self) -> Result<Vec<Command>> {
         let url = format!("{}/api/v1/agent/commands?limit=10", self.api_url);
-        Ok(self.client.get(url).send().await?.error_for_status()?.json().await?)
+        let envelope: CommandEnvelope = self.client.get(url).send().await?.error_for_status()?.json().await?;
+        Ok(envelope.commands)
     }
 
     async fn handle(&self, command: Command) -> Result<()> {
