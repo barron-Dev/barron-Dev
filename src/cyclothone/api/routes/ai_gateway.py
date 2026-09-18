@@ -8,11 +8,11 @@ from uuid import UUID, uuid4
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from sentinel.ai.injection import PromptInjectionDetector
-from sentinel.ai.tool_policy import ToolPolicyEngine
-from sentinel.ai.trust_graph import AgentTrustGraph
-from sentinel.developer.auth import DeveloperPrincipal, authenticate_request
-from sentinel.storage.supabase_client import supabase
+from cyclothone.ai.injection import PromptInjectionDetector
+from cyclothone.ai.tool_policy import ToolPolicyEngine
+from cyclothone.ai.trust_graph import AgentTrustGraph
+from cyclothone.developer.auth import DeveloperPrincipal, authenticate_request
+from cyclothone.storage.supabase_client import supabase
 
 router = APIRouter(prefix="/ai", tags=["ai-security"])
 _injection = PromptInjectionDetector()
