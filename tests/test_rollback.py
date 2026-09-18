@@ -36,6 +36,7 @@ async def test_quarantine_file_rollback_persists_while_inverse_executes() -> Non
     dispatcher = AsyncMock()
     dispatcher.issue.return_value = {"id": str(uuid4()), "status": "executing"}
     store = AsyncMock()
+    store.create.return_value = str(uuid4())
     tenant_id = uuid4()
     action_id = uuid4()
     store.get.return_value = {
