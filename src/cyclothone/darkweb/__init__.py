@@ -1,4 +1,4 @@
-from sentinel.darkweb.matcher import DarkWebMatcher
-from sentinel.darkweb.scheduler import DarkWebScheduler
+from cyclothone.darkweb.matcher import DarkWebMatcher
+from cyclothone.darkweb.scheduler import DarkWebScheduler
 
 __all__ = ["DarkWebMatcher", "DarkWebScheduler"]
