@@ -37,9 +37,9 @@ async def simulate(
     principal: DeveloperPrincipal = Depends(_manager),
 ) -> dict:
     try:
-        return await DigitalTwinService(
-            UUID(principal.tenant_id), UUID(principal.user_id) if principal.user_id else None
-        ).simulate(body.target, body.action, body.args)
+        return await DigitalTwinService(UUID(principal.tenant_id)).simulate(
+            body.target, body.action, body.args
+        )
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
 
