@@ -8,8 +8,8 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 
-from sentinel.developer.auth import DeveloperPrincipal, authenticate_request
-from sentinel.storage.supabase_client import supabase
+from cyclothone.developer.auth import DeveloperPrincipal, authenticate_request
+from cyclothone.storage.supabase_client import supabase
 
 router = APIRouter(prefix="/auditor", tags=["auditor"])
 
