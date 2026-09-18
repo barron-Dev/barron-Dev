@@ -46,7 +46,7 @@ def test_mtls_dependency_fails_closed_without_tls() -> None:
 
 @pytest.mark.asyncio
 async def test_server_detector_uses_normalized_event_payload() -> None:
-    from sentinel.ml.detector import ServerMLDetector
+    from cyclothone.ml.detector import ServerMLDetector
 
     class FakeModel:
         version = 7
