@@ -3,6 +3,7 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI
 from cyclothone.api.routes.agent_events import router as agent_events_router
+from cyclothone.api.routes.agent_commands import router as agent_commands_router
 from cyclothone.api.routes.agent_model import router as agent_model_router
 from cyclothone.api.routes.ai_gateway import router as ai_gateway_router
 from cyclothone.api.routes.auditor_portal import router as auditor_portal_router
@@ -46,7 +47,7 @@ def create_app()->FastAPI:
     @application.get('/health',include_in_schema=False)
     async def health():
         return {'status':'ok'}
-    application.include_router(agent_model_router,prefix='/api/v1',dependencies=[Depends(enforce_device_region)]);application.include_router(agent_events_router,prefix='/api/v1',dependencies=[Depends(enforce_device_region)])
+    application.include_router(agent_model_router,prefix='/api/v1',dependencies=[Depends(enforce_device_region)]);application.include_router(agent_events_router,prefix='/api/v1',dependencies=[Depends(enforce_device_region)]);application.include_router(agent_commands_router,prefix='/api/v1',dependencies=[Depends(enforce_device_region)])
     application.include_router(investigation_router,prefix='/api/v1');application.include_router(deception_router,prefix='/api/v1');application.include_router(data_trust_router,prefix='/api/v1');application.include_router(data_trust_channels_router,prefix='/api/v1');application.include_router(ai_gateway_router,prefix='/api/v1',tags=['ai-security']);application.include_router(hunts_router,prefix='/api/v1',tags=['hunting']);application.include_router(compliance_router,prefix='/api/v1');application.include_router(compliance_lifecycle_router,prefix='/api/v1');application.include_router(auditor_portal_router,prefix='/api/v1');application.include_router(trust_center_router,prefix='/api/v1');application.include_router(trust_center_public_router,prefix='/api/v1');application.include_router(vendor_risk_router,prefix='/api/v1');application.include_router(darkweb_router,prefix='/api/v1');application.include_router(web_intel_router,prefix='/api/v1');application.include_router(brand_router,prefix='/api/v1');application.include_router(federation_router,prefix='/api/v1');application.include_router(physical_router,prefix='/api/v1');application.include_router(console_router,prefix='/api/v1')
     return application
 
