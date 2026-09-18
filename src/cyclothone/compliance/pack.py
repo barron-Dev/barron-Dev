@@ -7,10 +7,10 @@ import zipfile
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
-from sentinel.compliance.catalog import FRAMEWORKS
-from sentinel.compliance.freshness import coverage_summary
-from sentinel.compliance.signing import sign_digest
-from sentinel.storage.supabase_client import supabase
+from cyclothone.compliance.catalog import FRAMEWORKS
+from cyclothone.compliance.freshness import coverage_summary
+from cyclothone.compliance.signing import sign_digest
+from cyclothone.storage.supabase_client import supabase
 
 
 class EvidencePackBuilder:
@@ -169,4 +169,4 @@ class EvidencePackBuilder:
 
     @staticmethod
     def _readme(framework: str, start: datetime, end: datetime) -> str:
-        return f"Sentinel Compliance Evidence Pack\nFramework: {framework}\nPeriod: {start.isoformat()} to {end.isoformat()}\n\nThe pack records collector coverage and evidence freshness explicitly. Missing, failed, or stale collectors are not treated as successful evidence.\n\nmanifest_sha256 is the signed canonical manifest digest. pack_sha256 is the SHA-256 of the ZIP object. file_hashes.json permits per-file integrity verification.\n\nThis pack contains automated evidence summaries and cryptographic integrity metadata. It is not legal certification or an auditor's opinion.\n"
+        return f"Cyclothone Compliance Evidence Pack\nFramework: {framework}\nPeriod: {start.isoformat()} to {end.isoformat()}\n\nThe pack records collector coverage and evidence freshness explicitly. Missing, failed, or stale collectors are not treated as successful evidence.\n\nmanifest_sha256 is the signed canonical manifest digest. pack_sha256 is the SHA-256 of the ZIP object. file_hashes.json permits per-file integrity verification.\n\nThis pack contains automated evidence summaries and cryptographic integrity metadata. It is not legal certification or an auditor's opinion.\n"
