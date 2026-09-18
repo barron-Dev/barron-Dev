@@ -157,7 +157,7 @@ class ResponseOrchestrator:
         command = None
         try:
             command = await self.dispatcher.issue(
-            tenant_id=UUID(row["tenant_id"]), device_id=UUID(row["device_id"]) if row.get("device_id") else None,
+            tenant_id=UUID(str(row["tenant_id"])), device_id=UUID(str(row["device_id"])) if row.get("device_id") else None,
             action=row["action"], args=row.get("args") or {}, issued_by=f"approval:{approved_by}",
         )
             await self.store.update(case_action_id, status="dispatched", command_id=command["id"], dispatched_at=datetime.now(timezone.utc).isoformat())
