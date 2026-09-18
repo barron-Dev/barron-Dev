@@ -110,6 +110,7 @@ declare v_researcher uuid; v_campaign uuid; v_old text; v_budget numeric; v_amou
 begin
  if p_verdict not in ('accept','reject','duplicate','malicious') then raise exception 'invalid verdict'; end if;
  if p_verdict='accept' and p_severity not in ('low','medium','high','critical') then raise exception 'severity required'; end if;
+ if p_verdict='accept' and (p_block_ref is null or length(trim(p_block_ref))=0) then raise exception 'confirmed block reference required'; end if;
  select researcher_id,campaign_id,verdict into v_researcher,v_campaign,v_old from bounty_submissions where id=p_submission for update;
  if v_researcher is null then raise exception 'submission not found'; end if;
  if v_old<>'pending' then raise exception 'submission already decided'; end if;
