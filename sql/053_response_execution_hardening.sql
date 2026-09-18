@@ -161,6 +161,16 @@ begin
                         else null end
      where id = v_action.id;
 
+    if p_status = 'success' and v_action.rollback_case_action_id is not null then
+      update public.case_actions
+         set status = 'rolled_back',
+             rolled_back_at = now(),
+             rollback_command_id = p_command_id,
+             rollback_error = null
+       where id = v_action.rollback_case_action_id
+         and status = 'dispatched';
+    end if;
+
     insert into public.case_timeline(case_id,actor,kind,payload)
     values (
       v_action.case_id,
