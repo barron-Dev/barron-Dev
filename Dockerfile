@@ -13,10 +13,10 @@ RUN pip install --upgrade pip \
     && pip install -r requirements-server.txt \
     && pip install .
 
-RUN useradd --create-home --uid 10001 sentinel \
-    && chown -R sentinel:sentinel /app
-USER sentinel
+RUN useradd --create-home --uid 10001 cyclothone \
+    && chown -R cyclothone:cyclothone /app
+USER cyclothone
 
 EXPOSE 8000
 
-CMD ["uvicorn", "sentinel.api.app:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "cyclothone.api.app:app", "--host", "0.0.0.0", "--port", "8000"]

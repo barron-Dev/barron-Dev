@@ -3,9 +3,9 @@ requires = ["setuptools>=75"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "sentinel-platform"
+name = "cyclothone-platform"
 version = "0.1.0"
-description = "Sentinel zero-trust security platform"
+description = "Cyclothone zero-trust security platform"
 requires-python = ">=3.11"
 
 [tool.setuptools.packages.find]

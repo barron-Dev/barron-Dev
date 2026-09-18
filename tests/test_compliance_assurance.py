@@ -1,6 +1,6 @@
 from datetime import UTC, datetime, timedelta
 
-from sentinel.compliance.assurance import AssuranceEngine
+from cyclothone.compliance.assurance import AssuranceEngine
 
 
 def test_type2_requires_closed_period():
@@ -29,10 +29,7 @@ def test_observation_tracks_first_and_last_seen_and_coverage():
         {"control_id": "c1", "source_ref": "devices", "status": "collected", "stale": False},
     ]
     controls = [{"id": "c1", "evidence_sources": ["audit_log", "devices"]}]
-    observations = AssuranceEngine.observations(
-        controls, items, results, start, end,
-        now=datetime(2026, 1, 25, tzinfo=UTC),
-    )
+    observations = AssuranceEngine.observations(controls, items, results, start, end, now=datetime(2026, 1, 25, tzinfo=UTC))
     assert observations[0].first_seen == datetime(2026, 1, 3, tzinfo=UTC)
     assert observations[0].last_seen == datetime(2026, 1, 20, tzinfo=UTC)
     assert observations[0].evidence_count == 2
@@ -44,12 +41,7 @@ def test_missing_source_is_insufficient_evidence():
     controls = [{"id": "c1", "evidence_sources": ["audit_log", "devices"]}]
     results = [{"control_id": "c1", "source_ref": "audit_log", "status": "collected", "stale": False}]
     observations = AssuranceEngine.observations(
-        controls,
-        [{"control_id": "c1", "collected_at": "2026-01-10T00:00:00Z", "valid_until": "2026-02-10T00:00:00Z"}],
-        results,
-        datetime(2026, 1, 1, tzinfo=UTC),
-        datetime(2026, 2, 1, tzinfo=UTC),
-        now=datetime(2026, 1, 20, tzinfo=UTC),
-    )
+        controls, [{"control_id": "c1", "collected_at": "2026-01-10T00:00:00Z", "valid_until": "2026-02-10T00:00:00Z"}],
+        results, datetime(2026, 1, 1, tzinfo=UTC), datetime(2026, 2, 1, tzinfo=UTC), now=datetime(2026, 1, 20, tzinfo=UTC))
     assert observations[0].coverage == 0.5
     assert observations[0].operating_effectiveness == "partial_coverage"

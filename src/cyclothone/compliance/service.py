@@ -4,11 +4,11 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID, uuid4
 
-from sentinel.compliance.assurance import AssuranceEngine
-from sentinel.compliance.catalog import CONTROLS, FRAMEWORKS
-from sentinel.compliance.evaluator import ComplianceEvaluator
-from sentinel.compliance.freshness import DEFAULT_FRESHNESS, is_stale
-from sentinel.storage.supabase_client import supabase
+from cyclothone.compliance.assurance import AssuranceEngine
+from cyclothone.compliance.catalog import CONTROLS, FRAMEWORKS
+from cyclothone.compliance.evaluator import ComplianceEvaluator
+from cyclothone.compliance.freshness import DEFAULT_FRESHNESS, is_stale
+from cyclothone.storage.supabase_client import supabase
 
 
 class ComplianceError(ValueError):
@@ -136,7 +136,7 @@ class ComplianceService:
         collected_at = datetime.now(UTC)
         freshness_window = DEFAULT_FRESHNESS
         valid_until = collected_at + freshness_window
-        await self._insert("compliance_evidence", {"tenant_id": str(tenant_id), "framework": framework, "control_id": control_rows[0]["id"], "title": f"{control['code']} — {source} telemetry summary", "evidence_type": "telemetry", "source_ref": source, "sha256": digest, "valid_from": collected_at.isoformat(), "valid_until": valid_until.isoformat(), "collected_at": collected_at.isoformat(), "freshness_window_seconds": int(freshness_window.total_seconds()), "stale": False, "metadata": {"row_count": count, "period_start": start.isoformat(), "period_end": end.isoformat()}, "provenance": {"collector": "sentinel.compliance.service", "run_id": str(run_id), "query_source": source, "tenant_bound": True}, "collected_by": str(created_by) if created_by else None})
+        await self._insert("compliance_evidence", {"tenant_id": str(tenant_id), "framework": framework, "control_id": control_rows[0]["id"], "title": f"{control['code']} — {source} telemetry summary", "evidence_type": "telemetry", "source_ref": source, "sha256": digest, "valid_from": collected_at.isoformat(), "valid_until": valid_until.isoformat(), "collected_at": collected_at.isoformat(), "freshness_window_seconds": int(freshness_window.total_seconds()), "stale": False, "metadata": {"row_count": count, "period_start": start.isoformat(), "period_end": end.isoformat()}, "provenance": {"collector": "cyclothone.compliance.service", "run_id": str(run_id), "query_source": source, "tenant_bound": True}, "collected_by": str(created_by) if created_by else None})
         await self._record_collection_result(tenant_id, run_id, framework, control, source, "collected" if count else "empty", count, None, None, start, end, valid_until, collected_at, freshness_window)
         return 1
 
@@ -147,7 +147,7 @@ class ComplianceService:
         collected = collected_at or datetime.now(UTC)
         window = freshness_window or DEFAULT_FRESHNESS
         expiry = valid_until or (collected + window if result_status != "failed" else collected)
-        await self._insert("compliance_collection_results", {"tenant_id": str(tenant_id), "run_id": str(run_id), "framework": framework, "control_id": control_rows[0]["id"] if control_rows else None, "source_ref": source, "status": result_status, "row_count": row_count, "error_code": error_code, "error_detail": error_detail, "collected_at": collected.isoformat(), "valid_from": collected.isoformat(), "valid_until": expiry.isoformat(), "freshness_window_seconds": int(window.total_seconds()), "stale": is_stale(expiry, collected), "provenance": {"collector": "sentinel.compliance.service", "period_start": start.isoformat(), "period_end": end.isoformat()}})
+        await self._insert("compliance_collection_results", {"tenant_id": str(tenant_id), "run_id": str(run_id), "framework": framework, "control_id": control_rows[0]["id"] if control_rows else None, "source_ref": source, "status": result_status, "row_count": row_count, "error_code": error_code, "error_detail": error_detail, "collected_at": collected.isoformat(), "valid_from": collected.isoformat(), "valid_until": expiry.isoformat(), "freshness_window_seconds": int(window.total_seconds()), "stale": is_stale(expiry, collected), "provenance": {"collector": "cyclothone.compliance.service", "period_start": start.isoformat(), "period_end": end.isoformat()}})
 
     async def _insert(self, table: str, row: dict[str, Any]) -> None:
         async def _do():

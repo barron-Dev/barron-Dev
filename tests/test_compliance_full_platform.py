@@ -1,8 +1,8 @@
 from datetime import UTC, datetime, timedelta
 
-from sentinel.compliance.gap import GapAnalyzer
-from sentinel.compliance.scoring import ComplianceScorer
-from sentinel.compliance.vendor_risk import VendorRiskScorer
+from cyclothone.compliance.gap import GapAnalyzer
+from cyclothone.compliance.scoring import ComplianceScorer
+from cyclothone.compliance.vendor_risk import VendorRiskScorer
 
 
 def test_scoring_excludes_not_applicable():

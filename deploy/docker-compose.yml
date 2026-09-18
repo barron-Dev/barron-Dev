@@ -1,5 +1,5 @@
 services:
-  sentinel-api:
+  cyclothone-api:
     build:
       context: ..
       dockerfile: Dockerfile

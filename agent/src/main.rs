@@ -5,17 +5,17 @@ fn main() -> anyhow::Result<()> {
         .init();
 
     if std::env::args().any(|arg| arg == "--service") {
-        return sentinel_agent::service::windows_service::run()
+        return cyclothone_agent::service::windows_service::run()
             .map_err(|error| anyhow::anyhow!("Windows service dispatcher failed: {error}"));
     }
 
     let runtime = tokio::runtime::Runtime::new()?;
-    runtime.block_on(sentinel_agent::run_agent())
+    runtime.block_on(cyclothone_agent::run_agent())
 }
 
 #[cfg(not(windows))]
 fn main() -> anyhow::Result<()> {
     Err(anyhow::anyhow!(
-        "sentinel-agent is Windows-only; ETW is unavailable on this platform"
+        "cyclothone-agent is Windows-only; ETW is unavailable on this platform"
     ))
 }

@@ -1,15 +1,15 @@
 from __future__ import annotations
 import logging
 import httpx
-from sentinel.brand.similarity import combined_similarity
-from sentinel.storage.supabase_client import supabase
+from cyclothone.brand.similarity import combined_similarity
+from cyclothone.storage.supabase_client import supabase
 logger=logging.getLogger(__name__)
 class CTLogMonitor:
     BASE='https://crt.sh'
     async def query_keyword(self,keyword:str,timeout:float=30)->list[dict]:
         try:
             async with httpx.AsyncClient(timeout=timeout) as c:
-                r=await c.get(self.BASE+'/',params={'q':f'%{keyword}%','output':'json'},headers={'user-agent':'SentinelBrand/1.0'})
+                r=await c.get(self.BASE+'/',params={'q':f'%{keyword}%','output':'json'},headers={'user-agent':'CyclothoneBrand/1.0'})
                 return r.json() if r.status_code==200 else []
         except Exception:return []
     async def match_brands(self)->dict:

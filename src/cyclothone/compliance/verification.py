@@ -9,8 +9,8 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
-from sentinel.compliance.signing import verify_digest_signature
-from sentinel.storage.supabase_client import supabase
+from cyclothone.compliance.signing import verify_digest_signature
+from cyclothone.storage.supabase_client import supabase
 
 
 class ComplianceVerificationError(RuntimeError):

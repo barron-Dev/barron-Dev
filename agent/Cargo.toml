@@ -1,9 +1,9 @@
 [package]
-name = "sentinel-agent"
+name = "cyclothone-agent"
 version = "0.1.0"
 edition = "2021"
 license = "MIT"
-description = "Sentinel endpoint telemetry agent"
+description = "Cyclothone endpoint telemetry agent"
 
 [dependencies]
 anyhow = "1"
@@ -18,11 +18,13 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 ort = { version = "=2.0.0-rc.9", features = ["download-binaries"] }
 ort-sys = "=2.0.0-rc.9"
 
-[target.'cfg(windows)'.dependencies]
+[target.'cfg(target_os = "windows")'.dependencies]
 windows = { version = "0.62.2", features = [
     "Win32_Foundation",
     "Win32_System_Diagnostics_Etw",
+    "Win32_System_Diagnostics_ToolHelp",
     "Win32_System_Threading",
+    "Win32_System_Time",
 ] }
 windows-service = "0.8"
 

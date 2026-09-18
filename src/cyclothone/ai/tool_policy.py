@@ -4,8 +4,8 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
-from sentinel.ai.injection import PromptInjectionDetector
-from sentinel.storage.supabase_client import supabase
+from cyclothone.ai.injection import PromptInjectionDetector
+from cyclothone.storage.supabase_client import supabase
 
 class ToolPolicyEngine:
     """Fail-closed tool authorization for tenant-owned agents."""
