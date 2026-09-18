@@ -22,7 +22,6 @@ pub struct Command {
     pub expires_at: String,
 }
 
-#[derive(Clone)]
 #[derive(Debug, Deserialize)]
 struct CommandEnvelope {
     commands: Vec<Command>,
