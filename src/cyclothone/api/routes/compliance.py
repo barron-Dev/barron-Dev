@@ -8,13 +8,13 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
-from sentinel.compliance.catalog import FRAMEWORKS
-from sentinel.compliance.pack import EvidencePackBuilder
-from sentinel.compliance.service import ComplianceError, ComplianceService
-from sentinel.compliance.signing import sign_digest
-from sentinel.compliance.verification import ComplianceVerificationError, EvidencePackVerifier
-from sentinel.developer.auth import DeveloperPrincipal, authenticate_request
-from sentinel.storage.supabase_client import supabase
+from cyclothone.compliance.catalog import FRAMEWORKS
+from cyclothone.compliance.pack import EvidencePackBuilder
+from cyclothone.compliance.service import ComplianceError, ComplianceService
+from cyclothone.compliance.signing import sign_digest
+from cyclothone.compliance.verification import ComplianceVerificationError, EvidencePackVerifier
+from cyclothone.developer.auth import DeveloperPrincipal, authenticate_request
+from cyclothone.storage.supabase_client import supabase
 
 router = APIRouter(prefix="/compliance", tags=["compliance"])
 _service = ComplianceService()
