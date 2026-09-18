@@ -10,7 +10,7 @@ create table kg_nodes (
     )),
     label text not null check (length(btrim(label)) between 1 and 300),
     summary text check (summary is null or length(summary) <= 4000),
-    service_id text references services(id) on delete set null,
+    service_id text,
     tags text[] not null default '{}',
     embedding real[],
     metadata jsonb not null default '{}'::jsonb
@@ -142,7 +142,7 @@ create table tickets (
     status text not null default 'open'
         check (status in ('open','pending','escalated','resolved','closed')),
     assigned_to uuid references admin_users(user_id) on delete set null,
-    related_service text references services(id) on delete set null,
+    related_service text,
     created_at timestamptz not null default now(),
     updated_at timestamptz not null default now()
 );
