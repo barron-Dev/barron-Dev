@@ -146,12 +146,18 @@ async def process_persisted_detection(*, detection_id: UUID, tenant_id: UUID, de
     """Evaluate tenant-owned rules against a persisted detection and create cases idempotently."""
     from cyclothone.storage.supabase_client import supabase
 
-    rules = await supabase.select(
-        "auto_case_rules",
-        "id,name,enabled,priority,trigger,category,severity,evidence_fields,auto_actions,dry_run,blast_radius_limit,default_playbook_id",
-        tenant_id=tenant_id,
-        enabled=True,
-    )
+    async def load_rules():
+        client = await supabase._ensure()
+        return await (
+            client.table("auto_case_rules")
+            .select("id,name,enabled,priority,trigger,category,severity,evidence_fields,auto_actions,dry_run,blast_radius_limit,default_playbook_id")
+            .eq("tenant_id", str(tenant_id))
+            .eq("enabled", True)
+            .order("priority")
+            .execute()
+        )
+    response = await supabase._retry(load_rules, attempts=2)
+    rules = response.data or []
     created: list[str] = []
     context = {
         "detector": detector,
