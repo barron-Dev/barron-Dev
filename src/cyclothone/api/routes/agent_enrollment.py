@@ -93,18 +93,10 @@ def _issue_certificate(csr: x509.CertificateSigningRequest) -> tuple[x509.Certif
         .serial_number(serial)
         .not_valid_before(not_before)
         .not_valid_after(not_after)
-        .add_extension(
-            x509.BasicConstraints(ca=False, path_length=None), critical=True
-        )
-        .add_extension(
-            x509.ExtendedKeyUsage([ExtendedKeyUsageOID.CLIENT_AUTH]), critical=False
-        )
-        .add_extension(
-            x509.SubjectKeyIdentifier.from_public_key(csr.public_key()), critical=False
-        )
-        .add_extension(
-            x509.AuthorityKeyIdentifier.from_issuer_public_key(ca_key.public_key()), critical=False
-        )
+        .add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True)
+        .add_extension(x509.ExtendedKeyUsage([ExtendedKeyUsageOID.CLIENT_AUTH]), critical=False)
+        .add_extension(x509.SubjectKeyIdentifier.from_public_key(csr.public_key()), critical=False)
+        .add_extension(x509.AuthorityKeyIdentifier.from_issuer_public_key(ca_key.public_key()), critical=False)
     )
     return _sign(builder, ca_key), ca_cert
 
@@ -162,8 +154,8 @@ async def enroll_agent(body: EnrollmentRequest) -> dict[str, Any]:
     if not isinstance(row, dict) or not row.get("device_id") or not row.get("tenant_id"):
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="device enrollment did not produce an identity")
 
-    # The token is never returned. The endpoint receives the private key separately
-    # only because the endpoint generated it; the server stores no private key.
+    # The agent generates and retains the private key; the server receives only the CSR
+    # and the corresponding public certificate identity. No private key is persisted.
     return {
         "device_id": str(row["device_id"]),
         "tenant_id": str(row["tenant_id"]),
