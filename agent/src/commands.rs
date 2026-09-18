@@ -322,7 +322,7 @@ async fn isolate_host(_args: &Value, state_dir: &Path, management_host: &str, ma
             "$ErrorActionPreference='Stop';              New-NetFirewallRule -Name 'Cyclothone-Isolation-In' -Direction Inbound -RemoteAddress Any -Action Block -Profile Any -ErrorAction SilentlyContinue | Out-Null;              New-NetFirewallRule -Name 'Cyclothone-Isolation-Out' -Direction Outbound -RemoteAddress Any -Action Block -Profile Any -ErrorAction SilentlyContinue | Out-Null;              New-NetFirewallRule -Name 'Cyclothone-Isolation-Management' -Direction Outbound -Protocol TCP -RemoteAddress '{remote}' -RemotePort {port} -Action Allow -OverrideBlockRules True -Profile Any -ErrorAction Stop | Out-Null"
         );
         powershell(&script).await?;
-        tokio::fs::write(&marker, serde_json::to_vec(&serde_json::json!({"management_addresses":addresses,"port":port}))).await?;
+        let marker_bytes = serde_json::to_vec(&serde_json::json!({"management_addresses":addresses,"port":port}))?;\n        tokio::fs::write(&marker, marker_bytes).await?;
         return Ok(serde_json::json!({"action":"isolate_host","management_allowlist":addresses}));
     }
     #[cfg(not(windows))]
