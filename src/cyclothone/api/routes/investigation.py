@@ -8,9 +8,9 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from sentinel.developer.auth import DeveloperPrincipal, authenticate_request
-from sentinel.investigation.models import InvestigationEvidence, InvestigationRequest
-from sentinel.investigation.service import InvestigationControlPlane
+from cyclothone.developer.auth import DeveloperPrincipal, authenticate_request
+from cyclothone.investigation.models import InvestigationEvidence, InvestigationRequest
+from cyclothone.investigation.service import InvestigationControlPlane
 
 router = APIRouter(prefix="/investigations", tags=["investigations"])
 
