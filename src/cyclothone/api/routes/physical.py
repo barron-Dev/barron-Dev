@@ -6,9 +6,9 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from sentinel.developer.auth import DeveloperPrincipal, authenticate_request
-from sentinel.physical.correlator import PhysicalCorrelator
-from sentinel.storage.supabase_client import supabase
+from cyclothone.developer.auth import DeveloperPrincipal, authenticate_request
+from cyclothone.physical.correlator import PhysicalCorrelator
+from cyclothone.storage.supabase_client import supabase
 
 router = APIRouter(prefix="/physical", tags=["physical"])
 correlator = PhysicalCorrelator()
