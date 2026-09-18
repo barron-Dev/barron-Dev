@@ -122,7 +122,7 @@ class WebIntelligenceOrchestrator:
 
     async def _touch_target(self, target_id: str, status: str) -> None:
         async def _do():
-            return await supabase._retry if False else await (await supabase._ensure()).table("web_crawl_targets").update({"last_crawl_at": datetime.now(UTC).isoformat(), "last_status": status[:200]}).eq("id", target_id).execute()
+            return await (await supabase._ensure()).table("web_crawl_targets").update({"last_crawl_at": datetime.now(UTC).isoformat(), "last_status": status[:200]}).eq("id", target_id).execute()
         try:
             await supabase._retry(_do, attempts=1)
         except Exception:
