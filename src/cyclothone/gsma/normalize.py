@@ -9,20 +9,20 @@ class OperatorTarget:
     country: str
 
 class OperatorResolver:
-    CC_TO_MCC={"234":"621","254":"639","229":"616","225":"602","233":"620","27":"655"}
-
     @classmethod
     def resolve(cls,e164:str,known_operators:list[dict])->OperatorTarget|None:
         if not e164.startswith("+"): return None
         digits=e164[1:]
-        for n in (3,2,1):
-            cc=digits[:n]
-            mcc=cls.CC_TO_MCC.get(cc)
-            if mcc:
-                for op in known_operators:
-                    if op.get("mcc_mnc","").startswith(mcc+"-"):
-                        return OperatorTarget(op["id"],op["mcc_mnc"],op["country"])
-        return None
+        matches=[]
+        for op in known_operators:
+            if not op.get("enabled", True): continue
+            for prefix in op.get("number_prefixes") or []:
+                p=str(prefix).lstrip("+")
+                if p and digits.startswith(p):
+                    matches.append((len(p),op))
+        if not matches: return None
+        _,op=max(matches,key=lambda item:item[0])
+        return OperatorTarget(op["id"],op["mcc_mnc"],op["country"])
 
     @staticmethod
     def hash_value(v:str)->str:
