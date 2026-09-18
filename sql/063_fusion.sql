@@ -13,8 +13,8 @@ create table if not exists public.fusion_edges (
     dst_id text not null check (length(dst_id) between 1 and 256),
     relation text not null check (relation in
         ('entered','exited','observed_by','opened','authenticated','operated','accompanied','was_near','triggered','unlocked')),
-    weight real not null default 1.0 check (isfinite(weight) and weight > 0 and weight <= 1000000),
-    confidence real not null default 0.8 check (isfinite(confidence) and confidence >= 0 and confidence <= 1),
+    weight real not null default 1.0 check (weight <> 'NaN'::real and abs(weight) <> 'Infinity'::real and weight > 0 and weight <= 1000000),
+    confidence real not null default 0.8 check (confidence <> 'NaN'::real and abs(confidence) <> 'Infinity'::real and confidence >= 0 and confidence <= 1),
     site_id uuid references public.physical_sites(id) on delete set null,
     ts timestamptz not null default now(),
     metadata jsonb not null default '{}'::jsonb check (jsonb_typeof(metadata) = 'object')
@@ -35,7 +35,7 @@ create table if not exists public.fusion_correlations (
         ('person','device','badge','camera','sensor','door','account','session','vehicle','ot_device')),
     entity_id text not null check (length(entity_id) between 1 and 256),
     evidence jsonb not null default '[]'::jsonb check (jsonb_typeof(evidence) = 'array'),
-    distance_km real check (distance_km is null or (isfinite(distance_km) and distance_km >= 0)),
+    distance_km real check (distance_km is null or (distance_km <> 'NaN'::real and abs(distance_km) <> 'Infinity'::real and distance_km >= 0)),
     elapsed_seconds integer check (elapsed_seconds is null or elapsed_seconds >= 0),
     status text not null default 'new'
         check (status in ('new','acknowledged','investigating','resolved','false_positive')),
@@ -82,7 +82,7 @@ begin
        or p_dst_id is null or length(p_dst_id) not between 1 and 256 then
         raise exception 'invalid entity id';
     end if;
-    if p_confidence is null or not isfinite(p_confidence) or p_confidence < 0 or p_confidence > 1 then
+    if p_confidence is null or p_confidence = 'NaN'::real or abs(p_confidence) = 'Infinity'::real or p_confidence < 0 or p_confidence > 1 then
         raise exception 'invalid confidence';
     end if;
     if p_metadata is null or jsonb_typeof(p_metadata) <> 'object' then
