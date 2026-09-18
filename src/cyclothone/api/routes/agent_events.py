@@ -5,6 +5,7 @@ import json
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
+from cyclothone.automation.auto_case import process_persisted_detection
 from cyclothone.federation.promotion import (
     FederationDetectionPromoter,
     canonical_event_uuid,
@@ -108,6 +109,21 @@ async def ingest_event(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="detection persistence unavailable",
             ) from exc
+
+        try:
+            await process_persisted_detection(
+                detection_id=UUID(detection_payload["id"]),
+                tenant_id=device.tenant_id,
+                device_id=device.device_id,
+                detector="ml",
+                score=float(detection.score),
+                verdict=detection_payload["verdict"],
+                reasons=detection_payload["reasons"],
+                evidence=detection_payload["evidence"],
+            )
+        except Exception:
+            # Detection remains durable; automation can be retried independently.
+            pass
 
     federation_detections: list[str] = []
     observations = extract_federation_observations(
