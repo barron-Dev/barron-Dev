@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException
@@ -156,7 +157,7 @@ async def revoke_key(app_id: str, key_id: str, identity: DeveloperIdentity = Dep
         return await (
             await supabase._ensure()
         ).table("developer_api_keys").update(
-            {"active": False, "revoked_at": "now()"}
+            {"active": False, "revoked_at": datetime.now(UTC).isoformat()}
         ).eq("id", key_id).eq("app_id", app_id).execute()
     try:
         result = await supabase._retry(_do, attempts=2)
