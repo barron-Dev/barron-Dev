@@ -31,7 +31,7 @@ async def test_refuses_irreversible_action() -> None:
 
 
 @pytest.mark.asyncio
-async def test_quarantine_file_rollback_requires_terminal_success() -> None:
+async def test_quarantine_file_rollback_persists_while_inverse_executes() -> None:
     dispatcher = AsyncMock()
     dispatcher.issue.return_value = {"id": str(uuid4()), "status": "executing"}
     store = AsyncMock()
@@ -48,18 +48,17 @@ async def test_quarantine_file_rollback_requires_terminal_success() -> None:
     }
 
     service = RollbackService(dispatcher, store)
-    with pytest.raises(RollbackError, match="did not complete successfully"):
-        await service.rollback(tenant_id=tenant_id, case_action_id=action_id, actor="test")
-
+    result = await service.rollback(tenant_id=tenant_id, case_action_id=action_id, actor="test")
+    assert result["status"] == "dispatched"
     kwargs = dispatcher.issue.await_args.kwargs
     assert kwargs["action"] == "restore_file"
     assert kwargs["args"] == {"original": "/tmp/bad.exe"}
-    store.update.assert_awaited_once()
-    assert store.update.await_args.kwargs["rollback_error"]
+    assert store.update.await_count == 2
+    assert store.update.await_args.kwargs["rollback_command_id"] == result["rollback_command_id"]
 
 
 @pytest.mark.asyncio
-async def test_quarantine_file_rolls_back_after_success() -> None:
+async def test_quarantine_file_rollback_creates_inverse_action() -> None:
     dispatcher = AsyncMock()
     command_id = str(uuid4())
     dispatcher.issue.return_value = {"id": command_id, "status": "success"}
@@ -84,10 +83,11 @@ async def test_quarantine_file_rolls_back_after_success() -> None:
     assert result["inverse_action"] == "restore_file"
     assert result["inverse_args"] == {"original": "/tmp/bad.exe"}
     assert result["rollback_command_id"] == command_id
-    update_kwargs = store.update.await_args.kwargs
-    assert update_kwargs["status"] == "rolled_back"
-    assert update_kwargs["rollback_command_id"] == command_id
-    assert update_kwargs["rolled_back_at"]
+    assert result["status"] == "dispatched"
+    assert store.update.await_count == 2
+    source_update = store.update.await_args_list[-1].kwargs
+    assert source_update["rollback_command_id"] == command_id
+    assert source_update["rollback_case_action_id"]
 
 
 @pytest.mark.asyncio
