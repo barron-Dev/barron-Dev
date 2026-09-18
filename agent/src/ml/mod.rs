@@ -39,7 +39,8 @@ impl OnnxDetector {
         let tensor = Tensor::from_array(([1usize, N_FEATURES], features.to_vec()))?;
 
         let inputs = ort::inputs!["input" => tensor]?;
-        let outputs = self.session.run(inputs)?;
+        let mut session = self.session.lock().map_err(|_| anyhow!("ONNX session lock poisoned"))?;
+        let outputs = session.run(inputs)?;
 
         let array = outputs[0].try_extract_tensor::<f32>()?;
         let values: Vec<f32> = array.iter().copied().collect();

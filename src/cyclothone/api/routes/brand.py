@@ -2,10 +2,10 @@ from __future__ import annotations
 from uuid import UUID
 from fastapi import APIRouter,Depends,HTTPException,Query,status
 from pydantic import BaseModel,Field
-from sentinel.developer.auth import DeveloperPrincipal,authenticate_request
-from sentinel.brand.takedown import TakedownService
-from sentinel.brand.typosquat import TyposquatScanner
-from sentinel.storage.supabase_client import supabase
+from cyclothone.developer.auth import DeveloperPrincipal,authenticate_request
+from cyclothone.brand.takedown import TakedownService
+from cyclothone.brand.typosquat import TyposquatScanner
+from cyclothone.storage.supabase_client import supabase
 router=APIRouter(prefix='/brand',tags=['brand']);_td=TakedownService()
 def tid(p,scope):p.require((scope,));return p.tenant_id
 class BrandCreate(BaseModel):
