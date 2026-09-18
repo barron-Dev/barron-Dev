@@ -254,7 +254,7 @@ async fn unblock_ip(args: &Value) -> Result<Value> {
 fn protected_path(path: &Path, state_dir: &Path) -> bool {
     let lower = path.to_string_lossy().to_ascii_lowercase();
     let state = state_dir.to_string_lossy().to_ascii_lowercase();
-    lower == state || lower.starts_with(&(state + "\"))
+    lower == state || lower.starts_with(&(state.clone() + "\\"))
         || lower == r"c:\windows" || lower.starts_with(r"c:\windows\system32")
         || lower == r"c:\program files" || lower.starts_with(r"c:\program files\")
 }
