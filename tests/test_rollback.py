@@ -12,6 +12,7 @@ from cyclothone.response.rollback import RollbackConflict, RollbackError, Rollba
 async def test_refuses_irreversible_action() -> None:
     dispatcher = AsyncMock()
     store = AsyncMock()
+    store.create.return_value = str(uuid4())
     tenant_id = uuid4()
     action_id = uuid4()
     store.get.return_value = {
@@ -63,6 +64,7 @@ async def test_quarantine_file_rollback_creates_inverse_action() -> None:
     command_id = str(uuid4())
     dispatcher.issue.return_value = {"id": command_id, "status": "success"}
     store = AsyncMock()
+    store.create.return_value = str(uuid4())
     tenant_id = uuid4()
     action_id = uuid4()
     device_id = uuid4()
