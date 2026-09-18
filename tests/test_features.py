@@ -1,6 +1,6 @@
 import numpy as np
 
-from sentinel.ml.features import FEATURE_NAMES, extract
+from cyclothone.ml.features import FEATURE_NAMES, extract
 
 
 def test_extract_shape_dtype_and_finiteness():
