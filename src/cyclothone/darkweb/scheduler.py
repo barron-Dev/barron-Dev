@@ -147,4 +147,3 @@ class DarkWebScheduler:
         except Exception:
             logger.debug("dark web domain watchlist unavailable", exc_info=True)
             return []
-}
