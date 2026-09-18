@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, Field
 
 from cyclothone.developer.api_keys import create_api_key
-from cyclothone.developer.crypto import new_client_credentials, hash_secret
+from cyclothone.developer.crypto import new_client_credentials
 from cyclothone.developer.identity import DeveloperIdentity, app_owned_by_user, resolve_developer
 from cyclothone.storage.supabase_client import supabase
 
