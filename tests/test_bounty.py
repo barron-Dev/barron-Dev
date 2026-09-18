@@ -12,3 +12,20 @@ def test_dangerous_payload_is_rejected():
 def test_valid_artifact_reaches_review_or_accept():
  r=BountyAutoVerifier().verify({}, "ioc", "This report contains detailed context and evidence from multiple independent observations.", [{"kind":"sha256","value":"a"*64}])
  assert r.verdict in {"peer_review","accept"}
+
+
+def test_artifact_count_is_bounded():
+ v=BountyAutoVerifier()
+ r=v.verify({}, "x", "substantive report", [{"kind":"sha256","value":"a"*64}]*201)
+ assert r.verdict=="reject"
+
+def test_auto_verifier_is_not_financial_authority():
+ v=BountyAutoVerifier()
+ r=v.verify({}, "ioc", "This report contains detailed context and evidence from multiple independent observations and supporting analysis.", [{"kind":"sha256","value":"a"*64}])
+ assert r.verdict in {"peer_review","accept"}
+ assert r.score <= 1
+
+def test_url_requires_http_host():
+ v=BountyAutoVerifier()
+ r=v.verify({}, "url", "Detailed report with evidence and context from multiple observations.", [{"kind":"url","value":"javascript:alert(1)"}])
+ assert r.verdict=="reject"
