@@ -166,9 +166,8 @@ async fn execute(action: &str, args: &Value) -> Result<Value> {
 
 #[cfg(windows)]
 async fn kill_process(args: &Value) -> Result<Value> {
-    use windows::Win32::System::Threading::{
-        CloseHandle, OpenProcess, TerminateProcess, PROCESS_TERMINATE,
-    };
+    use windows::Win32::Foundation::CloseHandle;
+    use windows::Win32::System::Threading::{OpenProcess, TerminateProcess, PROCESS_TERMINATE};
     let pid = args.get("pid").and_then(Value::as_u64)
         .ok_or_else(|| anyhow!("pid required"))?;
     let pid = u32::try_from(pid).map_err(|_| anyhow!("invalid pid"))?;
