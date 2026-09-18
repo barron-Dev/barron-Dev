@@ -36,17 +36,18 @@ impl OnnxDetector {
 
     pub fn score(&self, event_type: &str, payload: &serde_json::Value) -> Result<f32> {
         let features = extract(event_type, payload);
-        let tensor = Tensor::from_array(([1usize, N_FEATURES], features.to_vec()))
-            .map_err(|error| anyhow!("create ONNX input tensor: {error:?}"))?;
-        let session = self.session.lock().map_err(|_| anyhow!("onnx session lock poisoned"))?;
-        let outputs = session.run(ort::inputs!["input" => tensor])?;
-        let data = outputs[0]
-            .try_extract_tensor::<f32>()
-            .map_err(|error| anyhow!("extract ONNX output: {error}"))?;
-        let (_shape, values) = data;
+        let tensor = Tensor::from_array(([1usize, N_FEATURES], features.to_vec()))?;
+
+        let inputs = ort::inputs!["input" => tensor]?;
+        let outputs = self.session.run(inputs)?;
+
+        let array = outputs[0].try_extract_tensor::<f32>()?;
+        let values: Vec<f32> = array.iter().copied().collect();
+
         if values.is_empty() {
             return Err(anyhow!("empty onnx output"));
         }
+
         let p = if values.len() >= 2 { values[1] } else { values[0] };
         Ok(p.clamp(0.0, 1.0))
     }
