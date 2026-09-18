@@ -1,10 +1,10 @@
 from datetime import datetime, timezone
 import json
 
-from sentinel.reports.csv_export import render_csv
-from sentinel.reports.models import ReportIR
-from sentinel.reports.pdf import render_pdf
-from sentinel.reports.stix import render_stix21
+from cyclothone.reports.csv_export import render_csv
+from cyclothone.reports.models import ReportIR
+from cyclothone.reports.pdf import render_pdf
+from cyclothone.reports.stix import render_stix21
 
 
 def sample() -> ReportIR:
