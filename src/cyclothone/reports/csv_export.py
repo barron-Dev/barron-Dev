@@ -3,7 +3,7 @@ from __future__ import annotations
 import csv
 import io
 
-from sentinel.reports.models import ReportIR
+from cyclothone.reports.models import ReportIR
 
 
 def render_csv(report: ReportIR) -> bytes:
