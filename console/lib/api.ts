@@ -19,7 +19,25 @@ export type ConsoleOverview = {
   }>;
 };
 
-const API_BASE = (process.env.NEXT_PUBLIC_SENTINEL_API_URL ?? "").replace(/\/$/, "");
+const DEFAULT_API_BASE = "https://cyclothone-api-production.up.railway.app";
+
+function resolveApiBase() {
+  const configured = (process.env.NEXT_PUBLIC_SENTINEL_API_URL ?? "").trim().replace(/\/$/, "");
+  if (!configured) return DEFAULT_API_BASE;
+
+  try {
+    const configuredUrl = new URL(configured);
+    if (typeof window !== "undefined" && configuredUrl.origin === window.location.origin) {
+      return DEFAULT_API_BASE;
+    }
+  } catch {
+    return DEFAULT_API_BASE;
+  }
+
+  return configured;
+}
+
+const API_BASE = resolveApiBase();
 let accessToken: string | null = null;
 
 export function setApiToken(token: string) {
@@ -34,13 +52,31 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
   const headers = new Headers(init.headers);
   headers.set("Accept", "application/json");
   if (accessToken) headers.set("Authorization", `Bearer ${accessToken}`);
-  const response = await fetch(`${API_BASE}${path}`, { ...init, headers, cache: "no-store" });
+
+  const response = await fetch(`${API_BASE}${path}`, {
+    ...init,
+    headers,
+    cache: "no-store",
+  });
+
+  const contentType = response.headers.get("content-type") ?? "";
   if (!response.ok) {
-    const message = response.status === 401 ? "Authentication required" :
-      response.status === 403 ? "console:read scope required" : `API ${response.status}`;
+    const message =
+      response.status === 401 ? "Authentication required" :
+      response.status === 403 ? "console:read scope required" :
+      `Backend request failed (HTTP ${response.status})`;
     throw new Error(message);
   }
-  return response.json() as Promise<T>;
+
+  if (!contentType.toLowerCase().includes("application/json")) {
+    throw new Error("Backend returned a non-JSON response");
+  }
+
+  try {
+    return await response.json() as T;
+  } catch {
+    throw new Error("Backend returned invalid JSON");
+  }
 }
 
 export function getOverview() {
