@@ -5,15 +5,15 @@ from typing import Any
 
 from fastapi import APIRouter, Request, Response, status
 
-from sentinel.deception.engine import DeceptionEngine
+from cyclothone.deception.engine import DeceptionEngine
 
 router = APIRouter(prefix="/deception", tags=["deception"])
 
 
 def _engine() -> DeceptionEngine:
-    base = os.getenv("SENTINEL_PUBLIC_API_URL") or os.getenv("SENTINEL_API_URL")
+    base = os.getenv("cyclothone_PUBLIC_API_URL") or os.getenv("cyclothone_API_URL")
     if not base:
-        raise RuntimeError("SENTINEL_PUBLIC_API_URL or SENTINEL_API_URL must be configured")
+        raise RuntimeError("cyclothone_PUBLIC_API_URL or cyclothone_API_URL must be configured")
     return DeceptionEngine(callback_base_url=base)
 
 
