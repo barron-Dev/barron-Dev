@@ -5,9 +5,9 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
-from sentinel.developer.auth import DeveloperPrincipal, authenticate_request
-from sentinel.storage.supabase_client import supabase
-from sentinel.web.orchestrator import WebIntelligenceOrchestrator
+from cyclothone.developer.auth import DeveloperPrincipal, authenticate_request
+from cyclothone.storage.supabase_client import supabase
+from cyclothone.web.orchestrator import WebIntelligenceOrchestrator
 
 router = APIRouter(prefix="/web-intel", tags=["web-intelligence"])
 _orchestrator = WebIntelligenceOrchestrator()
@@ -45,7 +45,7 @@ async def list_targets(layer: str | None = None, principal: DeveloperPrincipal =
 @router.post("/targets", status_code=status.HTTP_201_CREATED)
 async def add_target(body: TargetCreate, principal: DeveloperPrincipal = Depends(authenticate_request)) -> dict:
     tid = tenant(principal, "web:manage")
-    from sentinel.web.crawler import WebCrawler
+    from cyclothone.web.crawler import WebCrawler
     try:
         WebCrawler._validate_target(body.url, body.layer)
     except ValueError as exc:
