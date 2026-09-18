@@ -76,6 +76,38 @@ async def ingest_event(
             detail="event persistence unavailable",
         ) from exc
 
+    if detection is not None:
+        detection_payload = {
+            "tenant_id": device.tenant_id,
+            "device_id": device.device_id,
+            "event_id": str(canonical_id),
+            "detector": "ml",
+            "score": float(detection.score),
+            "verdict": "malicious" if detection.score >= 0.5 else "benign",
+            "reasons": ["ml_score"],
+            "evidence": {
+                "model_version": detection.model_version,
+                "event_id": event.event_id,
+                "event_type": event.kind,
+            },
+        }
+
+        async def persist_detection():
+            client = await supabase._ensure()
+            return await (
+                client.table("detections")
+                .upsert(detection_payload, on_conflict="id")
+                .execute()
+            )
+
+        try:
+            await supabase._retry(persist_detection, attempts=2)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="detection persistence unavailable",
+            ) from exc
+
     federation_detections: list[str] = []
     observations = extract_federation_observations(
         kind=event.kind,
