@@ -4,17 +4,12 @@ from datetime import UTC, datetime
 from typing import Any, Protocol
 from uuid import UUID
 
-from sentinel.investigation.models import InvestigationEvidence, InvestigationRequest
-from sentinel.storage.supabase_client import supabase
+from cyclothone.investigation.models import InvestigationEvidence, InvestigationRequest
+from cyclothone.storage.supabase_client import supabase
 
 
 class AuthorizedForensicsProvider(Protocol):
-    """Adapter contract for a legally authorized remote-forensics provider.
-
-    Implementations are intentionally external to Sentinel. A provider must
-    enforce its own authorization, endpoint consent/legal authority, and audit
-    controls before returning a provider session identifier.
-    """
+    """Adapter contract for a legally authorized remote-forensics provider."""
 
     async def start(self, request: InvestigationRequest) -> str: ...
     async def stop(self, provider_session_id: str) -> None: ...
@@ -25,8 +20,6 @@ class InvestigationControlPlane:
         self.providers = providers or {}
 
     async def request(self, request: InvestigationRequest) -> dict[str, Any]:
-        # A request is a durable authorization workflow record. Provider
-        # availability is checked when an authorized operator approves/start it.
         row = await supabase.insert_one(
             "investigation_sessions",
             {
@@ -85,8 +78,6 @@ class InvestigationControlPlane:
             id=str(session_id), tenant_id=str(tenant_id), status="approved",
         )
         if updated is None:
-            # The provider session exists but Sentinel could not attach it to the
-            # reserved record. Do not silently create a second provider session.
             try:
                 await provider.stop(provider_session_id)
             finally:
@@ -155,5 +146,5 @@ class InvestigationControlPlane:
     async def _event(self, session_id: UUID, tenant_id: UUID, event_type: str, payload: dict[str, Any]) -> None:
         await supabase.insert_one(
             "investigation_events",
-            {"tenant_id": str(tenant_id), "session_id": str(session_id), "event_type": event_type, "actor": "sentinel", "payload": payload},
+            {"tenant_id": str(tenant_id), "session_id": str(session_id), "event_type": event_type, "actor": "cyclothone", "payload": payload},
         )
