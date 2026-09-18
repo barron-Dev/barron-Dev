@@ -6,8 +6,8 @@ from uuid import UUID
 
 from fastapi import HTTPException, status
 
-from sentinel.hunting.parser import And, Node, Or, Predicate, parse
-from sentinel.storage.supabase_client import supabase
+from cyclothone.hunting.parser import And, Node, Or, Predicate, parse
+from cyclothone.storage.supabase_client import supabase
 
 
 ALLOWED_FIELDS: dict[str, set[str]] = {
@@ -68,7 +68,7 @@ class QueryExecutor:
             response = await supabase._retry(_do, attempts=2)
         except HTTPException:
             raise
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "query execution failed") from exc
         elapsed = int((time.perf_counter() - started) * 1000)
         return list(response.data or []), elapsed
@@ -124,7 +124,7 @@ class QueryExecutor:
             if operation is None:
                 raise HTTPException(status.HTTP_400_BAD_REQUEST, f"unsupported op: {node.op}")
             if isinstance(node.value, str):
-                escaped = node.value.replace("\\", "\\\\").replace('"', '\\"')
+                escaped = node.value.replace("\\", "\\\\").replace('"', '\"')
                 value = f'"{escaped}"'
             elif isinstance(node.value, bool):
                 value = "true" if node.value else "false"
