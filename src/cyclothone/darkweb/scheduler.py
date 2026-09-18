@@ -6,9 +6,9 @@ import os
 import time
 from datetime import UTC, datetime
 
-from sentinel.darkweb.matcher import DarkWebMatcher
-from sentinel.darkweb.pullers import GitHubCodeMonitor, HIBPPuller, PastePublicMonitor, RansomwatchPuller, TelegramPublicMonitor
-from sentinel.storage.supabase_client import supabase
+from cyclothone.darkweb.matcher import DarkWebMatcher
+from cyclothone.darkweb.pullers import GitHubCodeMonitor, HIBPPuller, PastePublicMonitor, RansomwatchPuller, TelegramPublicMonitor
+from cyclothone.storage.supabase_client import supabase
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +27,7 @@ class DarkWebScheduler:
     def start(self) -> None:
         if self._task is None or self._task.done():
             self._stop.clear()
-            self._task = asyncio.create_task(self._loop(), name="sentinel-darkweb")
+            self._task = asyncio.create_task(self._loop(), name="cyclothone-darkweb")
 
     async def stop(self) -> None:
         self._stop.set()
