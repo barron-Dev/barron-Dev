@@ -95,7 +95,7 @@ pub async fn run_agent() -> anyhow::Result<()> {
     tokio::spawn(command_worker.run());
 
     tokio::task::spawn_blocking(move || {
-        collector.run(|event| {
+        collector.run(move |event| {
             if let Err(error) = raw_tx.blocking_send(event) {
                 tracing::error!(%error, "ETW telemetry queue closed");
             }
