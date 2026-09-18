@@ -99,7 +99,7 @@ export default function DevicesPage() {
         <div>
           <p className="eyebrow">ENDPOINT CONTROL PLANE</p>
           <h1 id="devices-title">Devices</h1>
-          <p className="muted">Tenant-scoped endpoint inventory from the Sentinel control plane.</p>
+          <p className="muted">Tenant-scoped endpoint inventory from the Cyclothone control plane.</p>
         </div>
         <div className="header-stat" aria-live="polite"><span>Total</span><strong>{data?.pagination.total ?? "—"}</strong></div>
       </header>
