@@ -3,65 +3,14 @@
 import { useEffect, useState } from "react";
 
 const API = process.env.NEXT_PUBLIC_SENTINEL_API_URL ?? "";
-
 const modules: Record<string, { title: string; section: string; endpoint?: string }> = {
-  detection: { title: "Detection", section: "OPERATIONS", endpoint: "/api/v1/console/threats?limit=50&offset=0&sort=created_at&direction=desc" },
-  response: { title: "Response", section: "OPERATIONS", endpoint: "/api/v1/investigations" },
-  "intelligence/web": { title: "Web Intel", section: "INTELLIGENCE", endpoint: "/api/v1/web-intel/targets" },
-  "intelligence/scam": { title: "Scam", section: "INTELLIGENCE" },
-  "intelligence/dark-web": { title: "Dark Web", section: "INTELLIGENCE", endpoint: "/api/v1/darkweb/stats" },
-  "intelligence/brand": { title: "Brand", section: "INTELLIGENCE", endpoint: "/api/v1/brand" },
-  "convergence/physical": { title: "Physical", section: "CONVERGENCE", endpoint: "/api/v1/physical/stats" },
-  "convergence/ai": { title: "AI Security", section: "CONVERGENCE", endpoint: "/api/v1/ai/agents" },
-  "assurance/compliance": { title: "Compliance", section: "ASSURANCE", endpoint: "/api/v1/compliance/assurance" },
-  "assurance/recovery": { title: "Recovery", section: "ASSURANCE" },
-  "assurance/hunting": { title: "Hunting", section: "ASSURANCE", endpoint: "/api/v1/hunts" },
-  "platform/federation": { title: "Federation", section: "PLATFORM", endpoint: "/api/v1/federation/peers" },
-  "platform/developer": { title: "Developer", section: "PLATFORM" },
-  "platform/settings": { title: "Settings", section: "PLATFORM" },
+  detection:{title:"Detection",section:"OPERATIONS",endpoint:"/api/v1/console/threats?limit=50&offset=0&sort=created_at&direction=desc"},response:{title:"Response",section:"OPERATIONS",endpoint:"/api/v1/investigations"},"intelligence/web":{title:"Web Intel",section:"INTELLIGENCE",endpoint:"/api/v1/web-intel/targets"},"intelligence/scam":{title:"Scam",section:"INTELLIGENCE"},"intelligence/dark-web":{title:"Dark Web",section:"INTELLIGENCE",endpoint:"/api/v1/darkweb/stats"},"intelligence/brand":{title:"Brand",section:"INTELLIGENCE",endpoint:"/api/v1/brand"},"convergence/physical":{title:"Physical",section:"CONVERGENCE",endpoint:"/api/v1/physical/stats"},"convergence/ai":{title:"AI Security",section:"CONVERGENCE",endpoint:"/api/v1/ai/agents"},"assurance/compliance":{title:"Compliance",section:"ASSURANCE",endpoint:"/api/v1/compliance/assurance"},"assurance/recovery":{title:"Recovery",section:"ASSURANCE"},"assurance/hunting":{title:"Hunting",section:"ASSURANCE",endpoint:"/api/v1/hunts"},"platform/federation":{title:"Federation",section:"PLATFORM",endpoint:"/api/v1/federation/peers"},"platform/developer":{title:"Developer",section:"PLATFORM"},"platform/settings":{title:"Settings",section:"PLATFORM"}
 };
-
-function authHeaders() {
-  const token = typeof window === "undefined" ? "" : sessionStorage.getItem("sentinel_access_token") ?? "";
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
-
-export default function ModulePage({ params }: { params: Promise<{ module?: string[] }> }) {
-  const [segments, setSegments] = useState<string[]>([]);
-  const [data, setData] = useState<unknown>(null);
-  const [status, setStatus] = useState("Loading");
-  const [token, setToken] = useState("");
-
-  useEffect(() => { void params.then((p) => setSegments(p.module ?? [])); }, [params]);
-  const key = segments.join("/");
-  const module = modules[key];
-
-  useEffect(() => {
-    if (!module?.endpoint) { setStatus(module ? "Module endpoint not exposed as a read API yet" : "Route not found"); return; }
-    let cancelled = false;
-    (async () => {
-      setStatus("Loading");
-      try {
-        const response = await fetch(`${API}${module.endpoint}`, { headers: authHeaders(), cache: "no-store" });
-        const body = await response.text();
-        if (!response.ok) throw new Error(response.status === 401 || response.status === 403 ? "Authentication required" : `API ${response.status}`);
-        if (!cancelled) { setData(body ? JSON.parse(body) : null); setStatus("Live API data"); }
-      } catch (error) {
-        if (!cancelled) setStatus(error instanceof Error ? error.message : "Unable to load module");
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [module?.endpoint]);
-
-  if (!module) return <main className="min-h-screen bg-[#05070a] p-8 text-[#e8eef6]"><a href="/" className="text-[#00d9ff]">← Cyclothone</a><h1 className="mt-8 text-2xl font-semibold">Module not found</h1></main>;
-
-  return <main className="min-h-screen bg-[#05070a] text-[#e8eef6]">
-    <header className="flex h-12 items-center border-b border-[#1a2330] bg-[#0a0e14] px-4"><a href="/" className="font-semibold">◈ Cyclothone</a><span className="ml-5 font-mono text-[10px] text-[#5a6675]">{module.section} / {module.title.toUpperCase()}</span></header>
-    <section className="mx-auto max-w-[1400px] p-6">
-      <div className="flex items-end justify-between border-b border-[#1a2330] pb-5"><div><p className="font-mono text-[10px] tracking-[.16em] text-[#5a6675]">{module.section}</p><h1 className="mt-1 text-2xl font-semibold">{module.title}</h1><p className="mt-2 text-sm text-[#8a97a8]">Production control-plane module backed by Cyclothone APIs.</p></div><span className="font-mono text-[10px] text-[#00e07a]">{status}</span></div>
-      {status === "Authentication required" && <div className="mt-5 flex gap-2"><input type="password" value={token} onChange={e => setToken(e.target.value)} placeholder="Access token" className="border border-[#2a3646] bg-[#0a0e14] px-3 py-2 font-mono text-[11px]" /><button onClick={() => { sessionStorage.setItem("sentinel_access_token", token); location.reload(); }} className="border border-[#00d9ff] px-4 py-2 text-[11px] text-[#00d9ff]">Connect</button></div>}
-      {module.endpoint && <pre className="mt-5 max-h-[70vh] overflow-auto border border-[#1a2330] bg-[#0a0e14] p-4 font-mono text-[11px] leading-5 text-[#8a97a8]">{data == null ? status : JSON.stringify(data, null, 2)}</pre>}
-      {!module.endpoint && <div className="mt-5 border border-[#1a2330] bg-[#0a0e14] p-6 text-sm text-[#8a97a8]">This module is registered in the console navigation. Its backend currently exposes write/operational capabilities rather than a tenant-scoped read endpoint suitable for this view; no synthetic data is rendered.</div>}
-    </section>
-  </main>;
+function authHeaders(): Record<string,string> { const token=typeof window==="undefined"?"":sessionStorage.getItem("sentinel_access_token")??""; return token?{Authorization:\`Bearer \${token}\`}:{}; }
+export default function ModulePage({params}:{params:Promise<{module?:string[]}>}) {
+ const [segments,setSegments]=useState<string[]>([]); const [data,setData]=useState<unknown>(null); const [status,setStatus]=useState("Loading"); const [token,setToken]=useState("");
+ useEffect(()=>{void params.then(p=>setSegments(p.module??[]));},[params]); const key=segments.join("/"); const module=modules[key];
+ useEffect(()=>{if(!module?.endpoint){setStatus(module?"Module endpoint not exposed as a read API yet":"Route not found");return;} let cancelled=false;(async()=>{setStatus("Loading");try{const response=await fetch(\`\${API}\${module.endpoint}\`,{headers:authHeaders(),cache:"no-store"});const body=await response.text();if(!response.ok)throw new Error(response.status===401||response.status===403?"Authentication required":\`API \${response.status}\`);if(!cancelled){setData(body?JSON.parse(body):null);setStatus("Live API data");}}catch(error){if(!cancelled)setStatus(error instanceof Error?error.message:"Unable to load module");}})();return()=>{cancelled=true;};},[module?.endpoint]);
+ if(!module)return <main className="min-h-screen bg-[#05070a] p-8 text-[#e8eef6]"><a href="/" className="text-[#00d9ff]">← Cyclothone</a><h1 className="mt-8 text-2xl font-semibold">Module not found</h1></main>;
+ return <main className="min-h-screen bg-[#05070a] text-[#e8eef6]"><header className="flex h-12 items-center border-b border-[#1a2330] bg-[#0a0e14] px-4"><a href="/" className="font-semibold">◈ Cyclothone</a><span className="ml-5 font-mono text-[10px] text-[#5a6675]">{module.section} / {module.title.toUpperCase()}</span></header><section className="mx-auto max-w-[1400px] p-6"><div className="flex items-end justify-between border-b border-[#1a2330] pb-5"><div><p className="font-mono text-[10px] tracking-[.16em] text-[#5a6675]">{module.section}</p><h1 className="mt-1 text-2xl font-semibold">{module.title}</h1><p className="mt-2 text-sm text-[#8a97a8]">Production control-plane module backed by Cyclothone APIs.</p></div><span className="font-mono text-[10px] text-[#00e07a]">{status}</span></div>{status==="Authentication required"&&<div className="mt-5 flex gap-2"><input type="password" value={token} onChange={e=>setToken(e.target.value)} placeholder="Access token" className="border border-[#2a3646] bg-[#0a0e14] px-3 py-2 font-mono text-[11px]"/><button onClick={()=>{sessionStorage.setItem("sentinel_access_token",token);location.reload();}} className="border border-[#00d9ff] px-4 py-2 text-[11px] text-[#00d9ff]">Connect</button></div>}{module.endpoint&&<pre className="mt-5 max-h-[70vh] overflow-auto border border-[#1a2330] bg-[#0a0e14] p-4 font-mono text-[11px] leading-5 text-[#8a97a8]">{data==null?status:JSON.stringify(data,null,2)}</pre>}{!module.endpoint&&<div className="mt-5 border border-[#1a2330] bg-[#0a0e14] p-6 text-sm text-[#8a97a8]">This module is registered in the console navigation. Its backend currently exposes write/operational capabilities rather than a tenant-scoped read endpoint suitable for this view; no synthetic data is rendered.</div>}</section></main>;
 }
