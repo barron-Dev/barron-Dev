@@ -2,14 +2,14 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import datetime, timezone
+from datetime import timezone
 from typing import Any
 
-from sentinel.reports.models import ReportIR
+from cyclothone.reports.models import ReportIR
 
 
 def _stix_id(kind: str, key: str) -> str:
-    return f"{kind}--{uuid.uuid5(uuid.NAMESPACE_URL, 'sentinel:' + key)}"
+    return f"{kind}--{uuid.uuid5(uuid.NAMESPACE_URL, 'cyclothone:' + key)}"
 
 
 def _pattern(ioc_type: str, value: str) -> str | None:
@@ -54,7 +54,8 @@ def render_stix21(report: ReportIR) -> bytes:
         }
         if confidence is not None:
             obj["confidence"] = max(0, min(100, round(float(confidence) * 100)))
-        objects.append(obj); refs.append(iid)
+        objects.append(obj)
+        refs.append(iid)
         rid = _stix_id("relationship", iid + ":indicates:" + malware_id)
         objects.append({"type": "relationship", "spec_version": "2.1", "id": rid, "created": now, "modified": now, "relationship_type": "indicates", "source_ref": iid, "target_ref": malware_id, "created_by_ref": identity_id})
         refs.append(rid)
