@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 
-from sentinel.storage.supabase_client import supabase
+from cyclothone.storage.supabase_client import supabase
 
 
 class ComplianceSigningError(RuntimeError):
@@ -53,7 +53,7 @@ async def _load_public_key(kid: str) -> Ed25519PublicKey:
 
 
 async def sign_digest(digest_hex: str) -> ComplianceSignature:
-    configured_kid = os.environ.get("SENTINEL_COMPLIANCE_SIGNING_KID")
+    configured_kid = os.environ.get("CYCLOTHONE_COMPLIANCE_SIGNING_KID")
     if configured_kid:
         row = await supabase.select_one("signing_keys", "kid,active", kid=configured_kid)
     else:
@@ -73,7 +73,7 @@ async def sign_digest(digest_hex: str) -> ComplianceSignature:
 
 
 async def verify_digest_signature(digest_hex: str, signature_b64: str, kid: str) -> bool:
-    """Verify a Sentinel signature using only the registered public key."""
+    """Verify a Cyclothone signature using only the registered public key."""
     try:
         public_key = await _load_public_key(kid)
         signature = base64.b64decode(signature_b64, validate=True)
