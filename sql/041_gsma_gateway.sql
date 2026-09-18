@@ -1,7 +1,7 @@
 create table if not exists gsma_operators (
     id text primary key, name text not null, country text not null, mcc_mnc text not null,
     oidc_issuer text not null, oidc_client_id text not null, oidc_secret_ref text not null,
-    scopes text[] not null default '{}', enabled boolean not null default true, created_at timestamptz not null default now()
+    scopes text[] not null default '{}', number_prefixes text[] not null default '{}', enabled boolean not null default false, created_at timestamptz not null default now()
 );
 insert into gsma_operators (id,name,country,mcc_mnc,oidc_issuer,oidc_client_id,oidc_secret_ref) values
 ('mtn-ng','MTN Nigeria','NG','621-30','https://oidc.mtn.ng','cyclothone','vault://gsma/mtn_ng'),
