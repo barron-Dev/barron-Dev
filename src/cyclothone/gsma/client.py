@@ -57,16 +57,7 @@ class GSMAClient:
             expires=datetime.now(timezone.utc)+timedelta(seconds=int(data.get("expires_in",3600)))
         except Exception as exc:
             logger.error("GSMA token mint failed: %s",exc); raise RuntimeError("could not obtain GSMA token") from exc
-        async def save():
-            c=await supabase._ensure()
-            return await c.table("gsma_tokens").upsert({"tenant_id":self.tenant_id,"operator_id":self.operator["id"],
-              "access_token":token,"refresh_token":data.get("refresh_token"),"scopes":self.operator.get("scopes") or ["sim-swap"],
-              "expires_at":expires.isoformat(),"updated_at":datetime.now(timezone.utc).isoformat()},
-              on_conflict="tenant_id,operator_id").execute()
-        try: await supabase._retry(save)
-        except Exception: logger.warning("GSMA token cache write failed")
-        return token
-
+        # Bearer tokens are intentionally not persisted until an encrypted token-store contract exists.\n        return token\n
     async def _vault(self,ref:str)->str:
         name=ref.removeprefix("vault://")
         async def load():
