@@ -140,3 +140,89 @@ def _enrich_case(case: Case, detection: Detection) -> Case:
     detection_ids = case.detection_ids if detection.detection_id in case.detection_ids else (*case.detection_ids, detection.detection_id)
     rule_ids = case.rule_ids if detection.rule_id in case.rule_ids else (*case.rule_ids, detection.rule_id)
     return Case(case_id=case.case_id, tenant_id=case.tenant_id, title=case.title, severity=max(case.severity, detection.severity), status=case.status, created_at=case.created_at, first_detected_at=min(case.first_detected_at, detection.observed_at), last_detected_at=max(case.last_detected_at, detection.observed_at), detection_ids=detection_ids, rule_ids=rule_ids)
+
+
+async def process_persisted_detection(*, detection_id: UUID, tenant_id: UUID, device_id: UUID, detector: str, score: float, verdict: str, reasons: Sequence[str], evidence: Mapping[str, Any]) -> list[str]:
+    """Evaluate tenant-owned rules against a persisted detection and create cases idempotently."""
+    from cyclothone.storage.supabase_client import supabase
+
+    rules = await supabase.select(
+        "auto_case_rules",
+        "id,name,enabled,priority,trigger,category,severity,evidence_fields,auto_actions,dry_run,blast_radius_limit,default_playbook_id",
+        tenant_id=tenant_id,
+        enabled=True,
+    )
+    created: list[str] = []
+    context = {
+        "detector": detector,
+        "score": float(score),
+        "verdict": verdict,
+        "reasons": list(reasons),
+        "evidence": dict(evidence),
+    }
+    for rule in sorted(rules or [], key=lambda item: int(item.get("priority", 100))):
+        if not _rule_matches(rule.get("trigger") or {}, context):
+            continue
+        title = str(rule.get("name") or f"{detector} detection").strip()
+        summary = f"{detector} detection scored {score:.4f} with verdict {verdict}."
+        payload = {
+            "detector": detector,
+            "score": float(score),
+            "verdict": verdict,
+            "reasons": list(reasons),
+            "evidence": dict(evidence),
+            "rule_id": str(rule["id"]),
+        }
+        case_id = await supabase.rpc(
+            "create_case_from_detection",
+            {
+                "p_tenant_id": str(tenant_id),
+                "p_rule_id": str(rule["id"]),
+                "p_detection_id": str(detection_id),
+                "p_category": rule["category"],
+                "p_severity": rule["severity"],
+                "p_title": title,
+                "p_summary": summary,
+                "p_evidence": payload,
+                "p_device_id": str(device_id),
+                "p_actor": "autocase:agent_event",
+            },
+        )
+        if case_id:
+            created.append(str(case_id))
+    if created:
+        await supabase.update("detections", {"processed_by_autocase": True}, id=detection_id)
+    return created
+
+
+def _rule_matches(trigger: Mapping[str, Any], context: Mapping[str, Any]) -> bool:
+    """Conservative trigger matcher; unknown trigger keys fail closed."""
+    if not trigger:
+        return True
+    for key, expected in trigger.items():
+        if key == "min_score":
+            if float(context["score"]) < float(expected):
+                return False
+        elif key == "max_score":
+            if float(context["score"]) > float(expected):
+                return False
+        elif key == "detector":
+            if context["detector"] != str(expected):
+                return False
+        elif key == "verdict":
+            if context["verdict"] != str(expected):
+                return False
+        elif key == "reason":
+            if str(expected) not in context["reasons"]:
+                return False
+        elif key == "reason_any":
+            if not any(str(item) in context["reasons"] for item in (expected or [])):
+                return False
+        elif key == "evidence":
+            expected_map = expected if isinstance(expected, Mapping) else {}
+            actual = context["evidence"]
+            if any(actual.get(k) != v for k, v in expected_map.items()):
+                return False
+        else:
+            return False
+    return True
