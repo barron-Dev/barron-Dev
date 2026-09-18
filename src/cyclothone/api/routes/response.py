@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 from cyclothone.developer.auth import DeveloperPrincipal, authenticate_request
 from cyclothone.response.dispatcher import SupabaseCommandDispatcher
 from cyclothone.response.orchestrator import ResponseOrchestrator
-from cyclothone.response.playbook_runtime import PlaybookRunner
+from cyclothone.response.playbook_runtime import PlaybookRunner, SupabaseActionStore
 from cyclothone.storage.supabase_client import supabase
 
 router = APIRouter(prefix="/console/response", tags=["response"])
@@ -36,9 +36,7 @@ class RejectRequest(BaseModel):
 
 def _runner() -> PlaybookRunner:
     dispatcher = SupabaseCommandDispatcher()
-    orchestrator = ResponseOrchestrator(dispatcher, __import__(
-        "cyclothone.response.playbook_runtime", fromlist=["SupabaseActionStore"]
-    ).SupabaseActionStore())
+    orchestrator = ResponseOrchestrator(dispatcher, SupabaseActionStore())
     return PlaybookRunner(orchestrator)
 
 
@@ -124,9 +122,7 @@ async def approve(case_action_id: UUID, principal: DeveloperPrincipal = Depends(
         raise HTTPException(404, {"error": "case_action_not_found"})
     try:
         dispatcher = SupabaseCommandDispatcher()
-        orchestrator = ResponseOrchestrator(dispatcher, __import__(
-            "cyclothone.response.playbook_runtime", fromlist=["SupabaseActionStore"]
-        ).SupabaseActionStore())
+        orchestrator = ResponseOrchestrator(dispatcher, SupabaseActionStore())
         return await orchestrator.approve(case_action_id, UUID(principal.app_id))
     except RuntimeError as exc:
         raise HTTPException(409, {"error": str(exc)}) from exc
