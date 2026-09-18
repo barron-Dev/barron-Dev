@@ -4,7 +4,7 @@ import asyncio
 import logging
 import time
 
-from sentinel.web.orchestrator import WebIntelligenceOrchestrator
+from cyclothone.web.orchestrator import WebIntelligenceOrchestrator
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +23,7 @@ class WebIntelligenceScheduler:
     def start(self) -> None:
         if self._task is None or self._task.done():
             self._stop.clear()
-            self._task = asyncio.create_task(self._loop(), name="sentinel-web-intel")
+            self._task = asyncio.create_task(self._loop(), name="cyclothone-web-intel")
 
     async def stop(self) -> None:
         self._stop.set()
