@@ -1,7 +1,7 @@
 from __future__ import annotations
 import httpx
-from sentinel.brand.similarity import combined_similarity
-from sentinel.storage.supabase_client import supabase
+from cyclothone.brand.similarity import combined_similarity
+from cyclothone.storage.supabase_client import supabase
 class SocialMonitor:
     PLATFORMS={'x':'https://x.com/{h}','instagram':'https://www.instagram.com/{h}/','facebook':'https://www.facebook.com/{h}','tiktok':'https://www.tiktok.com/@{h}','youtube':'https://www.youtube.com/@{h}','linkedin':'https://www.linkedin.com/company/{h}','telegram':'https://t.me/{h}'}
     async def scan_brand(self,brand):
@@ -12,7 +12,7 @@ class SocialMonitor:
                 for h in variants:
                     if h in owned:continue
                     stats['checked']+=1
-                    try:r=await c.get(tpl.format(h=h),headers={'user-agent':'SentinelBrand/1.0'})
+                    try:r=await c.get(tpl.format(h=h),headers={'user-agent':'CyclothoneBrand/1.0'})
                     except Exception:continue
                     if r.status_code!=200:continue
                     stats['taken']+=1;sim=combined_similarity(h,base);sev='critical' if sim>=.9 else 'high' if sim>=.8 else 'medium'
