@@ -65,7 +65,8 @@ create table bounty_payouts (
  currency text not null check(currency ~ '^[A-Z]{3}$'), method text not null check(method in ('usdc','usdt','wire','ach','sepa','mobile_money','paypal')),
  status text not null default 'queued' check(status in ('queued','processing','sent','confirmed','failed')),
  provider text, provider_ref text, tx_hash text, error text, created_at timestamptz not null default now(), sent_at timestamptz, confirmed_at timestamptz,
- check((status in ('sent','confirmed') and provider_ref is not null) or status not in ('sent','confirmed'))
+ check((status in ('sent','confirmed') and provider_ref is not null) or status not in ('sent','confirmed')),
+ check(status <> 'confirmed' or confirmed_at is not null)
 );
 create index idx_bounty_payout_res on bounty_payouts(researcher_id,created_at desc);
 create index idx_bounty_payout_status on bounty_payouts(status,created_at);
@@ -134,12 +135,12 @@ begin
  if p_limit<1 or p_limit>200 then raise exception 'invalid payout batch'; end if;
  return query
  with candidates as (
-  select s.id from bounty_submissions s join bounty_researchers r on r.id=s.researcher_id where s.payout_status='owed' and s.payout_amount>0 and r.payout_method is not null order by s.created_at for update of s skip locked limit p_limit
+  select s.id from bounty_submissions s join bounty_researchers r on r.id=s.researcher_id join bounty_campaigns c on c.id=s.campaign_id where s.payout_status='owed' and s.payout_amount>0 and r.payout_method is not null and c.enabled and now() >= c.starts_at and (c.ends_at is null or now() < c.ends_at) order by s.created_at for update of s skip locked limit p_limit
  ), claimed as (
   update bounty_submissions s set payout_status='processing' from candidates c where s.id=c.id returning s.*
  )
  insert into bounty_payouts(researcher_id,submission_id,amount,currency,method,status,provider)
- select s.researcher_id,s.id,s.payout_amount,c.currency,r.payout_method,'processing',null
+ select s.researcher_id,s.id,s.payout_amount,c.currency,r.payout_method,'processing',null,md5('cyclothone:bounty:payout:'||s.id::text)
  from claimed s join bounty_campaigns c on c.id=s.campaign_id join bounty_researchers r on r.id=s.researcher_id
  where r.payout_method is not null on conflict(submission_id) do nothing returning *;
 end $$;
@@ -154,6 +155,9 @@ begin
  select submission_id,researcher_id,amount into v_submission,v_researcher,v_amount from bounty_payouts where id=p_payout for update;
  if v_submission is null then raise exception 'payout not found'; end if;
  if p_status in ('sent','confirmed') and coalesce(p_provider_ref,p_tx_hash) is null then raise exception 'provider reference required'; end if;
+ if (select status from bounty_payouts where id=p_payout)='confirmed' then raise exception 'payout already confirmed'; end if;
+ if (select status from bounty_payouts where id=p_payout)='failed' and p_status<>'processing' then raise exception 'failed payout requires requeue'; end if;
+ if (select status from bounty_payouts where id=p_payout)='sent' and p_status not in ('confirmed','sent') then raise exception 'invalid payout transition'; end if;
  update bounty_payouts set status=p_status,provider_ref=coalesce(p_provider_ref,provider_ref),tx_hash=coalesce(p_tx_hash,tx_hash),
  error=case when p_status='failed' then left(p_error,500) else null end,sent_at=case when p_status in ('sent','confirmed') then coalesce(sent_at,now()) else sent_at end,
  confirmed_at=case when p_status='confirmed' then coalesce(confirmed_at,now()) else confirmed_at end where id=p_payout;
