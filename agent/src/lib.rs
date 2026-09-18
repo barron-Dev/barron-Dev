@@ -3,6 +3,7 @@ pub mod data_trust;
 pub mod events;
 pub mod commands;
 pub mod ml;
+pub mod telemetry;
 
 #[cfg(windows)]
 pub mod etw;
@@ -18,7 +19,7 @@ pub use ml::{ModelInfo, ModelSync, OnnxDetector};
 pub async fn run_agent() -> anyhow::Result<()> {
     use std::sync::Arc;
 
-    use tokio::sync::RwLock;
+    use tokio::sync::{mpsc, RwLock};
     use tracing::warn;
 
     let config = config::AgentConfig::from_env()?;
@@ -34,12 +35,14 @@ pub async fn run_agent() -> anyhow::Result<()> {
         warn!(%error, "initial model sync failed; agent continues without local ML");
     }
 
-    let detector: Arc<RwLock<Option<Arc<OnnxDetector>>>> = Arc::new(RwLock::new(sync.current()));
+    let detector: Arc<RwLock<Option<Arc<OnnxDetector>>>> =
+        Arc::new(RwLock::new(sync.current()));
     let sync_detector = Arc::clone(&detector);
     let sync_config = config.clone();
 
     tokio::spawn(async move {
-        let mut ticker = tokio::time::interval(std::time::Duration::from_secs(sync_config.model_sync_secs));
+        let mut ticker =
+            tokio::time::interval(std::time::Duration::from_secs(sync_config.model_sync_secs));
         ticker.tick().await;
         loop {
             ticker.tick().await;
@@ -64,15 +67,38 @@ pub async fn run_agent() -> anyhow::Result<()> {
         }
     });
 
+    // Single telemetry pipeline:
+    // ETW -> bounded queue -> local ML enrichment -> bounded mTLS API delivery.
+    let (raw_tx, raw_rx) = mpsc::channel::<EndpointEvent>(1024);
+    let (enriched_tx, enriched_rx) = mpsc::channel::<EndpointEvent>(1024);
+
+    tokio::spawn(ml::run_enricher(
+        raw_rx,
+        enriched_tx,
+        Arc::clone(&detector),
+        0.90,
+    ));
+
+    let (telemetry_tx, _telemetry_task) = telemetry::spawn(&config)?;
+    tokio::spawn(async move {
+        let mut rx = enriched_rx;
+        while let Some(event) = rx.recv().await {
+            if telemetry_tx.send(event).await.is_err() {
+                warn!("telemetry delivery queue closed");
+                break;
+            }
+        }
+    });
+
     let collector = etw::EtwCollector::start(config.host_id.clone())?;
-    let _detector = detector;
     let command_worker = commands::CommandWorker::from_config(&config)?;
     tokio::spawn(command_worker.run());
 
     tokio::task::spawn_blocking(move || {
-        collector.run(|event| match serde_json::to_string(&event) {
-            Ok(line) => tracing::info!(target = "cyclothone.telemetry", "{}", line),
-            Err(error) => tracing::error!(%error, "failed to serialize ETW event"),
+        collector.run(|event| {
+            if let Err(error) = raw_tx.blocking_send(event) {
+                tracing::error!(%error, "ETW telemetry queue closed");
+            }
         })
     })
     .await??;
