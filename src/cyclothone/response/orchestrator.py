@@ -92,7 +92,7 @@ class ResponseOrchestrator:
                 action_class = ACTION_CLASS.get(step.action, ActionClass.MEDIUM)
                 approval_required = step.requires_approval or action_class in (ActionClass.HIGH, ActionClass.CRITICAL)
 
-                if blast_rule_id and not await self.store.blast_allowed(blast_rule_id, blast_limit):
+                if blast_rule_id and device_id and not await self.store.blast_allowed(blast_rule_id, blast_limit, tenant_id=tenant_id, device_id=device_id):
                     row_id = await self.store.create(
                         tenant_id=tenant_id, case_id=case_id, device_id=device_id,
                         action=step.action, args=step.args, status="rejected",
