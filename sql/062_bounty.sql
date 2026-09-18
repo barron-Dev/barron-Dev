@@ -141,12 +141,29 @@ begin
   update bounty_submissions s set payout_status='processing' from candidates c where s.id=c.id returning s.*
  )
  insert into bounty_payouts(researcher_id,submission_id,amount,currency,method,status,provider)
- select s.researcher_id,s.id,s.payout_amount,c.currency,r.payout_method,'processing',null,md5('cyclothone:bounty:payout:'||s.id::text)
+ select s.researcher_id,s.id,s.payout_amount,c.currency,r.payout_method,'processing',null,md5('cyclothone:bounty:payout:'||s.id::text),1
  from claimed s join bounty_campaigns c on c.id=s.campaign_id join bounty_researchers r on r.id=s.researcher_id
- where r.payout_method is not null on conflict(submission_id) do nothing returning *;
+ where r.payout_method is not null
+ on conflict(submission_id) do update set status='processing',attempts=bounty_payouts.attempts+1,error=null,provider_ref=null,tx_hash=null,sent_at=null,confirmed_at=null
+ where bounty_payouts.status in ('queued','failed') and bounty_payouts.attempts < 20
+ returning *;
 end $$;
 revoke all on function bounty_claim_payouts(integer) from public;
 grant execute on function bounty_claim_payouts(integer) to service_role;
+
+create or replace function bounty_requeue_failed(p_payout uuid)
+returns void language plpgsql security definer set search_path=public as $
+declare v_submission uuid; v_status text; v_attempts integer;
+begin
+ select submission_id,status,attempts into v_submission,v_status,v_attempts from bounty_payouts where id=p_payout for update;
+ if v_submission is null then raise exception 'payout not found'; end if;
+ if v_status<>'failed' then raise exception 'only failed payouts can be requeued'; end if;
+ if v_attempts>=20 then raise exception 'payout retry limit reached'; end if;
+ update bounty_payouts set status='queued',error=null where id=p_payout;
+ update bounty_submissions set payout_status='owed' where id=v_submission and payout_status='failed';
+end $;
+revoke all on function bounty_requeue_failed(uuid) from public;
+grant execute on function bounty_requeue_failed(uuid) to service_role;
 
 create or replace function bounty_mark_payout(p_payout uuid,p_status text,p_provider_ref text default null,p_tx_hash text default null,p_error text default null)
 returns void language plpgsql security definer set search_path=public as $$
