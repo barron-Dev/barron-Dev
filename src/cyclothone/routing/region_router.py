@@ -6,8 +6,8 @@ from dataclasses import dataclass
 
 from fastapi import Depends, HTTPException, Request, status
 
-from sentinel.security.device_auth import DeviceIdentity, get_device
-from sentinel.storage.supabase_client import supabase
+from cyclothone.security.device_auth import DeviceIdentity, get_device
+from cyclothone.storage.supabase_client import supabase
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,9 +63,9 @@ region_cache = RegionCache()
 
 def current_region_code() -> str:
     """Deployment identity. Missing configuration is a hard failure."""
-    region = os.getenv("SENTINEL_REGION")
+    region = os.getenv("CYCLOTHONE_REGION")
     if not region or not region.strip():
-        raise RuntimeError("SENTINEL_REGION must be configured for every data-plane deployment")
+        raise RuntimeError("CYCLOTHONE_REGION must be configured for every data-plane deployment")
     return region.strip()
 
 
