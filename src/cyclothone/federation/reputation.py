@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
-from sentinel.storage.supabase_client import supabase
+from cyclothone.storage.supabase_client import supabase
 
 
 @dataclass(frozen=True, slots=True)
