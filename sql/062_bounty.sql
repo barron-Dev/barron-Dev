@@ -64,7 +64,7 @@ create table bounty_payouts (
  submission_id uuid unique references bounty_submissions(id) on delete set null, amount numeric(20,2) not null check(amount>0),
  currency text not null check(currency ~ '^[A-Z]{3}$'), method text not null check(method in ('usdc','usdt','wire','ach','sepa','mobile_money','paypal')),
  status text not null default 'queued' check(status in ('queued','processing','sent','confirmed','failed')),
- provider text, provider_ref text, tx_hash text, error text, created_at timestamptz not null default now(), sent_at timestamptz, confirmed_at timestamptz,
+ provider text, idempotency_key text not null unique, attempts integer not null default 0 check(attempts>=0 and attempts<=20), provider_ref text, tx_hash text, error text, created_at timestamptz not null default now(), sent_at timestamptz, confirmed_at timestamptz,
  check((status in ('sent','confirmed') and provider_ref is not null) or status not in ('sent','confirmed')),
  check(status <> 'confirmed' or confirmed_at is not null)
 );
@@ -140,7 +140,7 @@ begin
  ), claimed as (
   update bounty_submissions s set payout_status='processing' from candidates c where s.id=c.id returning s.*
  )
- insert into bounty_payouts(researcher_id,submission_id,amount,currency,method,status,provider)
+ insert into bounty_payouts(researcher_id,submission_id,amount,currency,method,status,provider,idempotency_key,attempts)
  select s.researcher_id,s.id,s.payout_amount,c.currency,r.payout_method,'processing',null,md5('cyclothone:bounty:payout:'||s.id::text),1
  from claimed s join bounty_campaigns c on c.id=s.campaign_id join bounty_researchers r on r.id=s.researcher_id
  where r.payout_method is not null
@@ -174,7 +174,7 @@ begin
  if v_submission is null then raise exception 'payout not found'; end if;
  if p_status in ('sent','confirmed') and coalesce(p_provider_ref,p_tx_hash) is null then raise exception 'provider reference required'; end if;
  if (select status from bounty_payouts where id=p_payout)='confirmed' then raise exception 'payout already confirmed'; end if;
- if (select status from bounty_payouts where id=p_payout)='failed' and p_status<>'processing' then raise exception 'failed payout requires requeue'; end if;
+ if (select status from bounty_payouts where id=p_payout)='failed' then raise exception 'failed payout requires requeue'; end if;
  if (select status from bounty_payouts where id=p_payout)='sent' and p_status not in ('confirmed','sent') then raise exception 'invalid payout transition'; end if;
  update bounty_payouts set status=p_status,provider_ref=coalesce(p_provider_ref,provider_ref),tx_hash=coalesce(p_tx_hash,tx_hash),
  error=case when p_status='failed' then left(p_error,500) else null end,sent_at=case when p_status in ('sent','confirmed') then coalesce(sent_at,now()) else sent_at end,
