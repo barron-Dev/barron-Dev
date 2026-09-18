@@ -6,8 +6,8 @@ from datetime import datetime, timezone
 
 import pytest
 
-from sentinel.federation.anon import FederationAnonymizer
-from sentinel.federation.stix import bundle_from_indicators, indicator_to_stix, parse_stix_bundle
+from cyclothone.federation.anon import FederationAnonymizer
+from cyclothone.federation.stix import bundle_from_indicators, indicator_to_stix, parse_stix_bundle
 
 
 def test_anonymizer_requires_real_secret(monkeypatch: pytest.MonkeyPatch) -> None:
