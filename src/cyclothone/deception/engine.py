@@ -7,8 +7,8 @@ from typing import Any, Mapping
 from urllib.parse import quote
 from uuid import UUID
 
-from sentinel.deception.models import ArtifactSpec, DeceptionArtifact, TriggerResult, utcnow
-from sentinel.storage.supabase_client import supabase
+from cyclothone.deception.models import ArtifactSpec, DeceptionArtifact, TriggerResult, utcnow
+from cyclothone.storage.supabase_client import supabase
 
 
 class DeceptionEngine:
@@ -32,7 +32,7 @@ class DeceptionEngine:
         prefix = token[:12]
         callback = f"{self.callback_base_url}/api/v1/deception/callback/{quote(token, safe='')}"
         metadata = dict(spec.metadata)
-        metadata.update({"generated_by": "sentinel", "inert": True, "callback_url": callback})
+        metadata.update({"generated_by": "cyclothone", "inert": True, "callback_url": callback})
 
         row = await supabase.insert_one(
             "deception_artifacts",
@@ -125,23 +125,23 @@ def _secret_for(kind: str) -> str:
     if kind == "fake_aws_key":
         return f"AKIA{nonce.upper()}"[:20]
     if kind == "fake_browser_cookie":
-        return f"sentinel_canary={nonce}; Secure; HttpOnly"
+        return f"cyclothone_canary={nonce}; Secure; HttpOnly"
     if kind == "fake_ssh_key":
-        return f"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI{secrets.token_urlsafe(24)} sentinel-canary"
+        return f"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI{secrets.token_urlsafe(24)} cyclothone-canary"
     if kind == "fake_wallet_seed":
-        return "abandon " * 11 + "sentinel-canary"
+        return "abandon " * 11 + "cyclothone-canary"
     if kind == "fake_admin_share":
-        return f"\\\\sentinel-canary.invalid\\share\\{nonce}"
+        return f"\\\\cyclothone-canary.invalid\\share\\{nonce}"
     if kind == "fake_service_account":
-        return f"sentinel-canary-{nonce}@invalid.local"
-    return f"SENTINEL-CANARY-{nonce}"
+        return f"cyclothone-canary-{nonce}@invalid.local"
+    return f"CYCLOTHONE-CANARY-{nonce}"
 
 
 def _honeyfile_content(artifact: DeceptionArtifact, metadata: Mapping[str, Any]) -> bytes:
     payload = {
-        "document": "Sentinel Canary Document",
+        "document": "Cyclothone Canary Document",
         "classification": "DECEPTION-CANARY",
-        "warning": "This file contains inert Sentinel deception material. It is not a real credential.",
+        "warning": "This file contains inert Cyclothone deception material. It is not a real credential.",
         "artifact_id": str(artifact.id),
         "callback": artifact.callback_url,
         "metadata": dict(metadata),
