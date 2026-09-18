@@ -1,4 +1,4 @@
-from sentinel.web.crawler import WebCrawler, WebPage
-from sentinel.web.orchestrator import WebIntelligenceOrchestrator
+from cyclothone.web.crawler import WebCrawler, WebPage
+from cyclothone.web.orchestrator import WebIntelligenceOrchestrator
 
 __all__ = ["WebCrawler", "WebPage", "WebIntelligenceOrchestrator"]
