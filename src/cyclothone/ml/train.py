@@ -25,7 +25,8 @@ class NotEnoughData(Exception):
 
 
 def _client():
-    from sentinel.storage.supabase_client import supabase
+    from cyclothone.storage.supabase_client import supabase
+
     return supabase
 
 
