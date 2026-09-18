@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from sentinel.data_trust.channels import DESTINATION_TYPES, SOURCE_TYPES, normalize_destination, normalize_source
+from cyclothone.data_trust.channels import DESTINATION_TYPES, SOURCE_TYPES, normalize_destination, normalize_source
 
 CLASSIFICATIONS = {"public", "internal", "confidential", "restricted", "regulated"}
 DESTINATIONS = DESTINATION_TYPES
