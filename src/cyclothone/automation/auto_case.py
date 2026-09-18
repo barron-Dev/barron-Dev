@@ -8,7 +8,7 @@ from enum import IntEnum, StrEnum
 from typing import Any, Mapping, Protocol, Sequence
 from uuid import UUID, uuid4
 
-from sentinel.response.orchestrator import ActionClass, ACTION_CLASS, ActionPlan, ResponseOrchestrator
+from cyclothone.response.orchestrator import ActionClass, ACTION_CLASS, ActionPlan, ResponseOrchestrator
 
 
 class Severity(IntEnum):
