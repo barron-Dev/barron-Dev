@@ -134,7 +134,7 @@ begin
  if p_limit<1 or p_limit>200 then raise exception 'invalid payout batch'; end if;
  return query
  with candidates as (
-  select s.id from bounty_submissions s where s.payout_status='owed' and s.payout_amount>0 order by s.created_at for update skip locked limit p_limit
+  select s.id from bounty_submissions s join bounty_researchers r on r.id=s.researcher_id where s.payout_status='owed' and s.payout_amount>0 and r.payout_method is not null order by s.created_at for update of s skip locked limit p_limit
  ), claimed as (
   update bounty_submissions s set payout_status='processing' from candidates c where s.id=c.id returning s.*
  )
