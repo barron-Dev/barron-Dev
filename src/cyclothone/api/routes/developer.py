@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, Field
 
 from cyclothone.developer.api_keys import create_api_key
+from cyclothone.developer.crypto import new_client_credentials, hash_secret
 from cyclothone.developer.identity import DeveloperIdentity, app_owned_by_user, resolve_developer
 from cyclothone.storage.supabase_client import supabase
 
@@ -52,6 +53,11 @@ class AppUpdate(BaseModel):
 class KeyCreate(BaseModel):
     scopes: list[str] = Field(default_factory=list, max_length=50)
     expires_at: str | None = None
+
+
+class OAuthClientCreate(BaseModel):
+    public_client: bool = False
+
 
 
 @router.get("/me")
@@ -166,3 +172,70 @@ async def revoke_key(app_id: str, key_id: str, identity: DeveloperIdentity = Dep
     if not result or not result.data:
         raise HTTPException(404, "API key not found")
     return {"id": key_id, "active": False, "revoked": True}
+
+
+@router.post("/apps/{app_id}/oauth-clients", status_code=201)
+async def create_oauth_client(
+    app_id: str,
+    body: OAuthClientCreate,
+    identity: DeveloperIdentity = Depends(developer_identity),
+) -> dict[str, Any]:
+    app = await _owned_app(app_id, identity)
+    client_id, secret, secret_hash = new_client_credentials()
+    row = {
+        "app_id": app_id,
+        "client_id": client_id,
+        "client_secret_hash": None if body.public_client else secret_hash,
+        "public_client": body.public_client,
+    }
+    try:
+        created = await supabase.insert_one("oauth_clients", row)
+    except Exception as exc:
+        raise HTTPException(409, "OAuth client creation failed") from exc
+    result = {
+        "id": str(created["id"]),
+        "app_id": app_id,
+        "client_id": client_id,
+        "public_client": body.public_client,
+    }
+    if not body.public_client:
+        result["client_secret"] = secret
+    return result
+
+
+@router.get("/apps/{app_id}/oauth-clients")
+async def list_oauth_clients(
+    app_id: str,
+    identity: DeveloperIdentity = Depends(developer_identity),
+) -> list[dict[str, Any]]:
+    await _owned_app(app_id, identity)
+
+    async def _do():
+        return await (
+            await supabase._ensure()
+        ).table("oauth_clients").select(
+            "id,app_id,client_id,public_client,active,created_at,last_used_at"
+        ).eq("app_id", app_id).order("created_at", desc=True).execute()
+
+    return list((await supabase._retry(_do, attempts=2)).data or [])
+
+
+@router.post("/apps/{app_id}/oauth-clients/{client_id}/deactivate")
+async def deactivate_oauth_client(
+    app_id: str,
+    client_id: str,
+    identity: DeveloperIdentity = Depends(developer_identity),
+) -> dict[str, Any]:
+    await _owned_app(app_id, identity)
+
+    async def _do():
+        return await (
+            await supabase._ensure()
+        ).table("oauth_clients").update(
+            {"active": False}
+        ).eq("id", client_id).eq("app_id", app_id).execute()
+
+    result = await supabase._retry(_do, attempts=2)
+    if not result.data:
+        raise HTTPException(404, "OAuth client not found")
+    return {"id": client_id, "active": False}
