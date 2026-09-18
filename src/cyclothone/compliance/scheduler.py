@@ -4,9 +4,9 @@ import asyncio
 import logging
 from datetime import UTC, datetime, timedelta
 
-from sentinel.compliance.catalog import FRAMEWORKS
-from sentinel.compliance.evaluator import ComplianceEvaluator
-from sentinel.storage.supabase_client import supabase
+from cyclothone.compliance.catalog import FRAMEWORKS
+from cyclothone.compliance.evaluator import ComplianceEvaluator
+from cyclothone.storage.supabase_client import supabase
 
 logger = logging.getLogger(__name__)
 
@@ -25,8 +25,8 @@ class ComplianceScheduler:
             return
         self._stop.clear()
         self._tasks = [
-            asyncio.create_task(self._eval_loop(), name="sentinel-compliance-eval"),
-            asyncio.create_task(self._stale_loop(), name="sentinel-compliance-stale"),
+            asyncio.create_task(self._eval_loop(), name="cyclothone-compliance-eval"),
+            asyncio.create_task(self._stale_loop(), name="cyclothone-compliance-stale"),
         ]
 
     async def stop(self) -> None:
