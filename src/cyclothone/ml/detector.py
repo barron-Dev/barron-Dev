@@ -3,8 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from sentinel.ml.runtime import ModelRegistry, registry
-from sentinel.models.events import EndpointEvent
+from cyclothone.ml.runtime import ModelRegistry, registry
+from cyclothone.models.events import EndpointEvent
 
 
 @dataclass(frozen=True, slots=True)
