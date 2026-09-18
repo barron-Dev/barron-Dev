@@ -6,11 +6,11 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
-from sentinel.developer.auth import DeveloperPrincipal, authenticate_request
-from sentinel.hunting.executor import QueryExecutor
-from sentinel.hunting.parser import parse
-from sentinel.hunting.starter import STARTER_HUNTS
-from sentinel.storage.supabase_client import supabase
+from cyclothone.developer.auth import DeveloperPrincipal, authenticate_request
+from cyclothone.hunting.executor import QueryExecutor
+from cyclothone.hunting.parser import parse
+from cyclothone.hunting.starter import STARTER_HUNTS
+from cyclothone.storage.supabase_client import supabase
 
 router = APIRouter(prefix="/hunts", tags=["hunting"])
 _executor = QueryExecutor()
