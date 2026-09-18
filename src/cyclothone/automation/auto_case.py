@@ -196,6 +196,25 @@ async def process_persisted_detection(*, detection_id: UUID, tenant_id: UUID, de
         )
         if case_id:
             created.append(str(case_id))
+            playbook_id = _optional_uuid(rule.get("default_playbook_id"))
+            if playbook_id:
+                from cyclothone.response.dispatcher import SupabaseCommandDispatcher
+                from cyclothone.response.orchestrator import ResponseOrchestrator
+                from cyclothone.response.playbook_runtime import PlaybookRunner, SupabaseActionStore
+                runner = PlaybookRunner(ResponseOrchestrator(SupabaseCommandDispatcher(), SupabaseActionStore()))
+                try:
+                    await runner.run(
+                        tenant_id=tenant_id,
+                        playbook_id=playbook_id,
+                        case_id=UUID(str(case_id)),
+                        device_id=device_id,
+                        issued_by=f"auto_case:playbook:{rule['id']}",
+                        dry_run=bool(rule.get("dry_run", False)),
+                    )
+                    await supabase.update("detections", {"processed_by_playbooks": True}, id=detection_id)
+                except Exception:
+                    # Case creation is durable; response execution remains observable in playbook_runs.
+                    pass
     if created:
         await supabase.update("detections", {"processed_by_autocase": True}, id=detection_id)
     return created
