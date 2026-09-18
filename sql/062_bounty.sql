@@ -151,20 +151,6 @@ end $$;
 revoke all on function bounty_claim_payouts(integer) from public;
 grant execute on function bounty_claim_payouts(integer) to service_role;
 
-create or replace function bounty_requeue_failed(p_payout uuid)
-returns void language plpgsql security definer set search_path=public as $
-declare v_submission uuid; v_status text; v_attempts integer;
-begin
- select submission_id,status,attempts into v_submission,v_status,v_attempts from bounty_payouts where id=p_payout for update;
- if v_submission is null then raise exception 'payout not found'; end if;
- if v_status<>'failed' then raise exception 'only failed payouts can be requeued'; end if;
- if v_attempts>=20 then raise exception 'payout retry limit reached'; end if;
- update bounty_payouts set status='queued',error=null where id=p_payout;
- update bounty_submissions set payout_status='owed' where id=v_submission and payout_status='failed';
-end $;
-revoke all on function bounty_requeue_failed(uuid) from public;
-grant execute on function bounty_requeue_failed(uuid) to service_role;
-
 create or replace function bounty_mark_payout(p_payout uuid,p_status text,p_provider_ref text default null,p_tx_hash text default null,p_error text default null)
 returns void language plpgsql security definer set search_path=public as $$
 declare v_submission uuid; v_researcher uuid; v_amount numeric;
@@ -182,7 +168,7 @@ begin
  if p_status='confirmed' then
   update bounty_submissions set payout_status='paid',payout_tx=coalesce(p_tx_hash,p_provider_ref),payout_at=coalesce(payout_at,now()) where id=v_submission and payout_status='processing';
   update bounty_researchers set paid_total_usd=paid_total_usd+v_amount where id=v_researcher;
- elsif p_status='failed' then update bounty_submissions set payout_status='failed' where id=v_submission and payout_status='processing'; end if;
+ elsif p_status='failed' then update bounty_submissions set payout_status='owed' where id=v_submission and payout_status='processing'; end if;
 end $$;
 revoke all on function bounty_mark_payout(uuid,text,text,text,text) from public;
 grant execute on function bounty_mark_payout(uuid,text,text,text,text) to service_role;
