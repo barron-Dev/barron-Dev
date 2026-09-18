@@ -1,6 +1,7 @@
 pub mod config;
 pub mod data_trust;
 pub mod events;
+pub mod commands;
 pub mod ml;
 
 #[cfg(windows)]
@@ -63,8 +64,10 @@ pub async fn run_agent() -> anyhow::Result<()> {
         }
     });
 
-    let collector = etw::EtwCollector::start(config.host_id)?;
+    let collector = etw::EtwCollector::start(config.host_id.clone())?;
     let _detector = detector;
+    let command_worker = commands::CommandWorker::from_config(&config)?;
+    tokio::spawn(command_worker.run());
 
     tokio::task::spawn_blocking(move || {
         collector.run(|event| match serde_json::to_string(&event) {
