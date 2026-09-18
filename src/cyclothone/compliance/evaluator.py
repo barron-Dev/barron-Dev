@@ -6,15 +6,12 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
-from sentinel.compliance.catalog import CONTROLS
-from sentinel.compliance.checks import CHECKS
-from sentinel.storage.supabase_client import supabase
+from cyclothone.compliance.catalog import CONTROLS
+from cyclothone.compliance.checks import CHECKS
+from cyclothone.storage.supabase_client import supabase
 
 logger = logging.getLogger(__name__)
 
-# Automated control results are deliberately short-lived. Historical evidence
-# remains immutable, while the current control projection expires after this
-# window and must be recollected.
 DEFAULT_FRESHNESS_DAYS = 30
 
 
@@ -33,7 +30,7 @@ class ComplianceEvaluator:
             else:
                 try:
                     result = await check(tenant_id, period_start, period_end)
-                except Exception as exc:  # noqa: BLE001
+                except Exception as exc:
                     logger.warning("compliance check %s failed: %s", check_key, exc)
                     result = ("unknown", 0.0, {"reason": "collector error", "error_type": type(exc).__name__})
 
