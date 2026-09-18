@@ -3,8 +3,8 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from sentinel.physical.correlator import PhysicalCorrelator
-from sentinel.storage.supabase_client import supabase
+from cyclothone.physical.correlator import PhysicalCorrelator
+from cyclothone.storage.supabase_client import supabase
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +20,7 @@ class PhysicalScheduler:
     def start(self) -> None:
         if self._task is None or self._task.done():
             self._stop.clear()
-            self._task = asyncio.create_task(self._loop(), name="physical-correlator")
+            self._task = asyncio.create_task(self._loop(), name="cyclothone-physical-correlator")
 
     async def stop(self) -> None:
         self._stop.set()
@@ -50,7 +50,9 @@ class PhysicalScheduler:
         async def _do():
             client = await supabase._ensure()
             return await client.table("tenants").select("id").execute()
+
         try:
             return list((await supabase._retry(_do)).data or [])
         except Exception:
+            logger.exception("physical tenant discovery failed")
             return []
