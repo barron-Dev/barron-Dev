@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sentinel.physical.correlator import PhysicalCorrelator
+from cyclothone.physical.correlator import PhysicalCorrelator
 
 
 def test_parse_ts_handles_z_suffix():

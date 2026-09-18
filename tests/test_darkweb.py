@@ -3,8 +3,8 @@ from uuid import uuid4
 
 import pytest
 
-from sentinel.darkweb.matcher import DarkWebMatcher, max_severity
-from sentinel.darkweb.pullers import Finding, normalize, value_hash
+from cyclothone.darkweb.matcher import DarkWebMatcher, max_severity
+from cyclothone.darkweb.pullers import Finding, normalize, value_hash
 
 
 def test_identifier_hash_is_normalized():
@@ -28,7 +28,7 @@ async def test_unmatched_finding_is_stored_without_tenant_match():
     matcher = DarkWebMatcher()
     response = AsyncMock()
     response.data = []
-    with patch("sentinel.darkweb.matcher.supabase._retry", return_value=response), patch.object(matcher, "_record", new=AsyncMock(return_value={})) as record:
+    with patch("cyclothone.darkweb.matcher.supabase._retry", return_value=response), patch.object(matcher, "_record", new=AsyncMock(return_value={})) as record:
         result = await matcher.process({
             "source_id": "hibp", "kind": "email", "matched_value": "user@example.com",
             "context": "breach", "severity": "high", "source_url": None, "metadata": {},
@@ -46,7 +46,7 @@ async def test_watchlist_match_fans_out_per_tenant():
         {"id": str(uuid4()), "tenant_id": t1, "kind": "email", "severity": "high"},
         {"id": str(uuid4()), "tenant_id": t2, "kind": "email", "severity": "critical"},
     ]
-    with patch("sentinel.darkweb.matcher.supabase._retry", return_value=response), patch.object(matcher, "_record", new=AsyncMock(return_value={"alert_id": str(uuid4())})) as record:
+    with patch("cyclothone.darkweb.matcher.supabase._retry", return_value=response), patch.object(matcher, "_record", new=AsyncMock(return_value={"alert_id": str(uuid4())})) as record:
         result = await matcher.process({
             "source_id": "telegram_public", "kind": "email", "matched_value": "user@example.com",
             "context": "public leak", "severity": "high", "source_url": "https://t.me/s/example", "metadata": {},

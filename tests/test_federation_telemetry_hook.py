@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from sentinel.federation.promotion import (
+from cyclothone.federation.promotion import (
     canonical_event_uuid,
     extract_federation_observations,
 )

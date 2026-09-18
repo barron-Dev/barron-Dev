@@ -1,8 +1,8 @@
 import numpy as np
 import pytest
 
-from sentinel.ml.runtime import OnnxModel
-from sentinel.ml.train import MIN_SAMPLES, export_onnx, train_model
+from cyclothone.ml.runtime import OnnxModel
+from cyclothone.ml.train import MIN_SAMPLES, export_onnx, train_model
 
 
 def _payload(i: int) -> dict:
@@ -24,7 +24,7 @@ def _payload(i: int) -> dict:
 @pytest.mark.asyncio
 async def test_onnx_inference_roundtrip():
     payloads = [_payload(i) for i in range(MIN_SAMPLES * 2)]
-    from sentinel.ml.features import extract
+    from cyclothone.ml.features import extract
 
     X = np.vstack([extract("file", p) for p in payloads])
     y = (X[:, 0] + X[:, 10] + X[:, 17] > 3.0).astype(np.int32)

@@ -11,7 +11,8 @@ from lightgbm import LGBMClassifier
 from sklearn.metrics import average_precision_score, f1_score, precision_score, recall_score, roc_auc_score
 from sklearn.model_selection import train_test_split
 
-from sentinel.ml.features import FEATURE_NAMES, extract
+from cyclothone.ml.features import FEATURE_NAMES, extract
+
 
 logger = logging.getLogger(__name__)
 MIN_SAMPLES = 200
@@ -24,7 +25,8 @@ class NotEnoughData(Exception):
 
 
 def _client():
-    from sentinel.storage.supabase_client import supabase
+    from cyclothone.storage.supabase_client import supabase
+
     return supabase
 
 

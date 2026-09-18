@@ -6,7 +6,7 @@ from uuid import uuid4
 
 import pytest
 
-from sentinel.compliance.verification import EvidencePackVerifier
+from cyclothone.compliance.verification import EvidencePackVerifier
 
 
 def _pack() -> tuple[bytes, str]:

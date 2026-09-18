@@ -5,7 +5,7 @@ from uuid import uuid4
 
 import pytest
 
-from sentinel.response.rollback import RollbackConflict, RollbackError, RollbackService
+from cyclothone.response.rollback import RollbackConflict, RollbackError, RollbackService
 
 
 @pytest.mark.asyncio

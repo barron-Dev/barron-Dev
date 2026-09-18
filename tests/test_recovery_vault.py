@@ -3,8 +3,8 @@ from io import BytesIO
 
 import pytest
 
-from sentinel.recovery.restore import RecoveryRestore
-from sentinel.recovery.vault import RecoveryVault, RecoveryVaultConfig
+from cyclothone.recovery.restore import RecoveryRestore
+from cyclothone.recovery.vault import RecoveryVault, RecoveryVaultConfig
 
 
 class Store:

@@ -4,8 +4,8 @@ from uuid import UUID
 
 import pytest
 
-from sentinel.federation.promotion import FederationDetectionPromoter
-from sentinel.federation.stix import canonical_ioc_hash
+from cyclothone.federation.promotion import FederationDetectionPromoter
+from cyclothone.federation.stix import canonical_ioc_hash
 
 
 TENANT = UUID("11111111-1111-1111-1111-111111111111")

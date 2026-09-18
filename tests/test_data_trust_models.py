@@ -3,7 +3,7 @@ from uuid import uuid4
 
 import pytest
 
-from sentinel.data_trust.models import TransferDecision, TransferRequest
+from cyclothone.data_trust.models import TransferDecision, TransferRequest
 
 
 def test_transfer_request_normalizes_supported_aliases() -> None:

@@ -6,10 +6,10 @@ from uuid import UUID
 
 import pytest
 
-from sentinel.api.app import create_app
-from sentinel.api.routes.federation import IndicatorIngest, PeerCreate, _sanitize_value_ref
-from sentinel.federation.anon import FederationAnonymizer
-from sentinel.federation.stix import canonical_ioc_hash
+from cyclothone.api.app import create_app
+from cyclothone.api.routes.federation import IndicatorIngest, PeerCreate, _sanitize_value_ref
+from cyclothone.federation.anon import FederationAnonymizer
+from cyclothone.federation.stix import canonical_ioc_hash
 
 
 def test_federation_router_is_mounted() -> None:

@@ -6,9 +6,9 @@ import pytest
 from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
 
-from sentinel.api.routes.agent_events import router
-from sentinel.models.events import EndpointEvent
-from sentinel.security.device_auth import DeviceIdentity, get_device
+from cyclothone.api.routes.agent_events import router
+from cyclothone.models.events import EndpointEvent
+from cyclothone.security.device_auth import DeviceIdentity, get_device
 
 
 def test_agent_event_contract_matches_rust_shape() -> None:
@@ -46,7 +46,7 @@ def test_mtls_dependency_fails_closed_without_tls() -> None:
 
 @pytest.mark.asyncio
 async def test_server_detector_uses_normalized_event_payload() -> None:
-    from sentinel.ml.detector import ServerMLDetector
+    from cyclothone.ml.detector import ServerMLDetector
 
     class FakeModel:
         version = 7

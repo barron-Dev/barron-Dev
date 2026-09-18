@@ -1,4 +1,4 @@
-from sentinel.developer.crypto import hash_secret, verify_pkce
+from cyclothone.developer.crypto import hash_secret, verify_pkce
 
 
 def test_hash_is_deterministic_and_not_plaintext() -> None:

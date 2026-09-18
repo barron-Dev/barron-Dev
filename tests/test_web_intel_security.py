@@ -1,4 +1,4 @@
-from sentinel.web.crawler import WebCrawler
+from cyclothone.web.crawler import WebCrawler
 
 
 def test_surface_target_rejects_private_ip():

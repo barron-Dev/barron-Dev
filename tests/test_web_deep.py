@@ -1,4 +1,4 @@
-from sentinel.web.deep import _safe_metadata, _hash_identifier
+from cyclothone.web.deep import _safe_metadata, _hash_identifier
 
 
 def test_identifier_hash_is_stable_and_case_normalized():

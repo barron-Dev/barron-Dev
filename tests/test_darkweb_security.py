@@ -1,5 +1,5 @@
-from sentinel.darkweb.matcher import max_severity
-from sentinel.darkweb.pullers import normalize, value_hash
+from cyclothone.darkweb.matcher import max_severity
+from cyclothone.darkweb.pullers import normalize, value_hash
 
 
 def test_normalization_is_stable():

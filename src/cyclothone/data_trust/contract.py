@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict
 from typing import Any
 
-from sentinel.data_trust.models import TransferDecision, TransferRequest
+from cyclothone.data_trust.models import TransferDecision, TransferRequest
 
 
 def transfer_wire_request(request: TransferRequest) -> dict[str, Any]:

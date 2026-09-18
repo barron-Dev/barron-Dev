@@ -1,6 +1,6 @@
 import pytest
 
-from sentinel.hunting.parser import And, Or, Predicate, parse
+from cyclothone.hunting.parser import And, Or, Predicate, parse
 
 
 def test_simple_predicate():

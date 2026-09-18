@@ -1,8 +1,8 @@
 import numpy as np
 import pytest
 
-from sentinel.ml.features import FEATURE_NAMES
-from sentinel.ml.train import MIN_SAMPLES, NotEnoughData, train_model
+from cyclothone.ml.features import FEATURE_NAMES
+from cyclothone.ml.train import MIN_SAMPLES, NotEnoughData, train_model
 
 
 def test_rejects_small_dataset():
