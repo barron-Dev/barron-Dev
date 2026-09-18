@@ -4,8 +4,8 @@ from uuid import uuid4
 
 import pytest
 
-from sentinel.deception.engine import DeceptionEngine
-from sentinel.deception.models import ArtifactSpec
+from cyclothone.deception.engine import DeceptionEngine
+from cyclothone.deception.models import ArtifactSpec
 
 
 @pytest.mark.asyncio
@@ -17,8 +17,8 @@ async def test_create_stores_only_token_hash(monkeypatch: pytest.MonkeyPatch) ->
         captured.update(values)
         return {"id": str(uuid4())}
 
-    monkeypatch.setattr("sentinel.deception.engine.supabase.insert_one", insert_one)
-    artifact = await DeceptionEngine(callback_base_url="https://sentinel.example").create(
+    monkeypatch.setattr("cyclothone.deception.engine.supabase.insert_one", insert_one)
+    artifact = await DeceptionEngine(callback_base_url="https://cyclothone.example").create(
         ArtifactSpec(
             tenant_id=tenant_id,
             artifact_type="fake_aws_key",
@@ -35,7 +35,7 @@ async def test_create_stores_only_token_hash(monkeypatch: pytest.MonkeyPatch) ->
     assert captured["metadata"]["inert"] is True
     assert captured["device_id"] is not None
     assert captured["auto_case_rule_id"] is not None
-    assert artifact.callback_url.startswith("https://sentinel.example/api/v1/deception/callback/sdc_")
+    assert artifact.callback_url.startswith("https://cyclothone.example/api/v1/deception/callback/sdc_")
 
 
 @pytest.mark.asyncio
@@ -68,8 +68,8 @@ async def test_callback_finalizes_trigger_through_autocase_bridge(monkeypatch: p
             "case_status": "created",
         }]
 
-    monkeypatch.setattr("sentinel.deception.engine.supabase.rpc", rpc)
-    result = await DeceptionEngine(callback_base_url="https://sentinel.example").record_callback(
+    monkeypatch.setattr("cyclothone.deception.engine.supabase.rpc", rpc)
+    result = await DeceptionEngine(callback_base_url="https://cyclothone.example").record_callback(
         "sdc_opaque-token", source_ip="203.0.113.10", user_agent="test-client"
     )
 
