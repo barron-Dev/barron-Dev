@@ -6,10 +6,10 @@ from uuid import UUID
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
-from sentinel.data_trust.enforcement import DataTrustEnforcementService
-from sentinel.data_trust.models import TransferRequest
-from sentinel.data_trust.service import DataTrustControlPlane
-from sentinel.developer.auth import DeveloperPrincipal, authenticate_request
+from cyclothone.data_trust.enforcement import DataTrustEnforcementService
+from cyclothone.data_trust.models import TransferRequest
+from cyclothone.data_trust.service import DataTrustControlPlane
+from cyclothone.developer.auth import DeveloperPrincipal, authenticate_request
 
 router = APIRouter(prefix="/data-trust", tags=["data-trust"])
 _control_plane = DataTrustControlPlane()
