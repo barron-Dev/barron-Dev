@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from sentinel.federation.exchange import _endpoint, _share_value
-from sentinel.federation.anon import FederationAnonymizer
+from cyclothone.federation.exchange import _endpoint, _share_value
+from cyclothone.federation.anon import FederationAnonymizer
 
 
 def test_endpoint_requires_https_and_public_hostname() -> None:
