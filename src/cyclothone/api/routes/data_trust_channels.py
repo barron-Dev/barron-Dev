@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 
-from sentinel.data_trust.channels import DESTINATION_TYPES, SOURCE_TYPES
-from sentinel.developer.auth import DeveloperPrincipal, authenticate_request
+from cyclothone.data_trust.channels import DESTINATION_TYPES, SOURCE_TYPES
+from cyclothone.developer.auth import DeveloperPrincipal, authenticate_request
 
 router = APIRouter(prefix="/data-trust", tags=["data-trust"])
 
