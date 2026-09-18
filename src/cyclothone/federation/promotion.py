@@ -7,8 +7,8 @@ from datetime import datetime
 from typing import Any, Iterable
 from uuid import NAMESPACE_URL, UUID, uuid5
 
-from sentinel.federation.stix import SUPPORTED_TYPES, canonical_ioc_hash
-from sentinel.storage.supabase_client import supabase
+from cyclothone.federation.stix import SUPPORTED_TYPES, canonical_ioc_hash
+from cyclothone.storage.supabase_client import supabase
 
 
 @dataclass(frozen=True, slots=True)
