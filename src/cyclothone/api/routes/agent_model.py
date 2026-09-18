@@ -5,8 +5,8 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import Response
 
-from sentinel.security.device_auth import DeviceIdentity, get_device
-from sentinel.storage.supabase_client import supabase
+from cyclothone.security.device_auth import DeviceIdentity, get_device
+from cyclothone.storage.supabase_client import supabase
 
 router = APIRouter(prefix="/agent/model", tags=["agent-model"])
 
@@ -86,7 +86,7 @@ async def download_model(device: DeviceIdentity = Depends(get_device)) -> Respon
         content=artifact,
         media_type="application/octet-stream",
         headers={
-            "X-Sentinel-Model-Version": str(model["version"]),
-            "X-Sentinel-Artifact-SHA256": model["artifact_sha256"],
+            "X-cyclothone-Model-Version": str(model["version"]),
+            "X-cyclothone-Artifact-SHA256": model["artifact_sha256"],
         },
     )
