@@ -6,11 +6,12 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-COPY pyproject.toml requirements-server.txt ./
+COPY pyproject.toml requirements-server.txt requirements-ml.txt ./
 COPY src ./src
 
 RUN pip install --upgrade pip \
     && pip install -r requirements-server.txt \
+    && pip install -r requirements-ml.txt \
     && pip install .
 
 RUN useradd --create-home --uid 10001 cyclothone \
