@@ -160,7 +160,6 @@ begin
  if v_submission is null then raise exception 'payout not found'; end if;
  if p_status in ('sent','confirmed') and coalesce(p_provider_ref,p_tx_hash) is null then raise exception 'provider reference required'; end if;
  if (select status from bounty_payouts where id=p_payout)='confirmed' then raise exception 'payout already confirmed'; end if;
- if (select status from bounty_payouts where id=p_payout)='failed' then raise exception 'failed payout requires requeue'; end if;
  if (select status from bounty_payouts where id=p_payout)='sent' and p_status not in ('confirmed','sent') then raise exception 'invalid payout transition'; end if;
  update bounty_payouts set status=p_status,provider_ref=coalesce(p_provider_ref,provider_ref),tx_hash=coalesce(p_tx_hash,tx_hash),
  error=case when p_status='failed' then left(p_error,500) else null end,sent_at=case when p_status in ('sent','confirmed') then coalesce(sent_at,now()) else sent_at end,
