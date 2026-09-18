@@ -58,7 +58,7 @@ class ActionStore(Protocol):
     async def create(self, **values: Any) -> str: ...
     async def get(self, action_id: UUID) -> dict[str, Any] | None: ...
     async def update(self, action_id: UUID, **values: Any) -> None: ...
-    async def blast_allowed(self, rule_id: UUID, limit: int, window_minutes: int = 60) -> bool: ...
+    async def blast_allowed(self, rule_id: UUID, limit: int, window_minutes: int = 60, tenant_id: UUID | None = None, device_id: UUID | None = None) -> bool: ...
     async def record_blast(self, *, rule_id: UUID, tenant_id: UUID, device_id: UUID, case_id: UUID) -> None: ...
 
 
@@ -149,13 +149,24 @@ class ResponseOrchestrator:
             raise RuntimeError("case_action not found")
         if row.get("status") != "pending_approval":
             raise RuntimeError(f"case_action {case_action_id} is {row.get('status')}")
-        await self.store.update(case_action_id, status="approved", approved_by=str(approved_by), approved_at=datetime.now(timezone.utc).isoformat())
-        command = await self.dispatcher.issue(
+        rule_id = UUID(str(row["initiated_by_rule"])) if row.get("initiated_by_rule") else None
+        device_id = UUID(str(row["device_id"])) if row.get("device_id") else None
+        if rule_id and device_id and not await self.store.blast_allowed(rule_id, 10, tenant_id=UUID(str(row["tenant_id"])), device_id=device_id):
+            await self.store.update(case_action_id, status="rejected", rejected_by=str(approved_by), rejected_at=datetime.now(timezone.utc).isoformat(), rejection_reason="blast radius exceeded")
+            raise RuntimeError("blast radius exceeded")
+        command = None
+        try:
+            command = await self.dispatcher.issue(
             tenant_id=UUID(row["tenant_id"]), device_id=UUID(row["device_id"]) if row.get("device_id") else None,
             action=row["action"], args=row.get("args") or {}, issued_by=f"approval:{approved_by}",
         )
-        await self.store.update(case_action_id, status="dispatched", command_id=command["id"], dispatched_at=datetime.now(timezone.utc).isoformat())
-        return {"case_action_id": str(case_action_id), "command_id": command["id"]}
+            await self.store.update(case_action_id, status="dispatched", command_id=command["id"], dispatched_at=datetime.now(timezone.utc).isoformat())
+            if rule_id and device_id:
+                await self.store.record_blast(rule_id=rule_id, tenant_id=UUID(str(row["tenant_id"])), device_id=device_id, case_id=UUID(str(row["case_id"])))
+            return {"case_action_id": str(case_action_id), "command_id": command["id"]}
+        except Exception:
+            await self.store.update(case_action_id, status="pending_approval", approved_by=None, approved_at=None)
+            raise
 
     async def reject(self, case_action_id: UUID, rejected_by: UUID, reason: str) -> dict[str, Any]:
         row = await self.store.get(case_action_id)
