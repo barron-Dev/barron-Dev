@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
-from sentinel.reports.models import ReportIR
+from cyclothone.reports.models import ReportIR
 
 
 def _stix_id(kind: str, key: str) -> str:
