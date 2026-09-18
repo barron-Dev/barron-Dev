@@ -5,7 +5,7 @@ import json
 import logging
 from typing import Any
 
-from sentinel.storage.supabase_client import supabase
+from cyclothone.storage.supabase_client import supabase
 
 logger = logging.getLogger(__name__)
 SEVERITY = {"medium": 0, "high": 1, "critical": 2}
