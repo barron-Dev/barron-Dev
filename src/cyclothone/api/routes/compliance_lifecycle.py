@@ -5,8 +5,8 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
-from sentinel.compliance.lifecycle import ComplianceLifecycle, ComplianceLifecycleError
-from sentinel.developer.auth import DeveloperPrincipal, authenticate_request
+from cyclothone.compliance.lifecycle import ComplianceLifecycle, ComplianceLifecycleError
+from cyclothone.developer.auth import DeveloperPrincipal, authenticate_request
 
 router = APIRouter(prefix="/compliance", tags=["compliance-lifecycle"])
 _lifecycle = ComplianceLifecycle()
