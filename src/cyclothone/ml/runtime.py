@@ -8,7 +8,7 @@ from typing import Any
 import numpy as np
 import onnxruntime as ort
 
-from sentinel.ml.features import FEATURE_NAMES, extract
+from cyclothone.ml.features import FEATURE_NAMES, extract
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +21,7 @@ class OnnxModel:
         inputs = session.get_inputs()
         outputs = session.get_outputs()
         if len(inputs) != 1 or len(outputs) < 1:
-            raise ValueError("invalid Sentinel ONNX model interface")
+            raise ValueError("invalid Cyclothone ONNX model interface")
         self._input_name = inputs[0].name
         self._output_names = [output.name for output in outputs]
 
@@ -39,7 +39,7 @@ class OnnxModel:
         )
         shape = session.get_inputs()[0].shape
         if len(shape) != 2 or shape[1] not in (len(FEATURE_NAMES), "None"):
-            raise ValueError("ONNX input feature dimension does not match Sentinel schema")
+            raise ValueError("ONNX input feature dimension does not match Cyclothone schema")
         return cls(session, version, actual)
 
     async def predict_proba(self, event_type: str, payload: dict[str, Any]) -> float:
@@ -94,7 +94,7 @@ class ModelRegistry:
         self._cache.pop(tenant_id or "global", None)
 
     async def _load(self, tenant_id: str | None) -> OnnxModel | None:
-        from sentinel.storage.supabase_client import supabase
+        from cyclothone.storage.supabase_client import supabase
 
         async def _query():
             client = await supabase._ensure()
