@@ -41,28 +41,17 @@ async def ingest_event(
         }
     )
     event_sha = hashlib.sha256(
-        json.dumps(event_payload, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
+        json.dumps(
+            event_payload,
+            sort_keys=True,
+            separators=(",", ":"),
+            default=str,
+        ).encode("utf-8")
     ).hexdigest()
 
     async def persist():
         client = await supabase._ensure()
-        endpoint_result = await (
-            client.table("endpoint_events")
-            .upsert(
-                {
-                    "tenant_id": device.tenant_id,
-                    "device_id": device.device_id,
-                    "event_id": event.event_id,
-                    "schema_version": event.schema_version,
-                    "event_type": event.kind,
-                    "observed_at": event.observed_at.isoformat(),
-                    "payload": event.payload,
-                },
-                on_conflict="device_id,event_id",
-            )
-            .execute()
-        )
-        canonical_result = await (
+        return await (
             client.table("events")
             .upsert(
                 {
@@ -78,7 +67,6 @@ async def ingest_event(
             )
             .execute()
         )
-        return endpoint_result, canonical_result
 
     try:
         await supabase._retry(persist, attempts=2)
