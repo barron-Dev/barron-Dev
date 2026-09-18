@@ -78,6 +78,7 @@ async def ingest_event(
 
     if detection is not None:
         detection_payload = {
+            "id": str(uuid5(NAMESPACE_URL, f"ml:{canonical_id}")),
             "tenant_id": device.tenant_id,
             "device_id": device.device_id,
             "event_id": str(canonical_id),
