@@ -84,15 +84,17 @@ class SupabaseCommandDispatcher:
         client = await supabase._ensure()
         response = await (
             client.table("devices")
-            .select("id,tenant_id,agent_enabled,status")
+            .select("id,tenant_id,status,cert_fingerprint,certificate_not_before,certificate_not_after")
             .eq("id", str(device_id))
             .eq("tenant_id", str(tenant_id))
             .limit(1)
             .execute()
         )
         devices = response.data or []
-        if not devices or not devices[0].get("agent_enabled"):
-            raise CommandDispatchError("target device is not enabled")
+        if not devices or devices[0].get("status") != "active":
+            raise CommandDispatchError("target device is not active")
+        if not devices[0].get("cert_fingerprint"):
+            raise CommandDispatchError("target device has no mTLS identity")
         if devices[0].get("status") == "retired":
             raise CommandDispatchError("target device is retired")
 
