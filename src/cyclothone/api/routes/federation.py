@@ -7,12 +7,12 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
-from sentinel.developer.auth import DeveloperPrincipal, authenticate_request
-from sentinel.federation.anon import FederationAnonymizer
-from sentinel.federation.exchange import FederationExchange
-from sentinel.federation.reputation import FederationReputation
-from sentinel.federation.stix import bundle_from_indicators, canonical_ioc_hash, parse_stix_bundle
-from sentinel.storage.supabase_client import supabase
+from cyclothone.developer.auth import DeveloperPrincipal, authenticate_request
+from cyclothone.federation.anon import FederationAnonymizer
+from cyclothone.federation.exchange import FederationExchange
+from cyclothone.federation.reputation import FederationReputation
+from cyclothone.federation.stix import bundle_from_indicators, canonical_ioc_hash, parse_stix_bundle
+from cyclothone.storage.supabase_client import supabase
 
 router = APIRouter(prefix="/federation", tags=["threat-intelligence-federation"])
 _reputation = FederationReputation()
