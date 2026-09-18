@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable, Iterable
 
-from sentinel.recovery.vault import RecoveryVault
+from cyclothone.recovery.vault import RecoveryVault
 
 
 @dataclass(frozen=True)
