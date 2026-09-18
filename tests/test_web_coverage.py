@@ -1,6 +1,6 @@
 import pytest
 
-from sentinel.web.crawler import CRED_PAIR_RE, EMAIL_RE, URL_RE, WALLET_RE, WebCrawler
+from cyclothone.web.crawler import CRED_PAIR_RE, EMAIL_RE, URL_RE, WALLET_RE, WebCrawler
 from sentinel.web.orchestrator import WebIntelligenceOrchestrator
 
 
