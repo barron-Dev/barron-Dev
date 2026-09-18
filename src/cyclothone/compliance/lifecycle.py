@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID, uuid4
 
-from sentinel.storage.supabase_client import supabase
+from cyclothone.storage.supabase_client import supabase
 
 
 class ComplianceLifecycleError(ValueError):
@@ -101,8 +101,6 @@ class ComplianceLifecycle:
         async def _do():
             return await (await supabase._ensure()).table("compliance_controls").select("id").eq("id", str(control_id)).eq("framework", "soc2").limit(1).execute()
         if not ((await supabase._retry(_do, attempts=2)).data or []):
-            # Control UUIDs are globally unique; the framework check above only
-            # prevents accidental use of unrelated control rows in this workflow.
             async def _any():
                 return await (await supabase._ensure()).table("compliance_controls").select("id").eq("id", str(control_id)).limit(1).execute()
             if not ((await supabase._retry(_any, attempts=2)).data or []):
