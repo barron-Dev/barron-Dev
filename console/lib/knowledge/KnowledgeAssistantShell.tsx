@@ -1,7 +1,7 @@
 "use client";
 
 import { usePathname } from "next/navigation";
-import { Assistant } from "@/lib/knowledge/Assistant";
+import { Assistant } from "./Assistant";
 
 export function KnowledgeAssistantShell() {
   const pathname = usePathname();
