@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 from typing import Any, Awaitable, Callable
 from uuid import UUID
 
-from sentinel.storage.supabase_client import supabase
+from cyclothone.storage.supabase_client import supabase
 
 logger = logging.getLogger(__name__)
 Check = Callable[[UUID, datetime, datetime], Awaitable[tuple[str, float, dict[str, Any]]]]
