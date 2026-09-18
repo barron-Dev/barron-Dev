@@ -1,7 +1,7 @@
 from __future__ import annotations
 from datetime import UTC,datetime
 from uuid import UUID
-from sentinel.storage.supabase_client import supabase
+from cyclothone.storage.supabase_client import supabase
 PROVIDERS={'cloudflare':('abuse@cloudflare.com',None),'godaddy':('abuse@godaddy.com',None),'namecheap':('abuse@namecheap.com',None),'google':(None,'https://support.google.com/legal/troubleshooter/1114905'),'meta':(None,'https://www.facebook.com/help/contact/295309487309948'),'x':(None,'https://help.twitter.com/forms/impersonation'),'linkedin':(None,'https://www.linkedin.com/help/linkedin/ask/TS-RSI'),'tiktok':('impersonation@tiktok.com',None),'apple':(None,'https://www.apple.com/legal/internet-services/itunes/appstorenotices/')}
 class TakedownService:
     async def request_takedown(self,tenant_id:UUID,threat_id:UUID,provider:str,requested_by:UUID)->dict:
