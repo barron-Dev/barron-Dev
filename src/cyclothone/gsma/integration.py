@@ -48,5 +48,4 @@ class GSMAIntegration:
             c=await supabase._ensure()
             return await c.table("gsma_signals").insert({"tenant_id":str(self.tenant_id),"e164_hash":h,"signal_type":kind,
               "operator_id":op,"result":result,"confidence":confidence,"risk_delta":delta}).execute()
-        try: await supabase._retry(save,attempts=1)
-        except Exception: logger.debug("GSMA signal persistence failed")
+        await supabase._retry(save,attempts=1)
