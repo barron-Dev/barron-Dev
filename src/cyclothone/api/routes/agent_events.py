@@ -5,15 +5,15 @@ import json
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from sentinel.federation.promotion import (
+from cyclothone.federation.promotion import (
     FederationDetectionPromoter,
     canonical_event_uuid,
     extract_federation_observations,
 )
-from sentinel.ml.detector import server_detector
-from sentinel.models.events import EndpointEvent
-from sentinel.security.device_auth import DeviceIdentity, get_device
-from sentinel.storage.supabase_client import supabase
+from cyclothone.ml.detector import server_detector
+from cyclothone.models.events import EndpointEvent
+from cyclothone.security.device_auth import DeviceIdentity, get_device
+from cyclothone.storage.supabase_client import supabase
 
 router = APIRouter(prefix="/agent/events", tags=["agent-events"])
 _federation_promoter = FederationDetectionPromoter()
@@ -106,7 +106,6 @@ async def ingest_event(
             )
             federation_detections = [str(item) for item in promoted]
         except Exception:
-            # Federation intelligence must never make endpoint ingestion fail.
             federation_detections = []
 
     return {
