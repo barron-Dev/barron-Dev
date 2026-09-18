@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import { KnowledgeAssistantShell } from "@/lib/knowledge/KnowledgeAssistantShell";
+import { KnowledgeAssistantShell } from "../lib/knowledge/KnowledgeAssistantShell";
 
 export const metadata: Metadata = {
   title: "Cyclothone",
