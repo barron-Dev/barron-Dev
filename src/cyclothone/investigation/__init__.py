@@ -1,5 +1,5 @@
-from sentinel.investigation.models import InvestigationEvidence, InvestigationRequest
-from sentinel.investigation.service import AuthorizedForensicsProvider, InvestigationControlPlane
+from cyclothone.investigation.models import InvestigationEvidence, InvestigationRequest
+from cyclothone.investigation.service import AuthorizedForensicsProvider, InvestigationControlPlane
 
 __all__ = [
     "AuthorizedForensicsProvider",
