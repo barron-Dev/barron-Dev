@@ -3,8 +3,8 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
-from sentinel.developer.crypto import expires, hash_secret, new_client_credentials, new_token, verify_pkce
-from sentinel.storage.supabase_client import supabase
+from cyclothone.developer.crypto import expires, hash_secret, new_client_credentials, new_token, verify_pkce
+from cyclothone.storage.supabase_client import supabase
 
 
 async def create_client(app_id: str, public_client: bool = False) -> dict[str, str]:
@@ -36,7 +36,7 @@ async def create_authorization_code(client_id: str, user_id: str, redirect_uri: 
 
 async def exchange_authorization_code(code: str, client_id: str, redirect_uri: str, verifier: str) -> dict[str, Any]:
     row = await supabase.select_one("oauth_authorization_codes", "id,client_id,user_id,app_id,redirect_uri,scope,code_challenge,code_challenge_method,expires_at,consumed_at", code_hash=hash_secret(code))
-    if not row or row["client_id"] != client_id or row["redirect_uri"] != redirect_uri or row.get("consumed_at"):
+    if not row or str(row["client_id"]) != str(client_id) or row["redirect_uri"] != redirect_uri or row.get("consumed_at"):
         raise ValueError("invalid_grant")
     if datetime.fromisoformat(str(row["expires_at"]).replace("Z", "+00:00")) <= datetime.now(UTC) or row.get("code_challenge_method") != "S256" or not verify_pkce(verifier, row["code_challenge"], "S256"):
         raise ValueError("invalid_grant")
