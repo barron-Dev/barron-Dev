@@ -4,8 +4,8 @@ import secrets
 from datetime import UTC, datetime
 from typing import Any
 
-from sentinel.developer.crypto import hash_secret
-from sentinel.storage.supabase_client import supabase
+from cyclothone.developer.crypto import hash_secret
+from cyclothone.storage.supabase_client import supabase
 
 
 async def create_api_key(app_id: str, scopes: list[str], expires_at: str | None = None) -> dict[str, str]:
