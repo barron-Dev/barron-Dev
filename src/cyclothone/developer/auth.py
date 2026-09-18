@@ -6,9 +6,9 @@ from typing import Iterable
 
 from fastapi import Header, HTTPException
 
-from sentinel.developer.api_keys import authenticate_api_key
-from sentinel.developer.crypto import hash_secret
-from sentinel.storage.supabase_client import supabase
+from cyclothone.developer.api_keys import authenticate_api_key
+from cyclothone.developer.crypto import hash_secret
+from cyclothone.storage.supabase_client import supabase
 
 
 @dataclass(frozen=True, slots=True)
