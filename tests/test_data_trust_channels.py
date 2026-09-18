@@ -1,9 +1,9 @@
 from datetime import UTC, datetime
 from uuid import uuid4
 
-from sentinel.data_trust.channels import normalize_destination, normalize_source
-from sentinel.data_trust.contract import transfer_wire_request
-from sentinel.data_trust.models import TransferRequest
+from cyclothone.data_trust.channels import normalize_destination, normalize_source
+from cyclothone.data_trust.contract import transfer_wire_request
+from cyclothone.data_trust.models import TransferRequest
 
 
 def _request(destination: str) -> TransferRequest:
