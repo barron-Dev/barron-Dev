@@ -6,8 +6,8 @@ from uuid import uuid4
 import pytest
 from fastapi import HTTPException
 
-from sentinel.routing.region_router import RegionCache, current_region_code, enforce_device_region
-from sentinel.security.device_auth import DeviceIdentity
+from cyclothone.routing.region_router import RegionCache, current_region_code, enforce_device_region
+from cyclothone.security.device_auth import DeviceIdentity
 
 
 @pytest.mark.asyncio
@@ -18,13 +18,13 @@ async def test_region_cache_loads_active_regions():
         {
             "code": "ae-1",
             "name": "UAE Dubai",
-            "api_base_url": "https://api.ae-1.sentinel.security",
-            "sandbox_base_url": "https://sandbox.ae-1.sentinel.security",
+            "api_base_url": "https://api.ae-1.cyclothone.security",
+            "sandbox_base_url": "https://sandbox.ae-1.cyclothone.security",
             "sovereignty_tier": "sovereign",
             "compliance": {"uae_pdpl": True},
         }
     ]
-    with patch("sentinel.routing.region_router.supabase._retry", new=AsyncMock(return_value=response)):
+    with patch("cyclothone.routing.region_router.supabase._retry", new=AsyncMock(return_value=response)):
         await cache.load(force=True)
 
     assert cache.get("ae-1") is not None
@@ -46,9 +46,9 @@ async def test_matching_region_is_allowed(monkeypatch):
     device = DeviceIdentity(str(uuid4()), str(uuid4()), "cert")
 
     with (
-        patch("sentinel.routing.region_router.region_cache.load", new=AsyncMock()),
-        patch("sentinel.routing.region_router.region_cache.get", return_value=object()),
-        patch("sentinel.routing.region_router.tenant_home_region", new=AsyncMock(return_value="ae-1")),
+        patch("cyclothone.routing.region_router.region_cache.load", new=AsyncMock()),
+        patch("cyclothone.routing.region_router.region_cache.get", return_value=object()),
+        patch("cyclothone.routing.region_router.tenant_home_region", new=AsyncMock(return_value="ae-1")),
     ):
         assert await enforce_device_region(None, device) == device
 
@@ -58,11 +58,11 @@ async def test_wrong_region_returns_421_without_proxying_data(monkeypatch):
     monkeypatch.setenv("SENTINEL_REGION", "ae-1")
     device = DeviceIdentity(str(uuid4()), str(uuid4()), "cert")
 
-    target = type("Region", (), {"api_base_url": "https://api.za-1.sentinel.security"})()
+    target = type("Region", (), {"api_base_url": "https://api.za-1.cyclothone.security"})()
     with (
-        patch("sentinel.routing.region_router.region_cache.load", new=AsyncMock()),
-        patch("sentinel.routing.region_router.region_cache.get", return_value=target),
-        patch("sentinel.routing.region_router.tenant_home_region", new=AsyncMock(return_value="za-1")),
+        patch("cyclothone.routing.region_router.region_cache.load", new=AsyncMock()),
+        patch("cyclothone.routing.region_router.region_cache.get", return_value=target),
+        patch("cyclothone.routing.region_router.tenant_home_region", new=AsyncMock(return_value="za-1")),
     ):
         with pytest.raises(HTTPException) as exc:
             await enforce_device_region(None, device)
