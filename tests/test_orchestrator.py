@@ -3,7 +3,7 @@ from uuid import uuid4
 
 import pytest
 
-from sentinel.response.orchestrator import ACTION_CLASS, ActionClass, ActionPlan, ResponseOrchestrator
+from cyclothone.response.orchestrator import ACTION_CLASS, ActionClass, ActionPlan, ResponseOrchestrator
 
 
 class FakeStore:
