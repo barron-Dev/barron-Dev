@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from sentinel.hunting.lexer import Token, Tok, tokenize
+from cyclothone.hunting.lexer import Token, Tok, tokenize
 
 
 @dataclass(frozen=True, slots=True)
