@@ -1,6 +1,6 @@
-from sentinel.compliance.catalog import CONTROLS, FRAMEWORKS
-from sentinel.compliance.evaluator import ComplianceEvaluator
-from sentinel.compliance.pack import EvidencePackBuilder
-from sentinel.compliance.service import ComplianceError, ComplianceService
+from cyclothone.compliance.catalog import CONTROLS, FRAMEWORKS
+from cyclothone.compliance.evaluator import ComplianceEvaluator
+from cyclothone.compliance.pack import EvidencePackBuilder
+from cyclothone.compliance.service import ComplianceError, ComplianceService
 
 __all__ = ["CONTROLS", "FRAMEWORKS", "ComplianceError", "ComplianceEvaluator", "ComplianceService", "EvidencePackBuilder"]
