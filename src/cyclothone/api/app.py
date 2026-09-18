@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
-from fastapi import Depends, FastAPI
+from fastapi import FastAPI
 from cyclothone.api.routes.agent_events import router as agent_events_router
 from cyclothone.api.routes.agent_commands import router as agent_commands_router
 from cyclothone.api.routes.agent_enrollment import router as agent_enrollment_router
@@ -30,7 +30,7 @@ from cyclothone.darkweb.scheduler import DarkWebScheduler
 from cyclothone.brand.scheduler import BrandScheduler
 from cyclothone.federation.scheduler import FederationScheduler
 from cyclothone.physical.scheduler import PhysicalScheduler
-from cyclothone.routing.region_router import current_region_code,enforce_device_region,region_cache
+from cyclothone.routing.region_router import current_region_code,region_cache
 from cyclothone.web.scheduler import WebIntelligenceScheduler
 
 @asynccontextmanager
