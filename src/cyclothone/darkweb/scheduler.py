@@ -62,10 +62,12 @@ class DarkWebScheduler:
                 pass
 
     async def _global_tick(self) -> None:
+        enabled = await self._enabled_sources()
         for pull in (RansomwatchPuller(), PastePublicMonitor()):
-            await self._run_pull(pull.SOURCE, pull.pull)
+            if pull.SOURCE in enabled:
+                await self._run_pull(pull.SOURCE, pull.pull)
         channels = [x.strip() for x in os.getenv("SENTINEL_DW_TELEGRAM_CHANNELS", "").split(",") if x.strip()]
-        if channels:
+        if channels and "telegram_public" in enabled:
             monitor = TelegramPublicMonitor(channels)
             await self._run_pull(monitor.SOURCE, monitor.pull)
 
@@ -73,11 +75,12 @@ class DarkWebScheduler:
         domains = await self._tenant_domains()
         hibp_key = os.getenv("SENTINEL_HIBP_KEY", "").strip()
         github_token = os.getenv("SENTINEL_GITHUB_TOKEN", "").strip()
+        enabled = await self._enabled_sources()
         for domain in domains:
-            if hibp_key:
+            if hibp_key and "hibp" in enabled:
                 puller = HIBPPuller(hibp_key)
                 await self._run_pull(puller.SOURCE, lambda p=puller, d=domain: p.pull_domain(d))
-            if github_token:
+            if github_token and "github_code" in enabled:
                 monitor = GitHubCodeMonitor(github_token)
                 await self._run_pull(monitor.SOURCE, lambda m=monitor, d=domain: m.pull_domain(d))
 
@@ -114,6 +117,16 @@ class DarkWebScheduler:
             errors += int(result.get("errors", 0))
         return {"matched": matched, "alerts": alerts, "errors": errors}
 
+    async def _enabled_sources(self) -> set[str]:
+        async def _do():
+            return await (await supabase._ensure()).table("dw_sources").select("id").eq("enabled", True).execute()
+        try:
+            rows = (await supabase._retry(_do, attempts=1)).data or []
+            return {str(row["id"]) for row in rows if row.get("id")}
+        except Exception:
+            logger.warning("dark web source configuration unavailable; failing closed", exc_info=True)
+            return set()
+
     async def _mark_source(self, source_id: str, status: str) -> None:
         async def _do():
             return await (await supabase._ensure()).table("dw_sources").update({
@@ -134,3 +147,4 @@ class DarkWebScheduler:
         except Exception:
             logger.debug("dark web domain watchlist unavailable", exc_info=True)
             return []
+}
