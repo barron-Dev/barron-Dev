@@ -5,7 +5,7 @@ use reqwest::{Certificate, Identity};
 use serde::Deserialize;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use std::{collections::BTreeMap, path::{Path, PathBuf}, time::Duration};
+use std::{collections::BTreeMap, path::{Path, PathBuf}, time::Duration, net::ToSocketAddrs};
 use tracing::warn;
 
 #[derive(Debug, Clone, Deserialize)]
@@ -37,6 +37,8 @@ pub struct CommandWorker {
     client: reqwest::Client,
     poll_secs: u64,
     state_dir: PathBuf,
+    management_host: String,
+    management_port: u16,
 }
 
 impl CommandWorker {
@@ -49,6 +51,10 @@ impl CommandWorker {
         identity_pem.extend_from_slice(&key);
         let identity = Identity::from_pem(&identity_pem).context("build mTLS identity")?;
         let ca = Certificate::from_pem(&ca).context("parse CA certificate")?;
+        let parsed_api = reqwest::Url::parse(&config.api_url).context("invalid agent API URL")?;
+        let management_host = parsed_api.host_str().context("agent API URL has no host")?.to_string();
+        let management_port = parsed_api.port_or_known_default().unwrap_or(443);
+
         let client = reqwest::Client::builder()
             .identity(identity).add_root_certificate(ca).timeout(Duration::from_secs(30))
             .user_agent("cyclothone-agent/command-runtime").build()?;
@@ -72,6 +78,8 @@ impl CommandWorker {
             client,
             poll_secs: config.command_poll_secs,
             state_dir: config.state_dir.clone(),
+            management_host,
+            management_port,
         })
     }
 
@@ -131,7 +139,7 @@ impl CommandWorker {
         self.verifier.verify(digest.as_bytes(), &signature)
             .map_err(|_| anyhow!("command signature verification failed"))?;
 
-        execute(&command.action, &command.args, &self.state_dir).await
+        execute(&command.action, &command.args, &self.state_dir, &self.management_host, self.management_port).await
     }
 }
 
@@ -165,14 +173,14 @@ fn expired(value: &str) -> Result<bool> {
     Ok(parsed.with_timezone(&chrono::Utc) <= chrono::Utc::now())
 }
 
-async fn execute(action: &str, args: &Value, state_dir: &Path) -> Result<Value> {
+async fn execute(action: &str, args: &Value, state_dir: &Path, management_host: &str, management_port: u16) -> Result<Value> {
     match action {
         "kill_process" => kill_process(args).await,
         "block_ip" => block_ip(args).await,
         "unblock_ip" => unblock_ip(args).await,
         "quarantine_file" => quarantine_file(args, state_dir).await,
         "restore_file" => restore_file(args, state_dir).await,
-        "isolate_host" => isolate_host(args, state_dir).await,
+        "isolate_host" => isolate_host(args, state_dir, management_host, management_port).await,
         "release_host" => release_host(args, state_dir).await,
         // A hash alone does not identify a local file on Windows. Executing an
         // unverified hash-only block would create a false security guarantee.
@@ -299,14 +307,13 @@ async fn restore_file(args: &Value, state_dir: &Path) -> Result<Value> {
     Ok(serde_json::json!({"action":"restore_file","original":original,"restored":true}))
 }
 
-async fn isolate_host(_args: &Value, state_dir: &Path) -> Result<Value> {
+async fn isolate_host(_args: &Value, state_dir: &Path, management_host: &str, management_port: u16) -> Result<Value> {
     #[cfg(windows)]
     {
         let marker = state_dir.join("isolation.json");
-        let api_host = std::env::var("CYCLOTHONE_API_HOST").unwrap_or_default();
-        anyhow::ensure!(!api_host.trim().is_empty(), "CYCLOTHONE_API_HOST is required for recoverable isolation");
-        let port = std::env::var("CYCLOTHONE_API_PORT").unwrap_or_else(|_| "443".into());
-        let addresses: Vec<String> = (api_host.as_str(), port.parse::<u16>().unwrap_or(443))
+        let api_host = management_host;
+        let port = management_port.to_string();
+        let addresses: Vec<String> = (api_host, management_port)
             .to_socket_addrs().map_err(|e| anyhow!("resolve management API: {e}"))?
             .map(|x| x.ip().to_string()).collect();
         anyhow::ensure!(!addresses.is_empty(), "management API did not resolve");
