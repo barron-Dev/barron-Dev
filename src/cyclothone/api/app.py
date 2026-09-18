@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
-from fastapi import Depends, FastAPI
+from fastapi import FastAPI
 from cyclothone.api.routes.agent_events import router as agent_events_router
 from cyclothone.api.routes.agent_commands import router as agent_commands_router
 from cyclothone.api.routes.agent_enrollment import router as agent_enrollment_router
@@ -30,7 +30,7 @@ from cyclothone.darkweb.scheduler import DarkWebScheduler
 from cyclothone.brand.scheduler import BrandScheduler
 from cyclothone.federation.scheduler import FederationScheduler
 from cyclothone.physical.scheduler import PhysicalScheduler
-from cyclothone.routing.region_router import current_region_code,enforce_device_region,region_cache
+from cyclothone.routing.region_router import current_region_code,region_cache
 from cyclothone.web.scheduler import WebIntelligenceScheduler
 
 @asynccontextmanager
@@ -49,7 +49,7 @@ def create_app()->FastAPI:
     @application.get('/health',include_in_schema=False)
     async def health():
         return {'status':'ok'}
-    application.include_router(agent_enrollment_router,prefix='/api/v1',dependencies=[Depends(enforce_device_region)]);application.include_router(agent_model_router,prefix='/api/v1',dependencies=[Depends(enforce_device_region)]);application.include_router(agent_events_router,prefix='/api/v1',dependencies=[Depends(enforce_device_region)]);application.include_router(agent_commands_router,prefix='/api/v1',dependencies=[Depends(enforce_device_region)])
+    # Enrollment is the pre-mTLS bootstrap path; no device identity exists yet.\n    application.include_router(agent_enrollment_router,prefix='/api/v1');application.include_router(agent_model_router,prefix='/api/v1',dependencies=[Depends(enforce_device_region)]);application.include_router(agent_events_router,prefix='/api/v1',dependencies=[Depends(enforce_device_region)]);application.include_router(agent_commands_router,prefix='/api/v1',dependencies=[Depends(enforce_device_region)])
     application.include_router(investigation_router,prefix='/api/v1');application.include_router(deception_router,prefix='/api/v1');application.include_router(data_trust_router,prefix='/api/v1');application.include_router(data_trust_channels_router,prefix='/api/v1');application.include_router(ai_gateway_router,prefix='/api/v1',tags=['ai-security']);application.include_router(hunts_router,prefix='/api/v1',tags=['hunting']);application.include_router(compliance_router,prefix='/api/v1');application.include_router(compliance_lifecycle_router,prefix='/api/v1');application.include_router(auditor_portal_router,prefix='/api/v1');application.include_router(trust_center_router,prefix='/api/v1');application.include_router(trust_center_public_router,prefix='/api/v1');application.include_router(vendor_risk_router,prefix='/api/v1');application.include_router(darkweb_router,prefix='/api/v1');application.include_router(web_intel_router,prefix='/api/v1');application.include_router(brand_router,prefix='/api/v1');application.include_router(federation_router,prefix='/api/v1');application.include_router(physical_router,prefix='/api/v1');application.include_router(console_router,prefix='/api/v1');application.include_router(response_router,prefix='/api/v1')
     return application
 
