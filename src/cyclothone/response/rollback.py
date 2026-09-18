@@ -112,16 +112,18 @@ class RollbackService:
             raise RollbackError("case_action has no device_id")
         device_id = UUID(str(raw_device_id))
 
-        rollback_action_id = await self.store.create(
-            tenant_id=str(tenant_id),
-            case_id=str(row["case_id"]),
-            device_id=str(device_id),
-            action=inverse.action,
-            args=inverse.args,
-            status="approved",
-            issued_by=f"rollback:{actor}",
-            rollback_case_action_id=str(case_action_id),
-        )
+        rollback_values = {
+            "tenant_id": str(tenant_id),
+            "device_id": str(device_id),
+            "action": inverse.action,
+            "args": inverse.args,
+            "status": "approved",
+            "issued_by": f"rollback:{actor}",
+            "rollback_case_action_id": str(case_action_id),
+        }
+        if row.get("case_id"):
+            rollback_values["case_id"] = str(row["case_id"])
+        rollback_action_id = await self.store.create(**rollback_values)
         try:
             command = await self.dispatcher.issue(
                 tenant_id=tenant_id,
