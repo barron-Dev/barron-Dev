@@ -4,8 +4,8 @@ import asyncio
 import logging
 from uuid import UUID
 
-from sentinel.federation.exchange import FederationExchange
-from sentinel.storage.supabase_client import supabase
+from cyclothone.federation.exchange import FederationExchange
+from cyclothone.storage.supabase_client import supabase
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +29,7 @@ class FederationScheduler:
     def start(self) -> None:
         if self._task is None or self._task.done():
             self._stop.clear()
-            self._task = asyncio.create_task(self._loop(), name="sentinel-federation")
+            self._task = asyncio.create_task(self._loop(), name="cyclothone-federation")
 
     async def stop(self) -> None:
         self._stop.set()
