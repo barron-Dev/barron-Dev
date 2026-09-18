@@ -6,15 +6,15 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
-from sentinel.darkweb.matcher import DarkWebMatcher
-from sentinel.storage.supabase_client import supabase
-from sentinel.web.crawler import WebCrawler, WebPage
+from cyclothone.darkweb.matcher import DarkWebMatcher
+from cyclothone.storage.supabase_client import supabase
+from cyclothone.web.crawler import WebCrawler, WebPage
 
 logger = logging.getLogger(__name__)
 
 
 class WebIntelligenceOrchestrator:
-    """Unifies surface, deep and dark collection with Sentinel's exposure pipeline."""
+    """Unifies surface, deep and dark collection with Cyclothone's exposure pipeline."""
 
     def __init__(self) -> None:
         self.crawler = WebCrawler(tor_proxy=os.getenv("SENTINEL_TOR_PROXY"))
@@ -122,7 +122,7 @@ class WebIntelligenceOrchestrator:
 
     async def _touch_target(self, target_id: str, status: str) -> None:
         async def _do():
-            return await (await supabase._ensure()).table("web_crawl_targets").update({"last_crawl_at": datetime.now(UTC).isoformat(), "last_status": status[:200]}).eq("id", target_id).execute()
+            return await supabase._retry if False else await (await supabase._ensure()).table("web_crawl_targets").update({"last_crawl_at": datetime.now(UTC).isoformat(), "last_status": status[:200]}).eq("id", target_id).execute()
         try:
             await supabase._retry(_do, attempts=1)
         except Exception:
