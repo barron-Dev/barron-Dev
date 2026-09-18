@@ -22,12 +22,9 @@ public final class FusionTopology {
   }
   if(merged==null)throw new IllegalArgumentException("inputTopics required");
   TimeWindows windows=TimeWindows.ofSizeAndGrace(Duration.ofSeconds(30),Duration.ofSeconds(10));
-  KTable<Windowed<String>,FusionAccumulator> table=merged.selectKey((k,v)->v.correlationKey())
-   .groupByKey(Grouped.with(Serdes.String(),es)).windowedBy(windows)
+  KTable<Windowed<String>,FusionAccumulator> table=merged.selectKey((k,v)->v.correlationKey()).groupByKey(Grouped.with(Serdes.String(),es)).windowedBy(windows)
    .aggregate(FusionAccumulator::new,(key,e,a)->a.add(e),Materialized.with(Serdes.String(),new JsonSerde<>(FusionAccumulator.class)));
-  table.toStream().filter((w,a)->a!=null&&!a.eventIds.isEmpty())
-   .map((w,a)->KeyValue.pair(w.key(),a.toDetection(w.key(),w.window().startTime().toInstant())))
-   .to(outputTopic,Produced.with(Serdes.String(),fs));
+  table.toStream().filter((w,a)->a!=null&&!a.eventIds.isEmpty()).map((w,a)->KeyValue.pair(w.key(),a.toDetection(w.key(),w.window().startTime().toInstant()))).to(outputTopic,Produced.with(Serdes.String(),fs));
   return builder.build();
  }
  public static Topology build(StreamsBuilder b,String[] i,String o){return build(b,i,o,"stream.dlq");}
@@ -42,9 +39,6 @@ public final class FusionTopology {
    lastEventTime=lastEventTime==null||e.eventTime().isAfter(lastEventTime)?e.eventTime():lastEventTime;
    maxScore=Math.max(maxScore,e.score()); return this;
   }
-  public FusedDetection toDetection(String key,Instant ws){
-   String sev=maxScore>=.85?"critical":maxScore>=.65?"high":maxScore>=.40?"medium":"low";
-   return new FusedDetection(tenantId,region,key,firstEventTime==null?ws:firstEventTime,lastEventTime==null?ws:lastEventTime,maxScore,sev,Set.copyOf(eventIds),eventIds.size());
-  }
+  public FusedDetection toDetection(String key,Instant ws){String sev=maxScore>=.85?"critical":maxScore>=.65?"high":maxScore>=.40?"medium":"low";return new FusedDetection(tenantId,region,key,firstEventTime==null?ws:firstEventTime,lastEventTime==null?ws:lastEventTime,maxScore,sev,Set.copyOf(eventIds),eventIds.size());}
  }
 }
