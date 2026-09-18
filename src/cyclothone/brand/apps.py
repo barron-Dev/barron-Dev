@@ -1,7 +1,7 @@
 from __future__ import annotations
 import httpx,re
-from sentinel.brand.similarity import combined_similarity
-from sentinel.storage.supabase_client import supabase
+from cyclothone.brand.similarity import combined_similarity
+from cyclothone.storage.supabase_client import supabase
 class AppStoreMonitor:
     ITUNES='https://itunes.apple.com/search'
     async def scan_brand(self,brand):
@@ -18,7 +18,7 @@ class AppStoreMonitor:
                 name=app.get('trackName','');seller=app.get('sellerName','');sim=max(combined_similarity(name,base),combined_similarity(seller,base))
                 if sim<.6:continue
                 await self._record(brand,('ios:'+str(app.get('bundleId') or tid)),app.get('trackViewUrl'), 'ios',sim, 'critical' if sim>=.85 else 'high',{'name':name,'seller':seller});stats['threats']+=1
-            try:r=await c.get('https://play.google.com/store/search',params={'q':base,'c':'apps'},headers={'user-agent':'SentinelBrand/1.0'});text=r.text if r.status_code==200 else ''
+            try:r=await c.get('https://play.google.com/store/search',params={'q':base,'c':'apps'},headers={'user-agent':'CyclothoneBrand/1.0'});text=r.text if r.status_code==200 else ''
             except Exception:text=''
             for pkg in list(set(re.findall(r'id=(com\.[A-Za-z0-9_.]{3,120})',text)))[:100]:
                 stats['checked']+=1;sim=combined_similarity(pkg.split('.')[-1],base)
