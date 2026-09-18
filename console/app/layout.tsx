@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Sentinel Console",
-  description: "Sentinel security operations console",
+  title: "Cyclothone",
+  description: "Cyclothone security operations platform",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
