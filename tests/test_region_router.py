@@ -32,17 +32,17 @@ async def test_region_cache_loads_active_regions():
 
 
 def test_current_region_requires_explicit_deployment_identity(monkeypatch):
-    monkeypatch.delenv("SENTINEL_REGION", raising=False)
-    with pytest.raises(RuntimeError, match="SENTINEL_REGION"):
+    monkeypatch.delenv("CYCLOTHONE_REGION", raising=False)
+    with pytest.raises(RuntimeError, match="CYCLOTHONE_REGION"):
         current_region_code()
 
-    monkeypatch.setenv("SENTINEL_REGION", "sg-1")
+    monkeypatch.setenv("CYCLOTHONE_REGION", "sg-1")
     assert current_region_code() == "sg-1"
 
 
 @pytest.mark.asyncio
 async def test_matching_region_is_allowed(monkeypatch):
-    monkeypatch.setenv("SENTINEL_REGION", "ae-1")
+    monkeypatch.setenv("CYCLOTHONE_REGION", "ae-1")
     device = DeviceIdentity(str(uuid4()), str(uuid4()), "cert")
 
     with (
@@ -55,7 +55,7 @@ async def test_matching_region_is_allowed(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_wrong_region_returns_421_without_proxying_data(monkeypatch):
-    monkeypatch.setenv("SENTINEL_REGION", "ae-1")
+    monkeypatch.setenv("CYCLOTHONE_REGION", "ae-1")
     device = DeviceIdentity(str(uuid4()), str(uuid4()), "cert")
 
     target = type("Region", (), {"api_base_url": "https://api.za-1.cyclothone.security"})()
