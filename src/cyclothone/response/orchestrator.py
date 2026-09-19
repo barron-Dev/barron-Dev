@@ -111,6 +111,7 @@ class ResponseOrchestrator:
                         expected_model_id=step.model_id,
                         expected_provider_id=step.provider_id,
                         twin=DigitalTwinService(tenant_id),
+                        consume_replay=not approval_required,
                     )
 
                 if blast_rule_id and device_id and not await self.store.blast_allowed(blast_rule_id, blast_limit, tenant_id=tenant_id, device_id=device_id):
@@ -130,6 +131,8 @@ class ResponseOrchestrator:
                         action=step.action, args=step.args, status="pending_approval",
                         issued_by=issued_by, initiated_by_rule=initiated_by_rule,
                         rollback_args=step.rollback,
+                        agent_envelope=step.agent_envelope.canonical() if step.agent_envelope else None,
+                        model_id=step.model_id, provider_id=step.provider_id, target=step.target,
                     )
                     queued.append(row_id)
                     continue
@@ -177,10 +180,28 @@ class ResponseOrchestrator:
             raise RuntimeError("blast radius exceeded")
         command = None
         try:
+            envelope_data = row.get("agent_envelope")
+            if not envelope_data:
+                raise RuntimeError("approved destructive action is missing its signed agent envelope")
+            envelope = AgentEnvelope(**envelope_data) if isinstance(envelope_data, dict) else None
+            if envelope is None:
+                raise RuntimeError("invalid persisted agent envelope")
+            if self.execution_gate is None:
+                raise RuntimeError("AI execution gate is required for destructive approval")
+            action_class = ACTION_CLASS.get(row["action"], ActionClass.MEDIUM)
+            if action_class in (ActionClass.MEDIUM, ActionClass.HIGH, ActionClass.CRITICAL):
+                await self.execution_gate.authorize(
+                    envelope=envelope,
+                    tenant_id=UUID(str(row["tenant_id"])),
+                    expected_model_id=str(row.get("model_id") or ""),
+                    expected_provider_id=str(row.get("provider_id") or ""),
+                    twin=__import__("cyclothone.twin.service", fromlist=["DigitalTwinService"]).DigitalTwinService(UUID(str(row["tenant_id"]))),
+                    consume_replay=True,
+                )
             command = await self.dispatcher.issue(
-            tenant_id=UUID(str(row["tenant_id"])), device_id=UUID(str(row["device_id"])) if row.get("device_id") else None,
-            action=row["action"], args=row.get("args") or {}, issued_by=f"approval:{approved_by}",
-        )
+                tenant_id=UUID(str(row["tenant_id"])), device_id=UUID(str(row["device_id"])) if row.get("device_id") else None,
+                action=row["action"], args=row.get("args") or {}, issued_by=f"approval:{approved_by}",
+            )
             await self.store.update(case_action_id, status="dispatched", command_id=command["id"], dispatched_at=datetime.now(timezone.utc).isoformat())
             if rule_id and device_id:
                 await self.store.record_blast(rule_id=rule_id, tenant_id=UUID(str(row["tenant_id"])), device_id=device_id, case_id=UUID(str(row["case_id"])))
