@@ -89,18 +89,35 @@ async def create_ai_session(
             detail="workforce AI session authority returned incomplete state",
         )
 
-    # Fetch only the newly-created session through its exact identity.
-    session = await supabase.select_one(
-        "ai_sessions",
-        "id,employee_id,tenant_id,expires_at",
-        id=str(session_id),
-    )
-    if not session:
-        # ai_sessions is private; the service client normally resolves the
-        # public schema. Fail closed rather than returning partial authority.
+    # Read the exact session from the private workforce schema.
+    try:
+        session_response = await (
+            result.schema("workforce")
+            .table("ai_sessions")
+            .select("id,employee_id,tenant_id,expires_at")
+            .eq("id", str(session_id))
+            .eq("employee_id", principal.employee_id)
+            .limit(1)
+            .execute()
+        )
+    except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="workforce AI session state unavailable",
+        ) from exc
+
+    sessions = session_response.data or []
+    if not sessions:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="workforce AI session state unavailable",
+        )
+
+    session = sessions[0]
+    if str(session["tenant_id"]) != str(request.tenant_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="workforce AI tenant mismatch",
         )
 
     return AISessionResponse(
