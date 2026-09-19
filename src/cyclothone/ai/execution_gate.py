@@ -32,6 +32,9 @@ class AgentEnvelope:
     signature_b64: str
     version: str = "1"
     binding_hash: str = ""
+    mission_id: str | None = None
+    mission_version: int | None = None
+    mission_hash: str | None = None
 
     def canonical(self) -> dict[str, Any]:
         return {"envelope_id": self.envelope_id, "tenant_id": str(self.tenant_id), "agent_id": str(self.agent_id), "model_id": self.model_id, "provider_id": self.provider_id, "tool_name": self.tool_name, "action": self.action, "args": self.args, "target": self.target, "issued_at": self.issued_at.isoformat(), "expires_at": self.expires_at.isoformat(), "version": self.version, "binding_hash": self.binding_hash}
@@ -73,6 +76,9 @@ class AgentExecutionGate:
         expected_model_id: str,
         expected_provider_id: str,
         twin: DigitalTwinService,
+        expected_mission_id: str | None = None,
+        expected_mission_version: int | None = None,
+        expected_mission_hash: str | None = None,
     ) -> dict[str, Any]:
         """Validate an envelope and simulate it without consuming replay state."""
         now = datetime.now(UTC)
@@ -84,6 +90,12 @@ class AgentExecutionGate:
             raise AgentExecutionDenied("model binding mismatch")
         if envelope.provider_id != expected_provider_id:
             raise AgentExecutionDenied("provider binding mismatch")
+        if (expected_mission_id, expected_mission_version, expected_mission_hash) != (envelope.mission_id, envelope.mission_version, envelope.mission_hash):
+            raise AgentExecutionDenied("mission binding mismatch")
+        if not envelope.mission_id or envelope.mission_version is None or not envelope.mission_hash:
+            raise AgentExecutionDenied("mission binding missing")
+        if len(envelope.mission_hash) != 64 or any(c not in "0123456789abcdef" for c in envelope.mission_hash):
+            raise AgentExecutionDenied("invalid mission hash")
         if not envelope.envelope_id or len(envelope.envelope_id) > 128:
             raise AgentExecutionDenied("invalid envelope id")
         if envelope.version != "1":
@@ -110,6 +122,9 @@ class AgentExecutionGate:
             "simulation_id": simulation["simulation_id"],
             "impact_score": simulation["impact_score"],
             "recommendation": simulation["recommendation"],
+            "mission_id": envelope.mission_id,
+            "mission_version": envelope.mission_version,
+            "mission_hash": envelope.mission_hash,
         }
 
     async def consume(self, *, envelope: AgentEnvelope, tenant_id: UUID) -> None:
