@@ -132,5 +132,5 @@ revoke all on function workforce.start_ai_turn_run(uuid,uuid,text,text,text)
 grant execute on function workforce.start_ai_turn_run(uuid,uuid,text,text,text)
   to service_role;
 
-comment on function workforce.start_ai_turn_run is
+comment on function workforce.start_ai_turn_run(uuid,uuid,text,text,text) is
 'Workforce run creation derives request fingerprint and exact execution identity server-side from the accepted turn and active execution binding.';
