@@ -169,3 +169,73 @@ async def test_envelope_issuer_rejects_undeclared_tool(monkeypatch):
                 action="isolate_host", args={}, target="device-1",
             )
         )
+
+
+@pytest.mark.asyncio
+async def test_envelope_issuer_requires_persisted_provider_authority(monkeypatch):
+    from cyclothone.ai.envelope_issuer import AIEnvelopeIssuer, EnvelopeIssueRequest, EnvelopeIssuanceDenied
+    from cyclothone.compliance.signing import ComplianceSignature
+
+    tenant_id = uuid4()
+    agent_id = uuid4()
+
+    async def select_one(table, columns, **filters):
+        if table == "ai_agents":
+            return {
+                "id": str(agent_id), "tenant_id": str(tenant_id), "model": "model-a",
+                "declared_tools": ["kill_process"], "status": "active",
+            }
+        raise AssertionError(f"unexpected table: {table}")
+
+    monkeypatch.setattr("cyclothone.ai.envelope_issuer.supabase.select_one", select_one)
+
+    class Binding:
+        async def resolve(self, **kwargs):
+            return None
+
+    issuer = AIEnvelopeIssuer(Binding())
+    with pytest.raises(EnvelopeIssuanceDenied, match="provider binding"):
+        await issuer.issue(EnvelopeIssueRequest(
+            tenant_id=tenant_id, agent_id=agent_id, model_id="model-a",
+            provider_id="provider-a", tool_name="kill_process", action="kill_process",
+            args={"pid": 7}, target="device-1",
+        ))
+
+
+@pytest.mark.asyncio
+async def test_envelope_issuer_signs_only_bound_agent(monkeypatch):
+    from cyclothone.ai.envelope_issuer import AIEnvelopeIssuer, EnvelopeIssueRequest
+    from cyclothone.compliance.signing import ComplianceSignature
+
+    tenant_id = uuid4()
+    agent_id = uuid4()
+
+    async def select_one(table, columns, **filters):
+        if table == "ai_agents":
+            return {
+                "id": str(agent_id), "tenant_id": str(tenant_id), "model": "model-a",
+                "declared_tools": ["kill_process"], "status": "active",
+            }
+        raise AssertionError(f"unexpected table: {table}")
+
+    monkeypatch.setattr("cyclothone.ai.envelope_issuer.supabase.select_one", select_one)
+    async def sign(digest):
+        assert len(digest) == 64
+        return ComplianceSignature(signature_b64="sig", kid="kid-1")
+    monkeypatch.setattr("cyclothone.ai.envelope_issuer.sign_digest", sign)
+
+    class Binding:
+        async def resolve(self, **kwargs):
+            return {"active": True, "binding_hash": "a" * 64}
+
+    envelope = await AIEnvelopeIssuer(Binding()).issue(EnvelopeIssueRequest(
+        tenant_id=tenant_id, agent_id=agent_id, model_id="model-a",
+        provider_id="provider-a", tool_name="kill_process", action="kill_process",
+        args={"pid": 7}, target="device-1",
+    ))
+
+    assert envelope.tenant_id == tenant_id
+    assert envelope.agent_id == agent_id
+    assert envelope.signer_kid == "kid-1"
+    assert envelope.signature_b64 == "sig"
+    assert envelope.binding_hash == "a" * 64
