@@ -239,19 +239,8 @@ alter table public.ai_execution_replay enable row level security;
 revoke all on table public.ai_execution_provenance,public.ai_execution_replay
   from anon,authenticated;
 
-revoke all on function public.claim_ai_execution_envelope(uuid,text,text,timestamptz,uuid)
-  from public,anon,authenticated;
-revoke all on function public.ai_hash_execution_config(jsonb)
-  from public,anon,authenticated;
-revoke all on function public.ai_bind_execution_provenance(uuid,bigint,jsonb,text,integer,text,integer,text,text,integer,text,integer,text,integer,text,text,text,text,text,text,text,text,text)
-  from public,anon,authenticated;
-
-grant execute on function public.claim_ai_execution_envelope(uuid,text,text,timestamptz,uuid) to service_role;
-grant execute on function public.ai_hash_execution_config(jsonb) to service_role;
-grant execute on function public.ai_bind_execution_provenance(uuid,bigint,jsonb,text,integer,text,integer,text,text,integer,text,integer,text,integer,text,text,text,text,text,text,text,text) to service_role;
-
 comment on table public.ai_execution_provenance is
 'Exact per-run execution snapshot. It binds the run to versions/hashes of agent, mission, model, provider binding, tool, policy, playbook, twin, envelope and admission context.';
 
-comment on function public.claim_ai_execution_envelope is
+comment on function public.claim_ai_execution_envelope(uuid,text,text,timestamptz,uuid) is
 'Fail-closed replay claim: envelope identity is single-use per tenant and hash mismatches are rejected.';
