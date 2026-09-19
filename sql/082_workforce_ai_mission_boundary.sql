@@ -134,6 +134,20 @@ begin
     return;
   end if;
 
+  if not exists (
+    select 1
+      from public.ai_missions m
+     where m.id = p_mission_id
+       and m.tenant_id = p_tenant_id
+       and m.version = p_mission_version
+       and m.compiled_hash = p_mission_hash
+       and m.status = 'active'
+  ) then
+    return query select false, v_employee.id, v_assignment.id, null::uuid,
+      'ai_mission_version_not_active';
+    return;
+  end if;
+
   -- A terminated/suspended employee cannot retain an active AI session.
   update workforce.ai_sessions
      set status = 'revoked',
@@ -233,7 +247,17 @@ begin
      where employee_id = new.id
        and status = 'active';
 
-    perform workforce.revoke_employee_ai(new.id, 'employee_terminated');
+    update workforce.ai_sessions
+       set status = 'revoked',
+           revoked_at = coalesce(revoked_at, now())
+     where employee_id = new.id
+       and status = 'active';
+
+    update workforce.ai_mission_assignments
+       set status = 'revoked',
+           valid_until = least(coalesce(valid_until, now()), now())
+     where employee_id = new.id
+       and status = 'active';
 
     insert into workforce.offboarding_jobs (employee_id)
     values (new.id)
