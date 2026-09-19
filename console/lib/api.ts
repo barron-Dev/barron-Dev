@@ -314,3 +314,9 @@ export type CustomerCase = { id:string; organization_id:string; service_request_
 export function getCustomerCases(){ return apiFetch<{cases:CustomerCase[]}>("/api/v1/customer/cases"); }
 export function getCustomerCaseActivity(id:string){ return apiFetch<{activity:any[]}>(`/api/v1/customer/cases/${encodeURIComponent(id)}/activity`); }
 export function openCustomerCase(id:string,category:string,severity:string){ return apiFetch<{status:string;case_id:string}>(`/api/v1/customer/admissions/service-requests/${encodeURIComponent(id)}/open-case`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({category,severity})}); }
+
+export function getCustomerCaseDetail(id:string){ return apiFetch<any>(`/api/v1/customer/cases/${encodeURIComponent(id)}`); }
+export function addCustomerCaseActivity(id:string,message:string){ return apiFetch<any>(`/api/v1/customer/cases/${encodeURIComponent(id)}/activity`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({message})}); }
+export function transitionCustomerCase(id:string,status:string,reason?:string){ return apiFetch<any>(`/api/v1/customer/cases/${encodeURIComponent(id)}/transition`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({status,reason})}); }
+export function getOperatorCustomerCases(){ return apiFetch<any>("/api/v1/customer/operator/cases"); }
+export function assignCustomerCase(id:string,operator_user_id:string){ return apiFetch<any>(`/api/v1/customer/operator/cases/${encodeURIComponent(id)}/assign`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({operator_user_id})}); }
