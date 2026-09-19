@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { decideAdmission, getAdmissions, type AdmissionRecord } from "../../lib/api";
+import { decideAdmission, getAdmissions, setApiToken, type AdmissionRecord } from "../../../lib/api";
 
 const serviceLabels: Record<string,string> = {
   cybersecurity_assessment: "Cybersecurity Assessment",
@@ -54,6 +54,7 @@ export default function AdmissionQueue() {
   useEffect(() => {
     const t = sessionStorage.getItem("cyclothone_access_token") || "";
     setToken(t);
+    setApiToken(t);
     void load(t);
   }, []);
 
