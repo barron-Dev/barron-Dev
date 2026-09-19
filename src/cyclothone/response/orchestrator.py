@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -57,7 +59,7 @@ class ChainResult:
 
 
 class Dispatcher(Protocol):
-    async def issue(self, *, tenant_id: UUID, device_id: UUID | None, action: str, args: dict[str, Any], issued_by: str) -> dict[str, Any]: ...
+    async def issue(self, *, tenant_id: UUID, device_id: UUID | None, action: str, args: dict[str, Any], issued_by: str, case_action_id: UUID | None = None, execution_context: dict[str, Any] | None = None) -> dict[str, Any]: ...
 
 
 class ActionStore(Protocol):
@@ -74,6 +76,28 @@ class Signer(Protocol):
 
 class ResponseOrchestrator:
     """Single owner of case response execution and safety gates."""
+
+    @staticmethod
+    def _envelope_hash(envelope: AgentEnvelope | None) -> str | None:
+        if envelope is None:
+            return None
+        encoded = json.dumps(envelope.canonical(), sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
+
+    @classmethod
+    def _execution_context(cls, step: ActionPlan, case_action_id: str | None = None) -> dict[str, Any]:
+        args_encoded = json.dumps(step.args, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
+        return {
+            "case_action_id": case_action_id,
+            "agent_id": str(step.agent_envelope.agent_id) if step.agent_envelope else None,
+            "model_id": step.model_id,
+            "provider_id": step.provider_id,
+            "tool_name": step.agent_envelope.tool_name if step.agent_envelope else step.action,
+            "target": step.target,
+            "envelope_id": step.agent_envelope.envelope_id if step.agent_envelope else None,
+            "envelope_hash": cls._envelope_hash(step.agent_envelope),
+            "args_hash": hashlib.sha256(args_encoded).hexdigest(),
+        }
 
     def __init__(self, dispatcher: Dispatcher, store: ActionStore, signer: Signer | None = None, execution_gate: AgentExecutionGate | None = None) -> None:
         self.dispatcher = dispatcher
@@ -211,9 +235,21 @@ class ResponseOrchestrator:
                     envelope=envelope,
                     tenant_id=UUID(str(row["tenant_id"])),
                 )
+            execution_context = {
+                "case_action_id": str(case_action_id),
+                "agent_id": str(envelope.agent_id),
+                "model_id": envelope.model_id,
+                "provider_id": envelope.provider_id,
+                "tool_name": envelope.tool_name,
+                "target": envelope.target,
+                "envelope_id": envelope.envelope_id,
+                "envelope_hash": self._envelope_hash(envelope),
+                "args_hash": hashlib.sha256(json.dumps(row.get("args") or {}, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("utf-8")).hexdigest(),
+            }
             command = await self.dispatcher.issue(
                 tenant_id=UUID(str(row["tenant_id"])), device_id=UUID(str(row["device_id"])) if row.get("device_id") else None,
                 action=row["action"], args=row.get("args") or {}, issued_by=f"approval:{approved_by}",
+                case_action_id=case_action_id, execution_context=execution_context,
             )
             await self.store.update(case_action_id, status="dispatched", command_id=command["id"], dispatched_at=datetime.now(timezone.utc).isoformat())
             if rule_id and device_id:
@@ -237,6 +273,13 @@ class ResponseOrchestrator:
             tenant_id=tenant_id, case_id=case_id, device_id=device_id,
             action=step.action, args=step.args, status="approved", issued_by=issued_by,
             initiated_by_rule=rule_id, rollback_args=step.rollback,
+            ai_agent_id=str(step.agent_envelope.agent_id) if step.agent_envelope else None,
+            ai_model_id=step.model_id, ai_provider_id=step.provider_id,
+            ai_tool_name=step.agent_envelope.tool_name if step.agent_envelope else step.action,
+            ai_target=step.target,
+            ai_envelope_id=step.agent_envelope.envelope_id if step.agent_envelope else None,
+            ai_envelope_hash=self._envelope_hash(step.agent_envelope),
+            ai_args_hash=self._execution_context(step)["args_hash"],
         )
         if self.signer:
             signed = self.signer.sign({
@@ -244,6 +287,10 @@ class ResponseOrchestrator:
                 "ts": datetime.now(timezone.utc).isoformat(),
             })
             await self.store.update(row_id, signature=signed.signature_b64, signer_kid=signed.kid)
-        command = await self.dispatcher.issue(tenant_id=tenant_id, device_id=device_id, action=step.action, args=step.args, issued_by=issued_by)
+        command = await self.dispatcher.issue(
+            tenant_id=tenant_id, device_id=device_id, action=step.action, args=step.args,
+            issued_by=issued_by, case_action_id=UUID(row_id),
+            execution_context=self._execution_context(step, row_id),
+        )
         await self.store.update(UUID(row_id), status="dispatched", command_id=command["id"], dispatched_at=datetime.now(timezone.utc).isoformat())
         return row_id
