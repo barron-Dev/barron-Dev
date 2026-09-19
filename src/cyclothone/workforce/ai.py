@@ -90,3 +90,65 @@ async def admit_workforce_ai_turn(
         mission_hash=str(row["mission_hash"]),
         sequence_no=sequence_no,
     )
+
+
+async def complete_workforce_ai_turn(
+    principal: WorkforcePrincipal,
+    turn_id: UUID,
+    output_text: str,
+    outcome: str = "completed",
+) -> bool:
+    if not output_text:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="AI output is required")
+    if outcome not in {"completed", "rejected", "failed"}:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="invalid AI turn outcome")
+
+    output_hash = sha256(output_text.encode("utf-8")).hexdigest()
+    client = await supabase._ensure()
+
+    try:
+        result = await client.schema("workforce").rpc(
+            "complete_ai_turn",
+            {
+                "p_turn_id": str(turn_id),
+                "p_output_hash": output_hash,
+                "p_status": outcome,
+            },
+        ).execute()
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="workforce AI turn completion authority unavailable",
+        ) from exc
+
+    if result.data is not True:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="workforce AI turn completion denied",
+        )
+
+    # The database function verifies the employee attached to the turn is
+    # still active. The authenticated principal must also be the same employee.
+    try:
+        turn = await (
+            client.schema("workforce")
+            .table("ai_turns")
+            .select("employee_id")
+            .eq("id", str(turn_id))
+            .limit(1)
+            .execute()
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="workforce AI turn state unavailable",
+        ) from exc
+
+    rows = turn.data or []
+    if not rows or str(rows[0]["employee_id"]) != principal.employee_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="workforce principal mismatch",
+        )
+
+    return True
