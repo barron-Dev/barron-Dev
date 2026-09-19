@@ -171,3 +171,54 @@ async def verify_attestation(
     except Exception as exc:
         raise HTTPException(400, "trust_attestation_verification_rejected") from exc
     return {"attestation": result}
+
+
+class ComputeTrustStateRequest(BaseModel):
+    subject_id: str
+
+
+@router.get("/subjects/{subject_id}/state")
+async def get_trust_state(subject_id: str, principal: DeveloperPrincipal = Depends(_read)) -> dict:
+    subject = await supabase.select_one(
+        "trust_subjects", "id,tenant_id,subject_kind,external_ref,lifecycle_state",
+        id=subject_id, tenant_id=principal.tenant_id,
+    )
+    if not subject:
+        raise HTTPException(404, "trust_subject_not_found")
+    state = await supabase.select_one(
+        "trust_current_state",
+        "subject_id,tenant_id,state,assurance_level,state_hash,reason,computed_at",
+        subject_id=subject_id, tenant_id=principal.tenant_id,
+    )
+    return {"subject": subject, "state": state}
+
+
+@router.get("/subjects/{subject_id}/state/history")
+async def get_trust_state_history(subject_id: str, principal: DeveloperPrincipal = Depends(_read)) -> dict:
+    subject = await supabase.select_one(
+        "trust_subjects", "id,tenant_id",
+        id=subject_id, tenant_id=principal.tenant_id,
+    )
+    if not subject:
+        raise HTTPException(404, "trust_subject_not_found")
+    rows = await supabase.select(
+        "trust_state_snapshots",
+        "id,subject_id,state,assurance_level,measurement_count,valid_measurement_count,evidence_count,valid_evidence_count,verified_attestation_count,latest_measurement_at,latest_evidence_at,latest_attestation_at,state_reason,state_hash,computed_at",
+        subject_id=subject_id, tenant_id=principal.tenant_id,
+    )
+    return {"history": rows}
+
+
+@router.post("/subjects/{subject_id}/state/compute")
+async def compute_trust_state(subject_id: str, principal: DeveloperPrincipal = Depends(_write)) -> dict:
+    subject = await supabase.select_one(
+        "trust_subjects", "id,tenant_id",
+        id=subject_id, tenant_id=principal.tenant_id,
+    )
+    if not subject:
+        raise HTTPException(404, "trust_subject_not_found")
+    try:
+        state = await supabase.rpc("trust_compute_state", {"p_subject_id": subject_id})
+    except Exception as exc:
+        raise HTTPException(400, "trust_state_computation_rejected") from exc
+    return {"state": state}
