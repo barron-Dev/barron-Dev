@@ -97,6 +97,17 @@ async def execute_openai_run(
     try:
         data = await asyncio.to_thread(_openai_request, model_id=model_id, input_text=input_text)
         result = _parse_response(data, latency_ms=int((monotonic() - started) * 1000))
+        await client.rpc(
+            "ai_record_provider_usage",
+            {
+                "p_run_id": str(run_id),
+                "p_tokens_in": result.tokens_in,
+                "p_tokens_out": result.tokens_out,
+                "p_tokens_cached": result.tokens_cached,
+                "p_latency_ms": result.latency_ms,
+                "p_cost_usd": str(result.cost_usd),
+            },
+        ).execute()
         await complete_response_execution(
             run_id=run_id, outcome="COMPLETED",
             actual_cost_usd=result.cost_usd, actor=actor,
