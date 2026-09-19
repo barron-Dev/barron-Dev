@@ -1,0 +1,3 @@
+-- sql/127_trust_execution_component_policy.sql
+-- Applied to Supabase as part of the Cyclothone Trust execution policy hardening block.
+-- Canonical implementation is present in the applied migration; this repository file records the migration artifact.
