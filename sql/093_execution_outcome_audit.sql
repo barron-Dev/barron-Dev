@@ -19,14 +19,14 @@ returns trigger
 language plpgsql
 security definer
 set search_path = public,pg_catalog
-as $
+as $$
 begin
   if tg_op <> 'INSERT' then
     raise exception 'execution_outcome_immutable';
   end if;
   return new;
 end;
-$;
+$$;
 
 create trigger trg_ai_execution_outcomes_immutable
 before update or delete on public.ai_execution_outcomes
