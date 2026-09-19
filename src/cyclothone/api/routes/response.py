@@ -97,6 +97,15 @@ async def run_playbook(
     if not case:
         raise HTTPException(404, {"error": "case_not_found"})
 
+    playbook = await supabase.select_one(
+        "playbooks", "id,tenant_id,enabled",
+        id=str(playbook_id), tenant_id=principal.tenant_id,
+    )
+    if not playbook:
+        raise HTTPException(404, {"error": "playbook_not_found"})
+    if not playbook.get("enabled"):
+        raise HTTPException(409, {"error": "playbook_disabled"})
+
     device_id = body.device_id or (UUID(str(case["device_id"])) if case.get("device_id") else None)
     try:
         return await _runner().run(
