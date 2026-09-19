@@ -82,3 +82,34 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
 export function getOverview() {
   return apiFetch<ConsoleOverview>("/api/v1/console/overview");
 }
+
+export type ModelRouteRequest = {
+  workload_layer: string;
+  risk_level: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+  required_capabilities?: string[];
+  mission_id?: string;
+  mission_version?: number;
+  mission_hash?: string;
+};
+
+export type ModelRoute = {
+  route_id: string;
+  route_name: string;
+  workload_layer: string;
+  model_id: string;
+  model_version: number;
+  provider_id: string;
+  priority: number;
+  max_risk_level: string;
+  capabilities: string[];
+  constraints: Record<string, unknown>;
+  tenant_specific: boolean;
+};
+
+export function resolveModelRoute(body: ModelRouteRequest) {
+  return apiFetch<ModelRoute>("/api/v1/ai/route", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
