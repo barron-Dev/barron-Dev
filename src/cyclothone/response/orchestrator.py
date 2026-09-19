@@ -12,7 +12,12 @@ from uuid import UUID
 
 from cyclothone.ai.envelope_issuer import AIEnvelopeIssuer, EnvelopeIssueRequest
 from cyclothone.ai.execution_gate import AgentEnvelope, AgentExecutionGate
-from cyclothone.response.execution_authority import authorize_response_execution, create_response_execution_approval, response_action_hash
+from cyclothone.response.execution_authority import (
+    authorize_response_execution,
+    complete_response_execution,
+    create_response_execution_approval,
+    response_action_hash,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -126,6 +131,14 @@ class ResponseOrchestrator:
         self.execution_gate = execution_gate
         self.envelope_issuer = envelope_issuer
         self.execution_authorizer = execution_authorizer
+
+    async def _fail_committed_execution(self, run_id: UUID, reason: str, actor: str) -> None:
+        await complete_response_execution(
+            run_id=run_id,
+            outcome="FAILED",
+            error={"source": "response_dispatch", "reason": reason[:500]},
+            actor=actor,
+        )
 
     async def run_chain(
         self, *, tenant_id: UUID, case_id: UUID, device_id: UUID | None,
@@ -402,10 +415,18 @@ class ResponseOrchestrator:
                 "ts": datetime.now(timezone.utc).isoformat(),
             })
             await self.store.update(row_id, signature=signed.signature_b64, signer_kid=signed.kid)
-        command = await self.dispatcher.issue(
-            tenant_id=tenant_id, device_id=device_id, action=step.action, args=step.args,
-            issued_by=issued_by, case_action_id=UUID(row_id),
-            execution_context=self._execution_context(step, row_id),
-        )
+        try:
+            command = await self.dispatcher.issue(
+                tenant_id=tenant_id, device_id=device_id, action=step.action, args=step.args,
+                issued_by=issued_by, case_action_id=UUID(row_id),
+                execution_context=self._execution_context(step, row_id),
+            )
+        except Exception as exc:
+            try:
+                if step.run_id is not None:
+                    await self._fail_committed_execution(step.run_id, str(exc), f"dispatch:{issued_by}")
+            except Exception:
+                logger.exception("failed to finalize response execution after dispatch failure")
+            raise
         await self.store.update(UUID(row_id), status="dispatched", command_id=command["id"], dispatched_at=datetime.now(timezone.utc).isoformat())
         return row_id
