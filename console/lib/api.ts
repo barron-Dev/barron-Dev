@@ -113,3 +113,36 @@ export function resolveModelRoute(body: ModelRouteRequest) {
     body: JSON.stringify(body),
   });
 }
+
+export type AIRunStartRequest = ModelRouteRequest & {
+  mission_id: string;
+  mission_version: number;
+  mission_hash: string;
+  idempotency_token: string;
+  trace_id?: string;
+  correlation_id?: string;
+};
+
+export type AIRunStart = {
+  run_id: string;
+  tenant_id: string;
+  agent_id: string;
+  agent_version: number;
+  mission_id: string;
+  mission_version: number;
+  mission_hash: string;
+  model_id: string;
+  model_version: number;
+  provider_id: string;
+  provider_binding_version: number;
+  run_state: string;
+  request_fingerprint: string;
+};
+
+export function startAIRun(body: AIRunStartRequest) {
+  return apiFetch<AIRunStart>("/api/v1/ai/run", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
