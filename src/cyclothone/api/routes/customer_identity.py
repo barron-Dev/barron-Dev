@@ -125,6 +125,16 @@ async def transition_case(case_id: str, body: dict, p: DeveloperPrincipal=Depend
         raise
     return {"case_id":case_id,"status":new_status}
 
+@router.get("/customer/cases/{case_id}/actions")
+async def customer_case_actions(case_id: str, p: DeveloperPrincipal=Depends(principal)):
+    if not p.user_id: raise HTTPException(403,detail="user_identity_required")
+    link=await supabase.select_one("customer_case_links","organization_id",case_id=case_id)
+    if not link: raise HTTPException(404,detail="case_not_found")
+    member=await supabase.select_one("organization_members","organization_id,user_id,status",organization_id=link["organization_id"],user_id=p.user_id,status="active")
+    if not member: raise HTTPException(404,detail="case_not_found")
+    actions=await supabase.select("case_actions","id,case_id,action,args,status,created_at,updated_at,approved_at,dispatched_at,error",case_id=case_id)
+    return {"actions":actions}
+
 @router.get("/customer/cases/{case_id}/activity")
 async def customer_case_activity(case_id: str, p: DeveloperPrincipal=Depends(principal)):
     if not p.user_id: raise HTTPException(403,detail="user_identity_required")
