@@ -63,4 +63,4 @@ async def report_command_result(command_id: UUID, body: CommandResult,
             detail="command completion was not accepted",
         )
 
-    return roww
+    return row
