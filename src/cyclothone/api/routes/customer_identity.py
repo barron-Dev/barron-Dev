@@ -34,14 +34,40 @@ async def create_organization(body:OrgRequest,p:DeveloperPrincipal=Depends(princ
     row=await supabase.insert_one("customer_organizations",{"owner_user_id":p.user_id,"tenant_id":p.tenant_id,"organization_type":body.organization_type,"legal_name":body.legal_name.strip(),"country_code":body.country_code,"website_domain":body.website_domain,"registration_number":body.registration_number,"verification_status":"pending"})
     return row
 
+
+class VerificationRequest(BaseModel):
+    verification_type: str
+    provider: str|None=None
+    reference: str|None=None
+
+@router.get("/customer/organizations/{organization_id}/verification")
+async def verification_status(organization_id: str, p: DeveloperPrincipal=Depends(principal)):
+    org=await supabase.select_one("customer_organizations","id,verification_status",id=organization_id,tenant_id=p.tenant_id,owner_user_id=p.user_id)
+    if not org: raise HTTPException(404,detail="organization_not_found")
+    rows=await supabase.select("identity_verifications","id,verification_type,status,provider,reference,submitted_at,verified_at,expires_at,created_at",organization_id=organization_id)
+    return {"organization":org,"verifications":rows}
+
+@router.post("/customer/organizations/{organization_id}/verification")
+async def submit_verification(organization_id: str, body: VerificationRequest, p: DeveloperPrincipal=Depends(principal)):
+    allowed={"email","domain","identity","business","government","authorization"}
+    if body.verification_type not in allowed: raise HTTPException(400,detail="invalid_verification_type")
+    org=await supabase.select_one("customer_organizations","id,verification_status",id=organization_id,tenant_id=p.tenant_id,owner_user_id=p.user_id)
+    if not org: raise HTTPException(404,detail="organization_not_found")
+    row=await supabase.insert_one("identity_verifications",{"organization_id":organization_id,"subject_user_id":p.user_id,"verification_type":body.verification_type,"status":"submitted","provider":body.provider,"reference":body.reference})
+    return row
+
 @router.get("/customer/service-requests")
 async def service_requests(p:DeveloperPrincipal=Depends(principal)):
-    rows=await supabase.select("service_requests","id,organization_id,requester_user_id,service_key,urgency,description,status,created_at,updated_at",organization_id=p.tenant_id)
+    orgs=await supabase.select("customer_organizations","id",owner_user_id=p.user_id,tenant_id=p.tenant_id)
+    org_ids=[r["id"] for r in orgs]
+    rows=[]
+    for org_id in org_ids:
+        rows.extend(await supabase.select("service_requests","id,organization_id,requester_user_id,service_key,urgency,description,status,created_at,updated_at",organization_id=org_id,requester_user_id=p.user_id))
     return {"service_requests":rows}
 
 @router.post("/customer/service-requests")
 async def create_service_request(body:ServiceRequest,p:DeveloperPrincipal=Depends(principal)):
-    org=await supabase.select_one("customer_organizations","id,tenant_id",id=body.organization_id,tenant_id=p.tenant_id)
+    org=await supabase.select_one("customer_organizations","id,tenant_id",id=body.organization_id,tenant_id=p.tenant_id,owner_user_id=p.user_id)
     if not org: raise HTTPException(404,detail="organization_not_found")
     if body.service_key not in {"cybersecurity_assessment","incident_response","threat_intelligence","brand_protection","dark_web_monitoring","soc_mdr","ai_security","physical_security","compliance","other"}: raise HTTPException(400,detail="invalid service")
     if body.urgency not in {"low","normal","high","critical"}: raise HTTPException(400,detail="invalid urgency")
