@@ -280,3 +280,47 @@ async def create_trust_proof(
     except Exception as exc:
         raise HTTPException(400, "trust_proof_rejected") from exc
     return {"proof": row}
+
+
+class SignTrustProofRequest(BaseModel):
+    key_id: str
+    signature: str
+
+
+@router.get("/proofs/{proof_id}/signatures")
+async def list_trust_proof_signatures(proof_id: str, principal: DeveloperPrincipal = Depends(_read)) -> dict:
+    proof = await supabase.select_one(
+        "trust_proofs", "id,tenant_id,subject_id,proof_hash",
+        id=proof_id, tenant_id=principal.tenant_id,
+    )
+    if not proof:
+        raise HTTPException(404, "trust_proof_not_found")
+    rows = await supabase.select(
+        "trust_proof_signatures",
+        "id,proof_id,key_id,algorithm,signature,signed_payload_hash,created_at",
+        proof_id=proof_id, tenant_id=principal.tenant_id,
+    )
+    return {"signatures": rows}
+
+
+@router.post("/proofs/{proof_id}/sign")
+async def sign_trust_proof(
+    proof_id: str,
+    body: SignTrustProofRequest,
+    principal: DeveloperPrincipal = Depends(_write),
+) -> dict:
+    proof = await supabase.select_one(
+        "trust_proofs", "id,tenant_id,proof_hash",
+        id=proof_id, tenant_id=principal.tenant_id,
+    )
+    if not proof:
+        raise HTTPException(404, "trust_proof_not_found")
+    try:
+        row = await supabase.rpc("trust_sign_proof", {
+            "p_proof_id": proof_id,
+            "p_key_id": body.key_id,
+            "p_signature": body.signature,
+        })
+    except Exception as exc:
+        raise HTTPException(400, "trust_proof_signing_rejected") from exc
+    return {"signature": row}
