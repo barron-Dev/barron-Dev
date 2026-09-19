@@ -142,13 +142,15 @@ class ResponseOrchestrator:
                         raise RuntimeError("envelope request target mismatch")
                     step_envelope = await self.envelope_issuer.issue(request)
                     from cyclothone.twin.service import DigitalTwinService
-                    await self.execution_gate.validate(
+                    validation = await self.execution_gate.validate(
                         envelope=step_envelope,
                         tenant_id=tenant_id,
                         expected_model_id=request.model_id,
                         expected_provider_id=request.provider_id,
                         twin=DigitalTwinService(tenant_id),
                     )
+                    if not approval_required and not dry_run:
+                        await self.execution_gate.consume(envelope=step_envelope, tenant_id=tenant_id)
                     step = ActionPlan(
                         action=step.action, args=step.args, requires_approval=step.requires_approval,
                         rollback=step.rollback, agent_envelope=step_envelope, envelope_request=request,
@@ -240,6 +242,7 @@ class ResponseOrchestrator:
                     issued_at=datetime.fromisoformat(str(envelope_data["issued_at"])),
                     expires_at=datetime.fromisoformat(str(envelope_data["expires_at"])),
                     signer_kid=str(envelope_data["signer_kid"]), signature_b64=str(envelope_data["signature_b64"]),
+                    version=str(envelope_data.get("version") or "1"), binding_hash=str(envelope_data.get("binding_hash") or ""),
                 )
             else:
                 envelope = None
