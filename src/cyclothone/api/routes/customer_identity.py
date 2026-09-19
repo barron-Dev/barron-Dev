@@ -1,6 +1,7 @@
 from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
+import os
 from cyclothone.developer.auth import DeveloperPrincipal, authenticate_request
 from cyclothone.storage.supabase_client import supabase
 
@@ -8,6 +9,14 @@ router=APIRouter(tags=["customer-identity"])
 
 def principal(p: DeveloperPrincipal=Depends(authenticate_request))->DeveloperPrincipal:
     p.require(("console:read",)); return p
+
+def operator_principal(p: DeveloperPrincipal=Depends(authenticate_request))->DeveloperPrincipal:
+    p.require(("console:read",))
+    allowed={x.strip() for x in os.getenv("CYCLOTHONE_OPERATOR_USER_IDS","").split(",") if x.strip()}
+    if not p.user_id or p.user_id not in allowed:
+        raise HTTPException(403,detail="operator_administrator_required")
+    return p
+
 
 class OrgRequest(BaseModel):
     organization_type: str
@@ -21,6 +30,34 @@ class ServiceRequest(BaseModel):
     service_key: str
     urgency: str="normal"
     description: str=Field(min_length=10,max_length=10000)
+
+
+@router.get("/customer/admissions")
+async def admissions(p: DeveloperPrincipal=Depends(operator_principal)):
+    rows=await supabase.select("organization_admissions","id,organization_id,requested_by,status,assurance_level,reviewer_user_id,decision_reason,submitted_at,reviewed_at,created_at,updated_at",status="pending")
+    return {"admissions":rows}
+
+@router.post("/customer/admissions/{admission_id}/approve")
+async def approve_admission(admission_id: str, reason: str|None=None, p: DeveloperPrincipal=Depends(operator_principal)):
+    if not p.user_id: raise HTTPException(403,detail="operator_identity_required")
+    try:
+        tenant_id=await supabase.rpc("approve_customer_workspace",{"p_admission_id":admission_id,"p_reviewer":p.user_id,"p_reason":reason})
+    except Exception as exc:
+        detail=str(exc)
+        if "verification_required" in detail: raise HTTPException(409,detail="verification_required")
+        if "not_actionable" in detail: raise HTTPException(409,detail="admission_not_actionable")
+        raise
+    return {"status":"approved","tenant_id":tenant_id}
+
+@router.post("/customer/admissions/{admission_id}/reject")
+async def reject_admission(admission_id: str, reason: str=Field(min_length=3), p: DeveloperPrincipal=Depends(operator_principal)):
+    if not p.user_id: raise HTTPException(403,detail="operator_identity_required")
+    try:
+        org_id=await supabase.rpc("reject_customer_workspace",{"p_admission_id":admission_id,"p_reviewer":p.user_id,"p_reason":reason})
+    except Exception as exc:
+        if "not_actionable" in str(exc): raise HTTPException(409,detail="admission_not_actionable")
+        raise
+    return {"status":"rejected","organization_id":org_id}
 
 @router.get("/customer/organizations")
 async def organizations(p:DeveloperPrincipal=Depends(principal)):
@@ -67,7 +104,8 @@ async def service_requests(p:DeveloperPrincipal=Depends(principal)):
 
 @router.post("/customer/service-requests")
 async def create_service_request(body:ServiceRequest,p:DeveloperPrincipal=Depends(principal)):
-    org=await supabase.select_one("customer_organizations","id,tenant_id",id=body.organization_id,tenant_id=p.tenant_id,owner_user_id=p.user_id)
+    org=await supabase.select_one("customer_organizations","id,tenant_id,admission_status",id=body.organization_id,tenant_id=p.tenant_id,owner_user_id=p.user_id)
+    if not org or org.get("admission_status") != "approved": raise HTTPException(403,detail="workspace_not_admitted")
     if not org: raise HTTPException(404,detail="organization_not_found")
     if body.service_key not in {"cybersecurity_assessment","incident_response","threat_intelligence","brand_protection","dark_web_monitoring","soc_mdr","ai_security","physical_security","compliance","other"}: raise HTTPException(400,detail="invalid service")
     if body.urgency not in {"low","normal","high","critical"}: raise HTTPException(400,detail="invalid urgency")
