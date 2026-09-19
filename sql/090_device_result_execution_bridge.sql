@@ -32,6 +32,14 @@ begin
     raise exception 'command_not_found';
   end if;
 
+  if c.status not in ('success','failed') then
+    raise exception 'command_not_terminal';
+  end if;
+
+  if c.status <> p_status then
+    raise exception 'command_outcome_mismatch';
+  end if;
+
   if c.ai_run_id is null then
     return jsonb_build_object(
       'completed',false,
