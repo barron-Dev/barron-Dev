@@ -86,7 +86,7 @@ export default function CustomerWorkspace() {
   return <main className="min-h-screen bg-[#05070a] text-[#e8eef6]">
     <header className="flex h-14 items-center justify-between border-b border-[#1a2330] bg-[#0a0e14] px-5">
       <div><a href="/" className="font-semibold">Cyclothone</a><span className="ml-3 text-[10px] uppercase tracking-[.16em] text-[#5a6675]">Customer workspace</span></div>
-      <div className="flex gap-2"><a href="/request-service" className="border border-[#00d9ff] px-3 py-1.5 text-[11px] text-[#00d9ff]">Request service</a><button onClick={()=>void load()} className="border border-[#2a3646] px-3 py-1.5 text-[11px] text-[#8a97a8]">Refresh</button></div>
+      <div className="flex gap-2"><a href="/customer/cases" className="border border-[#2a3646] px-3 py-2 text-[10px]">Security cases</a><a href="/request-service" className="border border-[#00d9ff] px-3 py-1.5 text-[11px] text-[#00d9ff]">Request service</a><button onClick={()=>void load()} className="border border-[#2a3646] px-3 py-1.5 text-[11px] text-[#8a97a8]">Refresh</button></div>
     </header>
 
     {error && <div className="mx-auto max-w-7xl px-5 pt-5"><div className="border border-[#ff2d55]/40 bg-[#ff2d55]/5 p-3 text-xs text-[#ff6b83]">{error}</div></div>}
