@@ -4,17 +4,65 @@ import { useEffect, useMemo, useState } from "react";
 
 type Detection = { id: string; tenant_id: string; device_id: string; event_id: string | null; detector: string; score: number; verdict: string; reasons: string[]; evidence?: Record<string, unknown>; mitre_technique: string | null; created_at: string; processed_by_playbooks: boolean; processed_by_autocase: boolean };
 type Result = { items: Detection[]; total: number; limit: number; offset: number };
-const API = process.env.NEXT_PUBLIC_SENTINEL_API_URL ?? "";
-function requestHeaders(token: string): HeadersInit { const value = token.trim(); return value ? { Authorization: `Bearer ${value}` } : {}; }
+const API = (process.env.NEXT_PUBLIC_CYCLOTHONE_API_URL ?? "https://cyclothone-api-production.up.railway.app").trim().replace(/\/$/, "");
+
+function requestHeaders(token: string): HeadersInit {
+  const value = token.trim() || (typeof window !== "undefined" ? sessionStorage.getItem("cyclothone_access_token") ?? "" : "");
+  return value ? { Authorization: `Bearer ${value}` } : {};
+}
 function tone(value: string): string { const v = value.toLowerCase(); if (v === "block" || v === "critical") return "border-[#ff2d55]/40 bg-[#ff2d55]/10 text-[#ff2d55]"; if (v === "quarantine" || v === "high") return "border-[#ffb020]/40 bg-[#ffb020]/10 text-[#ffb020]"; if (v === "monitor" || v === "medium") return "border-[#4a9eff]/40 bg-[#4a9eff]/10 text-[#4a9eff]"; return "border-[#2a3646] bg-[#111823] text-[#8a97a8]"; }
 
 export default function ThreatsPage() {
-  const [token, setToken] = useState(""); const [items, setItems] = useState<Detection[]>([]); const [total, setTotal] = useState(0); const [offset, setOffset] = useState(0); const [selected, setSelected] = useState<Detection | null>(null); const [q, setQ] = useState(""); const [detector, setDetector] = useState(""); const [verdict, setVerdict] = useState(""); const [minScore, setMinScore] = useState(""); const [loading, setLoading] = useState(false); const [error, setError] = useState<string | null>(null); const limit = 50;
+  const [token, setToken] = useState("");
+  const [items, setItems] = useState<Detection[]>([]);
+  const [total, setTotal] = useState(0);
+  const [offset, setOffset] = useState(0);
+  const [selected, setSelected] = useState<Detection | null>(null);
+  const [q, setQ] = useState("");
+  const [detector, setDetector] = useState("");
+  const [verdict, setVerdict] = useState("");
+  const [minScore, setMinScore] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const limit = 50;
 
-  const load = async (nextOffset = 0) => { setLoading(true); setError(null); try { const params = new URLSearchParams({ limit: String(limit), offset: String(nextOffset), sort: "created_at", direction: "desc" }); if (detector.trim()) params.set("detector", detector.trim()); if (verdict) params.set("verdict", verdict); if (minScore.trim()) params.set("min_score", minScore.trim()); const response = await fetch(`${API}/api/v1/console/threats?${params.toString()}`, { headers: requestHeaders(token), cache: "no-store" }); if (!response.ok) throw new Error(response.status === 401 ? "Authentication required" : response.status === 403 ? "console:read scope required" : `API ${response.status}`); const body = (await response.json()) as Result; setItems(body.items ?? []); setTotal(body.total ?? 0); setOffset(body.offset ?? nextOffset); setSelected(null); } catch (err) { setError(err instanceof Error ? err.message : "Unable to reach Cyclothone API"); } finally { setLoading(false); } };
+  const load = async (nextOffset = 0) => {
+    setLoading(true); setError(null);
+    try {
+      const params = new URLSearchParams({ limit: String(limit), offset: String(nextOffset), sort: "created_at", direction: "desc" });
+      if (detector.trim()) params.set("detector", detector.trim());
+      if (verdict) params.set("verdict", verdict);
+      if (minScore.trim()) params.set("min_score", minScore.trim());
+      const response = await fetch(`${API}/api/v1/console/threats?${params.toString()}`, { headers: requestHeaders(token), cache: "no-store" });
+      const body = await response.text();
+      if (!response.ok) throw new Error(response.status === 401 ? "Authentication required" : response.status === 403 ? "console:read scope required" : `API ${response.status}`);
+      let result: Result;
+      try { result = JSON.parse(body) as Result; } catch { throw new Error("Backend returned non-JSON data"); }
+      setItems(result.items ?? []); setTotal(result.total ?? 0); setOffset(result.offset ?? nextOffset); setSelected(null);
+      if (typeof window !== "undefined" && token.trim()) sessionStorage.setItem("cyclothone_access_token", token.trim());
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to reach Cyclothone API");
+    } finally { setLoading(false); }
+  };
+
   useEffect(() => { void load(0); }, []);
-  useEffect(() => { const onKey = (event: KeyboardEvent) => { if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") { event.preventDefault(); document.getElementById("threat-search")?.focus(); } if (event.key === "Escape") setSelected(null); if (!items.length || ["INPUT", "SELECT"].includes((event.target as HTMLElement | null)?.tagName ?? "")) return; const index = selected ? items.findIndex(item => item.id === selected.id) : -1; if (event.key === "ArrowDown") { event.preventDefault(); setSelected(items[Math.min(index + 1, items.length - 1)]); } if (event.key === "ArrowUp") { event.preventDefault(); setSelected(items[Math.max(index - 1, 0)]); } }; window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey); }, [items, selected]);
-  const visible = useMemo(() => { const needle = q.trim().toLowerCase(); if (!needle) return items; return items.filter(item => [item.id, item.device_id, item.event_id, item.detector, item.verdict, item.mitre_technique, ...item.reasons].some(value => String(value ?? "").toLowerCase().includes(needle))); }, [items, q]);
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") { event.preventDefault(); document.getElementById("threat-search")?.focus(); }
+      if (event.key === "Escape") setSelected(null);
+      if (!items.length || ["INPUT", "SELECT"].includes((event.target as HTMLElement | null)?.tagName ?? "")) return;
+      const index = selected ? items.findIndex(item => item.id === selected.id) : -1;
+      if (event.key === "ArrowDown") { event.preventDefault(); setSelected(items[Math.min(index + 1, items.length - 1)]); }
+      if (event.key === "ArrowUp") { event.preventDefault(); setSelected(items[Math.max(index - 1, 0)]); }
+    };
+    window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey);
+  }, [items, selected]);
+
+  const visible = useMemo(() => {
+    const needle = q.trim().toLowerCase();
+    if (!needle) return items;
+    return items.filter(item => [item.id, item.device_id, item.event_id, item.detector, item.verdict, item.mitre_technique, ...item.reasons].some(value => String(value ?? "").toLowerCase().includes(needle)));
+  }, [items, q]);
 
   return <main className="min-h-screen bg-[#05070a] text-[#e8eef6]">
     <header className="sticky top-0 z-10 flex h-12 items-center border-b border-[#1a2330] bg-[#0a0e14] px-4"><a href="/" className="font-semibold">◈ Cyclothone</a><span className="ml-5 font-mono text-[10px] text-[#5a6675]">OPERATIONS / THREATS</span><span className="ml-auto font-mono text-[10px] text-[#5a6675]">⌘K focus · ↑↓ select · Esc close</span></header>
