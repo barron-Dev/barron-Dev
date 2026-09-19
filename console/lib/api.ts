@@ -242,3 +242,45 @@ export function decideAdmission(admissionId: string, decision: "approve" | "reje
     },
   );
 }
+
+
+export type CustomerOrganization = {
+  id: string;
+  tenant_id: string | null;
+  organization_type: string;
+  legal_name: string;
+  country_code: string | null;
+  website_domain: string | null;
+  registration_number: string | null;
+  verification_status: string;
+  admission_status: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type CustomerServiceRequest = {
+  id: string;
+  organization_id: string;
+  requester_user_id: string;
+  service_key: string;
+  urgency: string;
+  description: string;
+  status: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export function getCustomerOrganizations() {
+  return apiFetch<{ organizations: CustomerOrganization[] }>("/api/v1/customer/organizations");
+}
+
+export function getCustomerServiceRequests() {
+  return apiFetch<{ service_requests: CustomerServiceRequest[] }>("/api/v1/customer/service-requests");
+}
+
+export function getCustomerVerification(organizationId: string) {
+  return apiFetch<{ organization: Pick<CustomerOrganization, "id"|"verification_status">; verifications: Array<{
+    id: string; verification_type: string; status: string; provider: string | null; reference: string | null;
+    submitted_at: string | null; verified_at: string | null; expires_at: string | null; created_at: string;
+  }> }>(`/api/v1/customer/organizations/${encodeURIComponent(organizationId)}/verification`);
+}
