@@ -783,6 +783,16 @@ async def public_verify_certificate(serial_number: str) -> dict:
         "id,subject_id,state,assurance_level,state_hash,computed_at",
         id=cert["state_snapshot_id"], subject_id=cert["subject_id"],
     )
+    current_state = await supabase.select_one(
+        "trust_current_state",
+        "subject_id,state,assurance_level,state_hash,computed_at",
+        subject_id=cert["subject_id"],
+    )
+    stored_certificate = await supabase.select_one(
+        "trust_certificates",
+        "id,claims",
+        id=cert["certificate_id"],
+    )
     proof_sig = await supabase.select_one(
         "trust_proof_signatures",
         "id,proof_id,key_id,algorithm,signature,signed_payload_hash",
@@ -836,10 +846,11 @@ async def public_verify_certificate(serial_number: str) -> dict:
             issuer_key_id=cert["issuer_key_id"],
             valid_from=datetime.fromisoformat(cert["valid_from"].replace("Z","+00:00")),
             valid_until=datetime.fromisoformat(cert["valid_until"].replace("Z","+00:00")),
-            claims={},  # Public lookup deliberately excludes claims; payload re-verification uses stored claims below.
+            claims=(stored_certificate["claims"] if stored_certificate else {}),
         )
-        # The public endpoint cannot reconstruct a payload without claims, so verify
-        # the signature over the stored payload hash and report hash binding separately.
+        expected_payload_hash = hashlib.sha256(payload).hexdigest()
+        if expected_payload_hash != cert["payload_hash"]:
+            raise ValueError("certificate_payload_hash_mismatch")
         _verify_ed25519(issuer_key["public_key"], cert["signature"], bytes.fromhex(cert["payload_hash"]))
     except Exception:
         certificate_ok = False
@@ -855,6 +866,8 @@ async def public_verify_certificate(serial_number: str) -> dict:
         reasons.append(f"status_{cert['status'].lower()}")
     if not snapshot or snapshot["state"] != "VERIFIED":
         reasons.append("trust_state_not_verified")
+    if not current_state or current_state["state"] != "VERIFIED":
+        reasons.append("current_trust_state_not_verified")
 
     return {
         "valid": certificate_ok and proof_ok and not reasons,
