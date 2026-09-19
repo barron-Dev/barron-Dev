@@ -589,11 +589,10 @@ async def issue_certificate(
         raise HTTPException(400, "trust_state_not_certifiable")
     now = datetime.now(timezone.utc)
     valid_until = now + timedelta(seconds=min(body.valid_for_seconds, profile["max_validity_seconds"]))
-    certificate_id = secrets.token_hex(16)
     serial = f"CT-{now.strftime('%Y%m%d')}-{secrets.token_hex(12).upper()}"
     payload = _certificate_payload(
         payload_version=1,
-        certificate_id=certificate_id,
+        certificate_id=serial,
         serial_number=serial,
         profile_id=profile["profile_id"],
         profile_version=profile["version"],
@@ -692,7 +691,7 @@ async def verify_certificate(certificate_id: str) -> dict:
     try:
         payload = _certificate_payload(
             payload_version=cert["payload_version"],
-            certificate_id=cert["id"],
+            certificate_id=cert["serial_number"],
             serial_number=cert["serial_number"],
             profile_id=profile["profile_id"],
             profile_version=profile["version"],
