@@ -1,6 +1,9 @@
 from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
+from datetime import UTC, datetime, timedelta
+import hashlib
+import secrets
 import os
 from cyclothone.developer.auth import DeveloperPrincipal, authenticate_request
 from cyclothone.storage.supabase_client import supabase
@@ -33,6 +36,11 @@ class ServiceRequest(BaseModel):
 
 class AdmissionDecisionRequest(BaseModel):
     reason: str|None=None
+
+class InvitationRequest(BaseModel):
+    email: str = Field(min_length=3,max_length=320)
+    role: str = "requester"
+
 
 
 @router.get("/customer/admissions")
@@ -105,6 +113,50 @@ async def request_admission(organization_id: str, p: DeveloperPrincipal=Depends(
         if "already_actionable" in detail: raise HTTPException(409,detail="admission_already_actionable")
         raise
     return {"admission_id":admission_id,"status":"pending"}
+
+@router.get("/customer/organizations/{organization_id}/members")
+async def organization_members(organization_id: str, p: DeveloperPrincipal=Depends(principal)):
+    if not p.user_id: raise HTTPException(403,detail="user_identity_required")
+    org=await supabase.select_one("customer_organizations","id,owner_user_id",id=organization_id,owner_user_id=p.user_id)
+    if not org:
+        member=await supabase.select_one("organization_members","organization_id,user_id,role,status,created_at",organization_id=organization_id,user_id=p.user_id,status="active")
+        if not member: raise HTTPException(404,detail="organization_not_found")
+    rows=await supabase.select("organization_members","organization_id,user_id,role,status,created_at",organization_id=organization_id)
+    return {"members":rows}
+
+@router.get("/customer/organizations/{organization_id}/invitations")
+async def organization_invitations(organization_id: str, p: DeveloperPrincipal=Depends(principal)):
+    if not p.user_id: raise HTTPException(403,detail="user_identity_required")
+    org=await supabase.select_one("customer_organizations","id,owner_user_id",id=organization_id,owner_user_id=p.user_id)
+    if not org:
+        member=await supabase.select_one("organization_members","organization_id,user_id,role,status",organization_id=organization_id,user_id=p.user_id,status="active")
+        if not member or member["role"] not in {"owner","admin"}: raise HTTPException(403,detail="organization_admin_required")
+    rows=await supabase.select("organization_invitations","id,organization_id,invited_by,email,role,expires_at,accepted_at,accepted_user_id,created_at",organization_id=organization_id)
+    return {"invitations":rows}
+
+@router.post("/customer/organizations/{organization_id}/invitations")
+async def create_invitation(organization_id: str, body: InvitationRequest, p: DeveloperPrincipal=Depends(principal)):
+    if not p.user_id: raise HTTPException(403,detail="user_identity_required")
+    if body.role not in {"admin","security_admin","analyst","developer","requester","viewer"}: raise HTTPException(400,detail="invalid_invitation_role")
+    org=await supabase.select_one("customer_organizations","id,owner_user_id,admission_status,tenant_id",id=organization_id,owner_user_id=p.user_id)
+    if not org:
+        member=await supabase.select_one("organization_members","organization_id,user_id,role,status",organization_id=organization_id,user_id=p.user_id,status="active")
+        if not member or member["role"] not in {"owner","admin"}: raise HTTPException(403,detail="organization_admin_required")
+        org={"id":organization_id,"admission_status":"approved","tenant_id":True}
+    if org.get("admission_status") != "approved" or not org.get("tenant_id"): raise HTTPException(403,detail="workspace_not_admitted")
+    email=body.email.strip().lower()
+    existing=await supabase.select_one("organization_invitations","id,accepted_at,expires_at",organization_id=organization_id,email=email)
+    if existing and not existing.get("accepted_at"):
+        try:
+            if datetime.fromisoformat(str(existing["expires_at"]).replace("Z","+00:00")) > datetime.now(UTC):
+                raise HTTPException(409,detail="active_invitation_exists")
+        except ValueError:
+            pass
+    raw=secrets.token_urlsafe(32)
+    token_hash=hashlib.sha256(raw.encode()).hexdigest()
+    expires=(datetime.now(UTC)+timedelta(hours=72)).isoformat()
+    row=await supabase.insert_one("organization_invitations",{"organization_id":organization_id,"invited_by":p.user_id,"email":email,"role":body.role,"token_hash":token_hash,"expires_at":expires})
+    return {"invitation":row,"invite_token":raw,"warning":"Deliver this one-time token through a trusted invitation channel; it is not stored in plaintext."}
 
 @router.get("/customer/organizations")
 async def organizations(p:DeveloperPrincipal=Depends(principal)):
