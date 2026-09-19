@@ -298,3 +298,38 @@ async def test_destructive_orchestrator_mints_and_consumes_authoritative_envelop
     gate.validate.assert_awaited_once()
     gate.consume.assert_awaited_once()
     dispatcher.issue.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_execution_gate_rejects_stale_mission_binding(monkeypatch):
+    from cyclothone.ai.execution_gate import AgentExecutionGate
+
+    gate = AgentExecutionGate(AsyncMock())
+    env = AgentEnvelope(
+        "env-mission", uuid4(), uuid4(), "model-a", "provider-a", "kill_process", "kill_process",
+        {"pid": 7}, "device-1", datetime.now(UTC), datetime.now(UTC) + timedelta(minutes=1),
+        "kid", "sig", "1", "a" * 64, "mission-a", 2, "d" * 64,
+    )
+    monkeypatch.setattr("cyclothone.ai.execution_gate.verify_digest_signature", AsyncMock(return_value=True))
+    gate.policy.check = AsyncMock(return_value={"allowed": True, "requires_approval": False})
+    with pytest.raises(AgentExecutionDenied, match="mission binding mismatch"):
+        await gate.validate(
+            envelope=env, tenant_id=env.tenant_id, expected_model_id="model-a",
+            expected_provider_id="provider-a", expected_mission_id="mission-a",
+            expected_mission_version=1, expected_mission_hash="d" * 64, twin=AsyncMock(),
+        )
+
+
+def test_mission_binding_changes_envelope_canonical_digest():
+    from cyclothone.ai.execution_gate import AgentExecutionGate
+    import hashlib, json
+
+    env = envelope()
+    a = AgentExecutionGate._envelope_hash(env)
+    changed = AgentEnvelope(
+        env.envelope_id, env.tenant_id, env.agent_id, env.model_id, env.provider_id,
+        env.tool_name, env.action, env.args, env.target, env.issued_at, env.expires_at,
+        env.signer_kid, env.signature_b64, env.version, env.binding_hash,
+        "mission-a", 1, "d" * 64,
+    )
+    assert a != AgentExecutionGate._envelope_hash(changed)
