@@ -309,3 +309,8 @@ export function acceptOrganizationInvitation(token:string) {
     method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token})
   });
 }
+
+export type CustomerCase = { id:string; organization_id:string; service_request_id:string; case_id:string; created_at:string; case:{id:string;case_number:string;category:string;severity:string;status:string;title:string;summary:string;created_at:string;updated_at:string}; service_request:any };
+export function getCustomerCases(){ return apiFetch<{cases:CustomerCase[]}>("/api/v1/customer/cases"); }
+export function getCustomerCaseActivity(id:string){ return apiFetch<{activity:any[]}>(`/api/v1/customer/cases/${encodeURIComponent(id)}/activity`); }
+export function openCustomerCase(id:string,category:string,severity:string){ return apiFetch<{status:string;case_id:string}>(`/api/v1/customer/admissions/service-requests/${encodeURIComponent(id)}/open-case`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({category,severity})}); }
