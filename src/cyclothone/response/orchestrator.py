@@ -7,6 +7,8 @@ from enum import StrEnum
 from typing import Any, Protocol
 from uuid import UUID
 
+from cyclothone.ai.execution_gate import AgentEnvelope, AgentExecutionGate
+
 logger = logging.getLogger(__name__)
 
 
@@ -39,6 +41,10 @@ class ActionPlan:
     args: dict[str, Any]
     requires_approval: bool = False
     rollback: dict[str, Any] | None = None
+    agent_envelope: AgentEnvelope | None = None
+    model_id: str | None = None
+    provider_id: str | None = None
+    target: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,10 +75,11 @@ class Signer(Protocol):
 class ResponseOrchestrator:
     """Single owner of case response execution and safety gates."""
 
-    def __init__(self, dispatcher: Dispatcher, store: ActionStore, signer: Signer | None = None) -> None:
+    def __init__(self, dispatcher: Dispatcher, store: ActionStore, signer: Signer | None = None, execution_gate: AgentExecutionGate | None = None) -> None:
         self.dispatcher = dispatcher
         self.store = store
         self.signer = signer
+        self.execution_gate = execution_gate
 
     async def run_chain(
         self, *, tenant_id: UUID, case_id: UUID, device_id: UUID | None,
@@ -91,6 +98,20 @@ class ResponseOrchestrator:
                     raise ValueError("action must not be empty")
                 action_class = ACTION_CLASS.get(step.action, ActionClass.MEDIUM)
                 approval_required = step.requires_approval or action_class in (ActionClass.HIGH, ActionClass.CRITICAL)
+
+                if action_class in (ActionClass.MEDIUM, ActionClass.HIGH, ActionClass.CRITICAL):
+                    if self.execution_gate is None:
+                        raise RuntimeError("AI execution gate is required for destructive response actions")
+                    if step.agent_envelope is None or not step.model_id or not step.provider_id or not step.target:
+                        raise RuntimeError("signed agent envelope, model binding, provider binding, and target are required")
+                    from cyclothone.twin.service import DigitalTwinService
+                    await self.execution_gate.authorize(
+                        envelope=step.agent_envelope,
+                        tenant_id=tenant_id,
+                        expected_model_id=step.model_id,
+                        expected_provider_id=step.provider_id,
+                        twin=DigitalTwinService(tenant_id),
+                    )
 
                 if blast_rule_id and device_id and not await self.store.blast_allowed(blast_rule_id, blast_limit, tenant_id=tenant_id, device_id=device_id):
                     row_id = await self.store.create(
