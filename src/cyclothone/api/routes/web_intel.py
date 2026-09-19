@@ -36,7 +36,7 @@ async def list_targets(layer: str | None = None, principal: DeveloperPrincipal =
     if layer and layer not in LAYERS:
         raise HTTPException(400, "invalid layer")
     async def _do():
-        q = (await supabase._ensure()).table("web_crawl_targets").select("id,tenant_id,layer,kind,url,crawl_interval,max_depth,respect_robots,enabled,last_crawl_at,last_status,created_at").or_(f"tenant_id.eq.{tid},tenant_id.is.null")
+        q = (await supabase._ensure()).table("web_crawl_targets").select("id,tenant_id,layer,kind,url,crawl_interval,max_depth,respect_robots,enabled,last_crawl_at,last_status,created_at").eq("tenant_id", tid)
         if layer: q = q.eq("layer", layer)
         return await q.order("created_at", desc=True).limit(1000).execute()
     return list((await supabase._retry(_do, attempts=2)).data or [])
