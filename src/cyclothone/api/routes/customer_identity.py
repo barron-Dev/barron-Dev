@@ -67,6 +67,47 @@ class InvitationRequest(BaseModel):
 
 
 
+class OpenCaseRequest(BaseModel):
+    category: str = "other"
+    severity: str = "medium"
+
+@router.get("/customer/cases")
+async def customer_cases(p: DeveloperPrincipal=Depends(principal)):
+    if not p.user_id: raise HTTPException(403,detail="user_identity_required")
+    orgs=await supabase.select("customer_organizations","id",owner_user_id=p.user_id)
+    org_ids=[x["id"] for x in orgs]
+    items=[]
+    for oid in org_ids:
+        links=await supabase.select("customer_case_links","id,organization_id,service_request_id,case_id,created_at",organization_id=oid)
+        for link in links:
+            case=await supabase.select_one("crime_cases","id,case_number,category,severity,status,title,summary,created_at,updated_at",id=link["case_id"])
+            req=await supabase.select_one("service_requests","id,service_key,urgency,status,created_at,updated_at",id=link["service_request_id"])
+            if case: items.append({**link,"case":case,"service_request":req})
+    return {"cases":items}
+
+@router.get("/customer/cases/{case_id}/activity")
+async def customer_case_activity(case_id: str, p: DeveloperPrincipal=Depends(principal)):
+    if not p.user_id: raise HTTPException(403,detail="user_identity_required")
+    link=await supabase.select_one("customer_case_links","case_id,organization_id",case_id=case_id)
+    if not link: raise HTTPException(404,detail="case_not_found")
+    member=await supabase.select_one("organization_members","organization_id,user_id,status",organization_id=link["organization_id"],user_id=p.user_id,status="active")
+    if not member: raise HTTPException(404,detail="case_not_found")
+    rows=await supabase.select("customer_case_activity","id,case_id,actor_user_id,actor_type,event_type,message,metadata,created_at",case_id=case_id)
+    return {"activity":rows}
+
+@router.post("/customer/admissions/service-requests/{service_request_id}/open-case")
+async def open_case(service_request_id: str, body: OpenCaseRequest, p: DeveloperPrincipal=Depends(operator_principal)):
+    if not p.user_id: raise HTTPException(403,detail="operator_identity_required")
+    try:
+        case_id=await supabase.rpc("open_customer_case",{"p_service_request_id":service_request_id,"p_operator_user_id":p.user_id,"p_category":body.category,"p_severity":body.severity})
+    except Exception as exc:
+        detail=str(exc)
+        mapping={"service_request_not_found":404,"workspace_not_admitted":403,"invalid_case_category":422,"invalid_case_severity":422}
+        for key,status in mapping.items():
+            if key in detail: raise HTTPException(status,detail=key)
+        raise
+    return {"status":"opened","case_id":case_id}
+
 @router.get("/customer/admissions")
 async def admissions(p: DeveloperPrincipal=Depends(operator_principal)):
     rows=await supabase.select(
