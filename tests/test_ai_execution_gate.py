@@ -106,3 +106,66 @@ async def test_denied_policy_is_not_treated_as_approval(monkeypatch):
             expected_provider_id=env.provider_id,
             twin=AsyncMock(),
         )
+
+
+@pytest.mark.asyncio
+async def test_envelope_issuer_requires_authoritative_agent_and_provider_binding(monkeypatch):
+    from cyclothone.ai.envelope_issuer import AIEnvelopeIssuer, EnvelopeIssueRequest
+    from cyclothone.compliance.signing import ComplianceSignature
+
+    tenant = uuid4()
+    agent_id = uuid4()
+
+    async def owned(*args, **kwargs):
+        return {
+            "id": str(agent_id), "tenant_id": str(tenant), "model": "model-a",
+            "declared_tools": ["isolate_host"], "status": "active",
+        }
+
+    class Provider:
+        async def resolve(self, **kwargs):
+            assert kwargs["tenant_id"] == tenant
+            assert kwargs["model_id"] == "model-a"
+            assert kwargs["provider_id"] == "provider-a"
+            return {"active": True, "binding_hash": "c" * 64}
+
+    monkeypatch.setattr("cyclothone.ai.envelope_issuer.supabase.select_one", owned)
+    monkeypatch.setattr(
+        "cyclothone.ai.envelope_issuer.sign_digest",
+        AsyncMock(return_value=ComplianceSignature("signed", "kid-1")),
+    )
+
+    env = await AIEnvelopeIssuer(Provider()).issue(
+        EnvelopeIssueRequest(
+            tenant_id=tenant, agent_id=agent_id, model_id="model-a",
+            provider_id="provider-a", tool_name="isolate_host",
+            action="isolate_host", args={}, target="device-1",
+        )
+    )
+    assert env.tenant_id == tenant
+    assert env.binding_hash == "c" * 64
+    assert env.signer_kid == "kid-1"
+    assert env.signature_b64 == "signed"
+
+
+@pytest.mark.asyncio
+async def test_envelope_issuer_rejects_undeclared_tool(monkeypatch):
+    from cyclothone.ai.envelope_issuer import AIEnvelopeIssuer, EnvelopeIssueRequest
+
+    tenant = uuid4()
+    agent_id = uuid4()
+
+    async def owned(*args, **kwargs):
+        return {"id": str(agent_id), "tenant_id": str(tenant), "model": "model-a",
+                "declared_tools": [], "status": "active"}
+
+    monkeypatch.setattr("cyclothone.ai.envelope_issuer.supabase.select_one", owned)
+
+    with pytest.raises(Exception, match="tool is not declared by agent"):
+        await AIEnvelopeIssuer(AsyncMock()).issue(
+            EnvelopeIssueRequest(
+                tenant_id=tenant, agent_id=agent_id, model_id="model-a",
+                provider_id="provider-a", tool_name="isolate_host",
+                action="isolate_host", args={}, target="device-1",
+            )
+        )
