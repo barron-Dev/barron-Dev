@@ -183,7 +183,18 @@ class ResponseOrchestrator:
             envelope_data = row.get("agent_envelope")
             if not envelope_data:
                 raise RuntimeError("approved destructive action is missing its signed agent envelope")
-            envelope = AgentEnvelope(**envelope_data) if isinstance(envelope_data, dict) else None
+            if isinstance(envelope_data, dict):
+                envelope = AgentEnvelope(
+                    envelope_id=str(envelope_data["envelope_id"]), tenant_id=UUID(str(envelope_data["tenant_id"])),
+                    agent_id=UUID(str(envelope_data["agent_id"])), model_id=str(envelope_data["model_id"]),
+                    provider_id=str(envelope_data["provider_id"]), tool_name=str(envelope_data["tool_name"]),
+                    action=str(envelope_data["action"]), args=envelope_data.get("args") or {}, target=str(envelope_data["target"]),
+                    issued_at=datetime.fromisoformat(str(envelope_data["issued_at"])),
+                    expires_at=datetime.fromisoformat(str(envelope_data["expires_at"])),
+                    signer_kid=str(envelope_data["signer_kid"]), signature_b64=str(envelope_data["signature_b64"]),
+                )
+            else:
+                envelope = None
             if envelope is None:
                 raise RuntimeError("invalid persisted agent envelope")
             if self.execution_gate is None:
