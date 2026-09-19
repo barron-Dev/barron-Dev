@@ -49,6 +49,9 @@ class ActionPlan:
     model_id: str | None = None
     provider_id: str | None = None
     target: str | None = None
+    mission_id: str | None = None
+    mission_version: int | None = None
+    mission_hash: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,6 +102,9 @@ class ResponseOrchestrator:
             "envelope_id": step.agent_envelope.envelope_id if step.agent_envelope else None,
             "envelope_hash": cls._envelope_hash(step.agent_envelope),
             "args_hash": hashlib.sha256(args_encoded).hexdigest(),
+            "mission_id": step.agent_envelope.mission_id if step.agent_envelope else step.mission_id,
+            "mission_version": step.agent_envelope.mission_version if step.agent_envelope else step.mission_version,
+            "mission_hash": step.agent_envelope.mission_hash if step.agent_envelope else step.mission_hash,
         }
 
     def __init__(self, dispatcher: Dispatcher, store: ActionStore, signer: Signer | None = None, execution_gate: AgentExecutionGate | None = None, envelope_issuer: AIEnvelopeIssuer | None = None) -> None:
