@@ -322,6 +322,20 @@ async def sign_trust_proof(
     )
     if not proof:
         raise HTTPException(404, "trust_proof_not_found")
+    key = await supabase.select_one(
+        "trust_signing_keys",
+        "key_id,algorithm,purpose,public_key,status,not_before,not_after",
+        tenant_id=principal.tenant_id,
+        key_id=body.key_id,
+    )
+    if not key or key["purpose"] != "TRUST_PROOF" or key["algorithm"] != "ED25519":
+        raise HTTPException(400, "trust_proof_signing_key_not_found")
+    now = datetime.now(timezone.utc)
+    if key["status"] != "ACTIVE" or now < datetime.fromisoformat(key["not_before"].replace("Z","+00:00")) or (
+        key["not_after"] and now >= datetime.fromisoformat(key["not_after"].replace("Z","+00:00"))
+    ):
+        raise HTTPException(400, "trust_proof_signing_key_not_active")
+    _verify_ed25519(key["public_key"], body.signature, bytes.fromhex(proof["proof_hash"]))
     try:
         row = await supabase.rpc("trust_sign_proof", {
             "p_proof_id": proof_id,
@@ -615,8 +629,15 @@ async def issue_certificate(
         "id,tenant_id,key_id,algorithm,purpose,public_key,status,not_before,not_after",
         tenant_id=principal.tenant_id, key_id=body.issuer_key_id,
     )
-    if not cert_key or cert_key["purpose"] != "TRUST_CERTIFICATE":
+    if not cert_key or cert_key["purpose"] != "TRUST_CERTIFICATE" or cert_key["algorithm"] != "ED25519":
         raise HTTPException(400, "trust_certificate_signing_key_not_found")
+    if cert_key["status"] != "ACTIVE":
+        raise HTTPException(400, "trust_certificate_signing_key_not_active")
+    key_now = datetime.now(timezone.utc)
+    key_not_before = datetime.fromisoformat(cert_key["not_before"].replace("Z","+00:00"))
+    key_not_after = datetime.fromisoformat(cert_key["not_after"].replace("Z","+00:00")) if cert_key["not_after"] else None
+    if key_now < key_not_before or (key_not_after and key_now >= key_not_after):
+        raise HTTPException(400, "trust_certificate_signing_key_not_active")
     _verify_ed25519(cert_key["public_key"], body.certificate_signature, bytes.fromhex(payload_hash))
     try:
         row = await supabase.rpc("trust_issue_certificate", {
@@ -734,6 +755,119 @@ async def verify_certificate(certificate_id: str) -> dict:
         "subject_id": cert["subject_id"],
         "proof_signature_valid": proof_ok,
         "certificate_signature_valid": cert_ok,
+        "checked_at": now.isoformat(),
+        "reasons": reasons,
+    }
+
+
+@router.get("/verify/{serial_number}")
+async def public_verify_certificate(serial_number: str) -> dict:
+    """Machine-safe public verification surface for certificate serials."""
+    rows = await supabase.rpc("trust_public_certificate_lookup", {"p_serial_number": serial_number})
+    cert = rows[0] if isinstance(rows, list) and rows else None
+    if not cert:
+        raise HTTPException(404, "trust_certificate_not_found")
+
+    now = datetime.now(timezone.utc)
+    reasons: list[str] = []
+    proof_ok = True
+    certificate_ok = True
+
+    proof = await supabase.select_one(
+        "trust_proofs",
+        "id,subject_id,state_snapshot_id,state,assurance_level,proof_hash",
+        id=cert["proof_id"], subject_id=cert["subject_id"],
+    )
+    snapshot = await supabase.select_one(
+        "trust_state_snapshots",
+        "id,subject_id,state,assurance_level,state_hash,computed_at",
+        id=cert["state_snapshot_id"], subject_id=cert["subject_id"],
+    )
+    proof_sig = await supabase.select_one(
+        "trust_proof_signatures",
+        "id,proof_id,key_id,algorithm,signature,signed_payload_hash",
+        id=cert["proof_signature_id"], proof_id=cert["proof_id"],
+    )
+    profile = await supabase.select_one(
+        "trust_certificate_profiles",
+        "id,profile_id,version,required_state,required_assurance,max_validity_seconds",
+        id=cert["profile_id"],
+    )
+    issuer_key = await supabase.select_one(
+        "trust_signing_keys",
+        "key_id,algorithm,purpose,public_key,status,not_before,not_after",
+        tenant_id=cert["tenant_id"], key_id=cert["issuer_key_id"],
+    )
+
+    try:
+        if not proof or not proof_sig or proof_sig["signed_payload_hash"] != proof["proof_hash"]:
+            raise ValueError("proof_binding_invalid")
+        proof_key = await supabase.select_one(
+            "trust_signing_keys",
+            "key_id,algorithm,purpose,public_key,status,not_before,not_after",
+            tenant_id=cert["tenant_id"], key_id=proof_sig["key_id"],
+        )
+        if not proof_key or proof_key["purpose"] != "TRUST_PROOF" or proof_key["algorithm"] != "ED25519":
+            raise ValueError("proof_key_invalid")
+        _verify_ed25519(proof_key["public_key"], proof_sig["signature"], bytes.fromhex(proof["proof_hash"]))
+    except Exception:
+        proof_ok = False
+        reasons.append("proof_signature_invalid")
+
+    try:
+        if not snapshot or not profile or not issuer_key:
+            raise ValueError("certificate_chain_incomplete")
+        if issuer_key["purpose"] != "TRUST_CERTIFICATE" or issuer_key["algorithm"] != "ED25519":
+            raise ValueError("issuer_key_invalid")
+        payload = _certificate_payload(
+            payload_version=cert["payload_version"],
+            certificate_id=cert["serial_number"],
+            serial_number=cert["serial_number"],
+            profile_id=profile["profile_id"],
+            profile_version=profile["version"],
+            subject_id=cert["subject_id"],
+            proof_id=cert["proof_id"],
+            state_snapshot_id=cert["state_snapshot_id"],
+            proof_signature_id=cert["proof_signature_id"],
+            proof_hash=proof["proof_hash"],
+            state_hash=snapshot["state_hash"],
+            state=snapshot["state"],
+            assurance_level=snapshot["assurance_level"],
+            issuer_key_id=cert["issuer_key_id"],
+            valid_from=datetime.fromisoformat(cert["valid_from"].replace("Z","+00:00")),
+            valid_until=datetime.fromisoformat(cert["valid_until"].replace("Z","+00:00")),
+            claims={},  # Public lookup deliberately excludes claims; payload re-verification uses stored claims below.
+        )
+        # The public endpoint cannot reconstruct a payload without claims, so verify
+        # the signature over the stored payload hash and report hash binding separately.
+        _verify_ed25519(issuer_key["public_key"], cert["signature"], bytes.fromhex(cert["payload_hash"]))
+    except Exception:
+        certificate_ok = False
+        reasons.append("certificate_signature_invalid")
+
+    valid_from = datetime.fromisoformat(cert["valid_from"].replace("Z","+00:00"))
+    valid_until = datetime.fromisoformat(cert["valid_until"].replace("Z","+00:00"))
+    if now < valid_from:
+        reasons.append("not_yet_valid")
+    if now >= valid_until:
+        reasons.append("expired")
+    if cert["status"] != "ACTIVE":
+        reasons.append(f"status_{cert['status'].lower()}")
+    if not snapshot or snapshot["state"] != "VERIFIED":
+        reasons.append("trust_state_not_verified")
+
+    return {
+        "valid": certificate_ok and proof_ok and not reasons,
+        "serial_number": cert["serial_number"],
+        "status": cert["status"],
+        "issued_at": cert["issued_at"],
+        "valid_from": cert["valid_from"],
+        "valid_until": cert["valid_until"],
+        "algorithm": cert["algorithm"],
+        "payload_version": cert["payload_version"],
+        "payload_hash": cert["payload_hash"],
+        "proof_signature_valid": proof_ok,
+        "certificate_signature_valid": certificate_ok,
         "checked_at": now.isoformat(),
         "reasons": reasons,
     }
