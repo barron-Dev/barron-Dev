@@ -130,3 +130,36 @@ async def test_rollback_creates_inverse_command_and_durable_action():
     assert source["rollback_case_action_id"] == result["rollback_case_action_id"]
     rollback = store.rows[result["rollback_case_action_id"]]
     assert rollback["command_id"] == result["rollback_command_id"]
+
+
+def test_command_canonical_payload_binds_case_action_and_ai_context():
+    from cyclothone.response.dispatcher import canonical_command_payload, command_digest
+
+    command_id = uuid4()
+    payload = canonical_command_payload(
+        command_id=command_id,
+        tenant_id=TENANT,
+        device_id=DEVICE,
+        action="isolate_host",
+        args={},
+        issued_by="approval:test",
+        issued_at=__import__("datetime").datetime(2026, 1, 1, tzinfo=__import__("datetime").timezone.utc),
+        expires_at=__import__("datetime").datetime(2026, 1, 1, 0, 5, tzinfo=__import__("datetime").timezone.utc),
+        case_action_id=CASE,
+        execution_context={
+            "agent_id": str(uuid4()),
+            "model_id": "model-a",
+            "provider_id": "provider-a",
+            "tool_name": "isolate_host",
+            "target": "device-1",
+            "envelope_id": "env-1",
+            "envelope_hash": "a" * 64,
+            "args_hash": "b" * 64,
+        },
+    )
+
+    assert payload["case_action_id"] == str(CASE)
+    assert payload["execution_context"]["envelope_id"] == "env-1"
+    first = command_digest(payload)
+    payload["execution_context"]["envelope_id"] = "env-2"
+    assert command_digest(payload) != first
