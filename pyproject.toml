@@ -8,6 +8,7 @@ dependencies = [
     "aiokafka==0.12.0",
     "cryptography==50.0.1",
     "psycopg[binary]==3.2.10",
+    "python-multipart==0.0.20",
 ]
 name = "cyclothone-platform"
 version = "0.1.0"
