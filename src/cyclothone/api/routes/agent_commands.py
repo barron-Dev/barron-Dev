@@ -53,4 +53,21 @@ async def report_command_result(command_id: UUID, body: CommandResult,
     if not row or not row.get("accepted"):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT,
                             detail="command is no longer executable")
+
+    try:
+        await supabase.rpc("ai_complete_device_command_execution", {
+            "p_command_id": str(command_id),
+            "p_status": body.status,
+            "p_result": body.result,
+            "p_error": body.error,
+            "p_actor": f"device:{device.device_id}",
+        })
+    except Exception as exc:
+        # Command completion is already persisted. Do not falsely report a
+        # device failure; surface settlement infrastructure failure explicitly.
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="AI execution settlement unavailable",
+        ) from exc
+
     return row
