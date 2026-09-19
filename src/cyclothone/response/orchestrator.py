@@ -131,7 +131,7 @@ class ResponseOrchestrator:
                         action=step.action, args=step.args, status="pending_approval",
                         issued_by=issued_by, initiated_by_rule=initiated_by_rule,
                         rollback_args=step.rollback,
-                        agent_envelope=step.agent_envelope.canonical() if step.agent_envelope else None,
+                        agent_envelope=step.agent_envelope.to_record() if step.agent_envelope else None,
                         model_id=step.model_id, provider_id=step.provider_id, target=step.target,
                     )
                     queued.append(row_id)
