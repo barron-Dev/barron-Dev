@@ -90,7 +90,7 @@ revoke all on function public.ai_execute_run(
 ) from public,anon,authenticated;
 
 grant execute on function public.ai_execute_run(
-  uuid,text,boolean,numeric,jsonb,text,text,text,integer,text,text
+  uuid,text,boolean,numeric,jsonb,text,text,text,integer,text,text,timestamptz
 ) to service_role;
 
 comment on function public.ai_execute_run is
