@@ -54,6 +54,18 @@ class ModelRouteRequestBody(BaseModel):
     mission_hash: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
 
 
+class AIRunStartRequest(BaseModel):
+    workload_layer: str = Field(min_length=1, max_length=64)
+    risk_level: str = Field(pattern="^(LOW|MEDIUM|HIGH|CRITICAL)$")
+    required_capabilities: list[str] = Field(default_factory=list, max_length=100)
+    mission_id: str = Field(min_length=1, max_length=256)
+    mission_version: int = Field(ge=1)
+    mission_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    idempotency_token: str = Field(min_length=1, max_length=128)
+    trace_id: str | None = Field(default=None, max_length=256)
+    correlation_id: str | None = Field(default=None, max_length=256)
+
+
 class AgentCreate(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     framework: str | None = Field(default=None, max_length=64)
@@ -97,6 +109,105 @@ async def _incident(tenant_id: UUID, agent_id: UUID, action_id: int, category: s
             "category": category, "severity": severity, "action_taken": "blocked", "details": details,
         }).execute()
     await supabase._retry(do)
+
+@router.post("/run")
+async def start_model_run(
+    body: AIRunStartRequest,
+    principal: DeveloperPrincipal = Depends(authenticate_request),
+):
+    principal.require(("ai:inspect",))
+    tenant_id = UUID(principal.tenant_id)
+    try:
+        route = await _router.resolve(
+            ModelRouteRequest(
+                tenant_id=tenant_id,
+                workload_layer=body.workload_layer,
+                risk_level=body.risk_level,
+                required_capabilities=tuple(body.required_capabilities),
+                mission_id=body.mission_id,
+                mission_version=body.mission_version,
+                mission_hash=body.mission_hash,
+            )
+        )
+        binding = await supabase.select_one(
+            "ai_execution_bindings",
+            "agent_id,agent_version,provider_binding_version",
+            tenant_id=str(tenant_id),
+            mission_id=body.mission_id,
+            mission_version=body.mission_version,
+            mission_hash=body.mission_hash,
+            model_id=route.model_id,
+            model_version=route.model_version,
+            provider_id=route.provider_id,
+            status="ACTIVE",
+        )
+        if not binding:
+            raise ModelRoutingDenied("no active execution binding for selected route")
+
+        token = body.idempotency_token.strip()
+        idempotency_key = hashlib.sha256(
+            f"cyclothone:developer-ai-run:v1:{principal.app_id}:{token}".encode()
+        ).hexdigest()
+        fingerprint_payload = {
+            "tenant_id": str(tenant_id),
+            "workload_layer": body.workload_layer.strip().upper(),
+            "risk_level": body.risk_level.strip().upper(),
+            "required_capabilities": sorted(set(body.required_capabilities)),
+            "mission_id": body.mission_id,
+            "mission_version": body.mission_version,
+            "mission_hash": body.mission_hash,
+            "model_id": route.model_id,
+            "model_version": route.model_version,
+            "provider_id": route.provider_id,
+        }
+        request_fingerprint = hashlib.sha256(
+            json.dumps(fingerprint_payload, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
+        client = await supabase._ensure()
+        result = await client.rpc(
+            "ai_start_run",
+            {
+                "p_tenant_id": str(tenant_id),
+                "p_agent_id": str(binding["agent_id"]),
+                "p_agent_version": int(binding["agent_version"]),
+                "p_mission_id": body.mission_id,
+                "p_mission_version": body.mission_version,
+                "p_mission_hash": body.mission_hash,
+                "p_model_id": route.model_id,
+                "p_model_version": route.model_version,
+                "p_provider_id": route.provider_id,
+                "p_provider_binding_version": int(binding["provider_binding_version"]),
+                "p_idempotency_key": idempotency_key,
+                "p_request_fingerprint": request_fingerprint,
+                "p_trace_id": body.trace_id,
+                "p_correlation_id": body.correlation_id,
+            },
+        ).execute()
+        row = result.data if isinstance(result.data, dict) else None
+        if not row:
+            raise HTTPException(503, "AI run authority returned incomplete state")
+        return {
+            "run_id": str(row["id"]),
+            "tenant_id": str(row["tenant_id"]),
+            "agent_id": str(row["agent_id"]),
+            "agent_version": int(row["agent_version"]),
+            "mission_id": str(row["mission_id"]),
+            "mission_version": int(row["mission_version"]),
+            "mission_hash": str(row["mission_hash"]),
+            "model_id": str(row["model_id"]),
+            "model_version": int(row["model_version"]),
+            "provider_id": str(row["provider_id"]),
+            "provider_binding_version": int(row["provider_binding_version"]),
+            "run_state": str(row["run_state"]),
+            "request_fingerprint": str(row["request_fingerprint"]),
+        }
+    except ModelRoutingDenied as exc:
+        raise HTTPException(409, str(exc)) from exc
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(503, "AI run authority unavailable") from exc
+
 
 @router.post("/route")
 async def resolve_model_route(
