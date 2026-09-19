@@ -15,6 +15,7 @@ from cyclothone.storage.supabase_client import supabase
 class DeveloperPrincipal:
     tenant_id: str
     app_id: str
+    user_id: str | None
     scopes: frozenset[str]
     auth_type: str
 
@@ -28,7 +29,7 @@ async def authenticate_request(authorization: str | None = Header(None), x_api_k
     if x_api_key:
         identity = await authenticate_api_key(x_api_key.strip())
         if identity:
-            return DeveloperPrincipal(identity["tenant_id"], identity["app_id"], frozenset(identity["scopes"]), "api_key")
+            return DeveloperPrincipal(identity["tenant_id"], identity["app_id"], identity.get("user_id"), frozenset(identity["scopes"]), "api_key")
 
     if authorization:
         scheme, _, credentials = authorization.partition(" ")
@@ -41,8 +42,8 @@ async def authenticate_request(authorization: str | None = Header(None), x_api_k
                 except (TypeError, ValueError):
                     expires_at = datetime.min.replace(tzinfo=UTC)
                 if expires_at > datetime.now(UTC):
-                    app = await supabase.select_one("developer_apps", "tenant_id,active", id=row["app_id"])
+                    app = await supabase.select_one("developer_apps", "tenant_id,owner_user_id,active", id=row["app_id"])
                     if app and app["active"]:
-                        return DeveloperPrincipal(str(app["tenant_id"]), str(row["app_id"]), frozenset(row.get("scope") or []), "oauth")
+                        return DeveloperPrincipal(str(app["tenant_id"]), str(row["app_id"]), str(row.get("user_id") or app["owner_user_id"]), frozenset(row.get("scope") or []), "oauth")
 
     raise HTTPException(401, {"error": "invalid_token"}, headers={"WWW-Authenticate": "Bearer"})
