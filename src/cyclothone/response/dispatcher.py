@@ -24,7 +24,8 @@ class CommandDispatchError(RuntimeError):
 
 def canonical_command_payload(*, command_id: UUID, tenant_id: UUID, device_id: UUID, action: str,
                               args: dict[str, Any], issued_by: str, issued_at: datetime,
-                              expires_at: datetime) -> dict[str, Any]:
+                              expires_at: datetime, case_action_id: UUID | None = None,
+                              execution_context: dict[str, Any] | None = None) -> dict[str, Any]:
     return {
         "id": str(command_id),
         "tenant_id": str(tenant_id),
@@ -34,6 +35,8 @@ def canonical_command_payload(*, command_id: UUID, tenant_id: UUID, device_id: U
         "issued_by": issued_by,
         "issued_at": issued_at.isoformat(),
         "expires_at": expires_at.isoformat(),
+        "case_action_id": str(case_action_id) if case_action_id else None,
+        "execution_context": execution_context or {},
     }
 
 
@@ -74,7 +77,8 @@ def _validate_args(action: str, args: dict[str, Any]) -> None:
 
 class SupabaseCommandDispatcher:
     async def issue(self, *, tenant_id: UUID, device_id: UUID | None, action: str,
-                    args: dict[str, Any], issued_by: str) -> dict[str, Any]:
+                    args: dict[str, Any], issued_by: str, case_action_id: UUID | None = None,
+                    execution_context: dict[str, Any] | None = None) -> dict[str, Any]:
         if device_id is None:
             raise CommandDispatchError("device_id is required for agent commands")
         if action not in _ALLOWED_ACTIONS:
@@ -106,6 +110,7 @@ class SupabaseCommandDispatcher:
             command_id=command_id, tenant_id=tenant_id, device_id=device_id,
             action=action, args=args, issued_by=issued_by[:256],
             issued_at=now, expires_at=expires_at,
+            case_action_id=case_action_id, execution_context=execution_context,
         )
         signature = await sign_digest(command_digest(payload))
 
@@ -114,6 +119,19 @@ class SupabaseCommandDispatcher:
             "action": action, "args": args, "signature": signature.signature_b64,
             "signer_kid": signature.kid, "status": "pending", "issued_by": issued_by[:256],
             "issued_at": now.isoformat(), "expires_at": expires_at.isoformat(),
+            "case_action_id": str(case_action_id) if case_action_id else None,
+            "ai_run_id": (execution_context or {}).get("run_id"),
+            "ai_agent_id": (execution_context or {}).get("agent_id"),
+            "ai_model_id": (execution_context or {}).get("model_id"),
+            "ai_provider_id": (execution_context or {}).get("provider_id"),
+            "ai_tool_name": (execution_context or {}).get("tool_name"),
+            "ai_target": (execution_context or {}).get("target"),
+            "ai_envelope_id": (execution_context or {}).get("envelope_id"),
+            "ai_envelope_hash": (execution_context or {}).get("envelope_hash"),
+            "ai_args_hash": (execution_context or {}).get("args_hash"),
+            "ai_mission_id": (execution_context or {}).get("mission_id"),
+            "ai_mission_version": (execution_context or {}).get("mission_version"),
+            "ai_mission_hash": (execution_context or {}).get("mission_hash"),
         })
         return {"id": str(command_id), "status": "pending",
                 "signer_kid": signature.kid, "expires_at": expires_at.isoformat()}

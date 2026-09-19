@@ -24,7 +24,7 @@ class FakeStore:
     async def update(self, action_id, **values):
         self.rows[str(action_id)].update(values)
 
-    async def blast_allowed(self, rule_id, limit, window_minutes=60):
+    async def blast_allowed(self, rule_id, limit, window_minutes=60, tenant_id=None, device_id=None):
         return self.allowed
 
     async def record_blast(self, **kwargs):

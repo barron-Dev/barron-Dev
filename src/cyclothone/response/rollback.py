@@ -18,6 +18,7 @@ class RollbackConflict(RollbackError):
 
 class ActionStore(Protocol):
     async def get(self, action_id: UUID) -> dict[str, Any] | None: ...
+    async def create(self, **values: Any) -> str: ...
     async def update(self, action_id: UUID, **values: Any) -> None: ...
 
 
@@ -111,37 +112,44 @@ class RollbackService:
             raise RollbackError("case_action has no device_id")
         device_id = UUID(str(raw_device_id))
 
-        command = await self.dispatcher.issue(
-            tenant_id=tenant_id,
-            device_id=device_id,
-            action=inverse.action,
-            args=inverse.args,
-            issued_by=f"rollback:{actor}",
-        )
-
-        # A dispatcher must report terminal success before the source action
-        # becomes rolled_back. Queued/executing commands are not enough.
-        if str(command.get("status", "")).lower() != "success":
-            error = str(command.get("error") or "inverse command did not complete successfully")[:500]
+        rollback_values = {
+            "tenant_id": str(tenant_id),
+            "device_id": str(device_id),
+            "action": inverse.action,
+            "args": inverse.args,
+            "status": "approved",
+            "issued_by": f"rollback:{actor}",
+            "rollback_case_action_id": str(case_action_id),
+        }
+        if row.get("case_id"):
+            rollback_values["case_id"] = str(row["case_id"])
+        rollback_action_id = await self.store.create(**rollback_values)
+        try:
+            command = await self.dispatcher.issue(
+                tenant_id=tenant_id,
+                device_id=device_id,
+                action=inverse.action,
+                args=inverse.args,
+                issued_by=f"rollback:{actor}",
+            )
+            await self.store.update(UUID(rollback_action_id), status="dispatched", command_id=command["id"], dispatched_at=datetime.now(timezone.utc).isoformat())
             await self.store.update(
                 case_action_id,
-                rollback_command_id=command.get("id"),
-                rollback_error=error,
+                rollback_command_id=command["id"],
+                rollback_case_action_id=rollback_action_id,
+                rollback_error=None,
             )
-            raise RollbackError(error)
-
-        now = datetime.now(timezone.utc).isoformat()
-        await self.store.update(
-            case_action_id,
-            status="rolled_back",
-            rolled_back_at=now,
-            rollback_command_id=command["id"],
-            rollback_error=None,
-        )
+        except Exception as exc:
+            error = str(exc)[:500]
+            await self.store.update(UUID(rollback_action_id), status="failed", error=error)
+            await self.store.update(case_action_id, rollback_case_action_id=rollback_action_id, rollback_error=error)
+            raise RollbackError(error) from exc
 
         return {
             "case_action_id": str(case_action_id),
+            "rollback_case_action_id": rollback_action_id,
             "inverse_action": inverse.action,
             "inverse_args": inverse.args,
             "rollback_command_id": command["id"],
+            "status": "dispatched",
         }

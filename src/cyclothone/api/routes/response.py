@@ -9,6 +9,7 @@ from cyclothone.developer.auth import DeveloperPrincipal, authenticate_request
 from cyclothone.response.dispatcher import SupabaseCommandDispatcher
 from cyclothone.response.orchestrator import ResponseOrchestrator
 from cyclothone.response.playbook_runtime import PlaybookRunner, SupabaseActionStore
+from cyclothone.response.rollback import RollbackService
 from cyclothone.storage.supabase_client import supabase
 
 router = APIRouter(prefix="/console/response", tags=["response"])
@@ -146,3 +147,26 @@ async def reject(case_action_id: UUID, body: RejectRequest, principal: Developer
         return await orchestrator.reject(case_action_id, UUID(principal.app_id), body.reason)
     except RuntimeError as exc:
         raise HTTPException(409, {"error": str(exc)}) from exc
+
+
+@router.post("/actions/{case_action_id}/rollback")
+async def rollback(case_action_id: UUID, principal: DeveloperPrincipal = Depends(_write)) -> dict:
+    row = await supabase.select_one(
+        "case_actions", "id,tenant_id,status",
+        id=str(case_action_id), tenant_id=principal.tenant_id,
+    )
+    if not row:
+        raise HTTPException(404, {"error": "case_action_not_found"})
+    try:
+        service = RollbackService(SupabaseCommandDispatcher(), SupabaseActionStore())
+        return await service.rollback(
+            tenant_id=UUID(principal.tenant_id),
+            case_action_id=case_action_id,
+            actor=principal.app_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(422, {"error": str(exc)}) from exc
+    except RuntimeError as exc:
+        raise HTTPException(409, {"error": str(exc)}) from exc
+    except Exception as exc:
+        raise HTTPException(503, {"error": "rollback unavailable"}) from exc

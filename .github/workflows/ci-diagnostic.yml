@@ -1,0 +1,35 @@
+name: Cyclothone CI Diagnostic
+
+on:
+  push:
+    branches:
+      - "bulk/response-execution-chain"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  runner:
+    name: Runner allocation and toolchain diagnostic
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Runner allocated
+        run: |
+          echo "runner=$RUNNER_NAME"
+          echo "os=$RUNNER_OS"
+          echo "arch=$RUNNER_ARCH"
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Verify toolchains
+        run: |
+          python --version
+          node --version
+          npm --version
+          git --version
+          docker --version

@@ -42,15 +42,25 @@ async def report_command_result(command_id: UUID, body: CommandResult,
     if body.command_id != command_id:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="command_id mismatch")
     try:
-        result = await supabase.rpc("complete_device_command", {
-            "p_device_id": device.device_id, "p_command_id": str(command_id),
-            "p_status": body.status, "p_result": body.result, "p_error": body.error,
+        settlement = await supabase.rpc("ai_complete_device_command_result", {
+            "p_device_id": str(device.device_id),
+            "p_command_id": str(command_id),
+            "p_status": body.status,
+            "p_result": body.result,
+            "p_error": body.error,
+            "p_actor": f"device:{device.device_id}",
         })
     except Exception as exc:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                            detail="command result persistence unavailable") from exc
-    row = result[0] if isinstance(result, list) and result else result
-    if not row or not row.get("accepted"):
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT,
-                            detail="command is no longer executable")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="command execution completion authority unavailable",
+        ) from exc
+
+    row = settlement[0] if isinstance(settlement, list) and settlement else settlement
+    if not row:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="command completion was not accepted",
+        )
+
     return row

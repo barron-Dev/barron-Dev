@@ -22,7 +22,7 @@ export type ConsoleOverview = {
 const DEFAULT_API_BASE = "https://cyclothone-api-production.up.railway.app";
 
 function resolveApiBase() {
-  const configured = (process.env.NEXT_PUBLIC_SENTINEL_API_URL ?? "").trim().replace(/\/$/, "");
+  const configured = (process.env.NEXT_PUBLIC_CYCLOTHONE_API_URL ?? "").trim().replace(/\/$/, "");
   if (!configured) return DEFAULT_API_BASE;
 
   try {
@@ -40,12 +40,19 @@ function resolveApiBase() {
 const API_BASE = resolveApiBase();
 let accessToken: string | null = null;
 
+if (typeof window !== "undefined") accessToken = sessionStorage.getItem("cyclothone_access_token");
+
 export function setApiToken(token: string) {
   accessToken = token.trim() || null;
+  if (typeof window !== "undefined") {
+    if (accessToken) sessionStorage.setItem("cyclothone_access_token", accessToken);
+    else sessionStorage.removeItem("cyclothone_access_token");
+  }
 }
 
 export function clearApiToken() {
   accessToken = null;
+  if (typeof window !== "undefined") sessionStorage.removeItem("cyclothone_access_token");
 }
 
 export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -81,4 +88,68 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
 
 export function getOverview() {
   return apiFetch<ConsoleOverview>("/api/v1/console/overview");
+}
+
+export type ModelRouteRequest = {
+  workload_layer: string;
+  risk_level: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+  required_capabilities?: string[];
+  mission_id?: string;
+  mission_version?: number;
+  mission_hash?: string;
+};
+
+export type ModelRoute = {
+  route_id: string;
+  route_name: string;
+  workload_layer: string;
+  model_id: string;
+  model_version: number;
+  provider_id: string;
+  priority: number;
+  max_risk_level: string;
+  capabilities: string[];
+  constraints: Record<string, unknown>;
+  tenant_specific: boolean;
+};
+
+export function resolveModelRoute(body: ModelRouteRequest) {
+  return apiFetch<ModelRoute>("/api/v1/ai/route", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+export type AIRunStartRequest = ModelRouteRequest & {
+  mission_id: string;
+  mission_version: number;
+  mission_hash: string;
+  idempotency_token: string;
+  trace_id?: string;
+  correlation_id?: string;
+};
+
+export type AIRunStart = {
+  run_id: string;
+  tenant_id: string;
+  agent_id: string;
+  agent_version: number;
+  mission_id: string;
+  mission_version: number;
+  mission_hash: string;
+  model_id: string;
+  model_version: number;
+  provider_id: string;
+  provider_binding_version: number;
+  run_state: string;
+  request_fingerprint: string;
+};
+
+export function startAIRun(body: AIRunStartRequest) {
+  return apiFetch<AIRunStart>("/api/v1/ai/run", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
 }

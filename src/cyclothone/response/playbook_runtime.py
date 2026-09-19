@@ -11,27 +11,49 @@ from cyclothone.storage.supabase_client import supabase
 class SupabaseActionStore(ActionStore):
     async def create(self, **values: Any) -> str:
         row = await supabase.insert_one("case_actions", values)
+        case_id = values.get("case_id")
+        if case_id:
+            await supabase.insert_one("case_timeline", {
+                "case_id": str(case_id),
+                "actor": str(values.get("issued_by") or "response"),
+                "kind": "response_action_created",
+                "payload": {"case_action_id": str(row["id"]), "action": values.get("action"), "status": values.get("status")},
+            })
         return str(row["id"])
 
     async def get(self, action_id: UUID) -> dict[str, Any] | None:
         return await supabase.select_one("case_actions", "*", id=str(action_id))
 
     async def update(self, action_id: UUID, **values: Any) -> None:
+        current = await self.get(action_id)
+        if not current:
+            raise RuntimeError("case_action not found during update")
         updated = await supabase.update("case_actions", values, id=str(action_id))
         if updated is None:
             raise RuntimeError("case_action not found during update")
+        if current.get("case_id"):
+            actor = str(values.get("issued_by") or values.get("approved_by") or values.get("rejected_by") or "response")
+            await supabase.insert_one("case_timeline", {
+                "case_id": str(current["case_id"]),
+                "actor": actor,
+                "kind": "response_action_updated",
+                "payload": {"case_action_id": str(action_id), "changes": values},
+            })
 
-    async def blast_allowed(self, rule_id: UUID, limit: int, window_minutes: int = 60) -> bool:
-        client = await supabase._ensure()
-        cutoff = (datetime.now(UTC) - timedelta(minutes=window_minutes)).isoformat()
-        response = await (
-            client.table("rule_blast_log")
-            .select("id", count="exact", head=True)
-            .eq("rule_id", str(rule_id))
-            .gte("ts", cutoff)
-            .execute()
-        )
-        return int(response.count or 0) < max(1, limit)
+    async def blast_allowed(
+        self, rule_id: UUID, limit: int, window_minutes: int = 60,
+        tenant_id: UUID | None = None, device_id: UUID | None = None,
+    ) -> bool:
+        if tenant_id is None or device_id is None:
+            return False
+        rows = await supabase.rpc("check_blast_radius_scoped", {
+            "p_rule_id": str(rule_id),
+            "p_tenant_id": str(tenant_id),
+            "p_device_id": str(device_id),
+            "p_limit": int(limit),
+            "p_window_minutes": int(window_minutes),
+        })
+        return bool(rows)
 
     async def record_blast(self, *, rule_id: UUID, tenant_id: UUID, device_id: UUID, case_id: UUID) -> None:
         await supabase.insert_one("rule_blast_log", {
