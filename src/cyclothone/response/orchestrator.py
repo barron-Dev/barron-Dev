@@ -159,6 +159,9 @@ class ResponseOrchestrator:
                         tenant_id=tenant_id,
                         expected_model_id=request.model_id,
                         expected_provider_id=request.provider_id,
+                        expected_mission_id=request.mission_id,
+                        expected_mission_version=request.mission_version,
+                        expected_mission_hash=request.mission_hash,
                         twin=DigitalTwinService(tenant_id),
                     )
                     if not approval_required and not dry_run:
