@@ -9,7 +9,6 @@ from pydantic import BaseModel, Field
 from cyclothone.developer.auth import DeveloperPrincipal, authenticate_request
 from cyclothone.hunting.executor import QueryExecutor
 from cyclothone.hunting.parser import parse
-from cyclothone.hunting.starter import STARTER_HUNTS
 from cyclothone.storage.supabase_client import supabase
 
 router = APIRouter(prefix="/hunts", tags=["hunting"])
@@ -159,25 +158,6 @@ async def run_saved_hunt(hunt_id: UUID, principal: DeveloperPrincipal = Depends(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, f"syntax: {exc}") from exc
     await _record_run(UUID(principal.tenant_id), hunt_id, hunt["query"], len(rows), elapsed, "success", principal)
     return {"rows": rows, "count": len(rows), "duration_ms": elapsed}
-
-
-@router.post("/seed", status_code=201)
-async def seed_starter_hunts(principal: DeveloperPrincipal = Depends(authenticate_request)) -> dict:
-    principal.require(("hunting:write",))
-    owner = await _owner_user_id(principal)
-    created = 0
-    for hunt in STARTER_HUNTS:
-        async def _do(hunt=hunt):
-            return await (await supabase._ensure()).table("hunts").insert({
-                "tenant_id": principal.tenant_id, "name": hunt["name"], "description": hunt.get("description"),
-                "query": hunt["query"], "tags": hunt.get("tags", []), "is_template": True, "created_by": owner,
-            }).execute()
-        try:
-            await supabase._retry(_do, attempts=1)
-            created += 1
-        except Exception:
-            continue
-    return {"created": created}
 
 
 async def _record_run(tenant_id: UUID, hunt_id: UUID | None, query: str, rows: int, elapsed: int, state: str, principal: DeveloperPrincipal) -> None:
