@@ -142,7 +142,7 @@ class ResponseOrchestrator:
                         raise RuntimeError("envelope request target mismatch")
                     step_envelope = await self.envelope_issuer.issue(request)
                     from cyclothone.twin.service import DigitalTwinService
-                    validation = await self.execution_gate.validate(
+                    await self.execution_gate.validate(
                         envelope=step_envelope,
                         tenant_id=tenant_id,
                         expected_model_id=request.model_id,
