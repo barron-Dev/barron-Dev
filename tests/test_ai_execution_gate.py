@@ -166,7 +166,7 @@ async def test_envelope_issuer_rejects_undeclared_tool(monkeypatch):
             EnvelopeIssueRequest(
                 tenant_id=tenant, agent_id=agent_id, model_id="model-a",
                 provider_id="provider-a", tool_name="isolate_host",
-                action="isolate_host", args={}, target="device-1",
+                action="isolate_host", args={}, target="device-1", mission_id="mission-a", mission_version=1, mission_hash="d" * 64,
             )
         )
 
@@ -198,7 +198,7 @@ async def test_envelope_issuer_requires_persisted_provider_authority(monkeypatch
         await issuer.issue(EnvelopeIssueRequest(
             tenant_id=tenant_id, agent_id=agent_id, model_id="model-a",
             provider_id="provider-a", tool_name="kill_process", action="kill_process",
-            args={"pid": 7}, target="device-1",
+            args={"pid": 7}, target="device-1", mission_id="mission-a", mission_version=1, mission_hash="d" * 64,
         ))
 
 
@@ -228,7 +228,7 @@ async def test_envelope_issuer_signs_only_bound_agent(monkeypatch):
         async def resolve(self, **kwargs):
             return {"active": True, "binding_hash": "a" * 64}
 
-    envelope = await AIEnvelopeIssuer(Binding()).issue(EnvelopeIssueRequest(
+    envelope = await AIEnvelopeIssuer(Binding(), AsyncMock(resolve=AsyncMock(return_value={"active": True}))).issue(EnvelopeIssueRequest(
         tenant_id=tenant_id, agent_id=agent_id, model_id="model-a",
         provider_id="provider-a", tool_name="kill_process", action="kill_process",
         args={"pid": 7}, target="device-1", mission_id="mission-a", mission_version=1, mission_hash="d" * 64,
