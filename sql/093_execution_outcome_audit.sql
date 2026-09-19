@@ -14,6 +14,24 @@ create table if not exists public.ai_execution_outcomes (
   unique (run_id)
 );
 
+create or replace function public.ai_execution_outcomes_immutable()
+returns trigger
+language plpgsql
+security definer
+set search_path = public,pg_catalog
+as $
+begin
+  if tg_op <> 'INSERT' then
+    raise exception 'execution_outcome_immutable';
+  end if;
+  return new;
+end;
+$;
+
+create trigger trg_ai_execution_outcomes_immutable
+before update or delete on public.ai_execution_outcomes
+for each row execute function public.ai_execution_outcomes_immutable();
+
 create index if not exists idx_ai_execution_outcomes_tenant_time
   on public.ai_execution_outcomes(tenant_id,reported_at desc);
 
