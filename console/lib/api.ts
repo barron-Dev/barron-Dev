@@ -22,7 +22,7 @@ export type ConsoleOverview = {
 const DEFAULT_API_BASE = "https://cyclothone-api-production.up.railway.app";
 
 function resolveApiBase() {
-  const configured = (process.env.NEXT_PUBLIC_SENTINEL_API_URL ?? "").trim().replace(/\/$/, "");
+  const configured = (process.env.NEXT_PUBLIC_CYCLOTHONE_API_URL ?? "").trim().replace(/\/$/, "");
   if (!configured) return DEFAULT_API_BASE;
 
   try {
