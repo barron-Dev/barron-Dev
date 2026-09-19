@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { use, useEffect, useMemo, useState } from "react";
 
 const DEFAULT_API_BASE = "https://cyclothone-api-production.up.railway.app";
 const API = (process.env.NEXT_PUBLIC_CYCLOTHONE_API_URL ?? DEFAULT_API_BASE).trim().replace(/\/$/, "");
@@ -80,13 +80,11 @@ function DataView({ data }: { data: unknown }) {
 }
 
 export default function ModulePage({ params }: { params: Promise<{ module?: string[] }> }) {
-  const [segments, setSegments] = useState<string[]>([]);
+  const { module: segments = [] } = use(params);
   const [data, setData] = useState<unknown>(null);
   const [status, setStatus] = useState("Loading");
   const [error, setError] = useState<string | null>(null);
   const [token, setToken] = useState("");
-
-  useEffect(() => { void params.then((p) => setSegments(p.module ?? [])); }, [params]);
 
   const key = useMemo(() => segments.join("/"), [segments]);
   const module = modules[key];
