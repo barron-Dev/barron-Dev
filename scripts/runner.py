@@ -283,6 +283,19 @@ class MigrationRunner:
                 logger.error("version %s is not successfully applied", migration.version)
                 return 1
 
+            if row["checksum"] != migration.checksum:
+                logger.error("cannot rollback %s: migration file checksum drifted", migration.version)
+                return 2
+
+            with conn.cursor() as cur:
+                cur.execute(
+                    "select 1 from schema_migrations where status=%s and version>%s limit 1",
+                    ("success", migration.version),
+                )
+                if cur.fetchone():
+                    logger.error("cannot rollback %s: a later migration is still applied", migration.version)
+                    return 2
+
             down = self._down_path_for(migration)
             if not down.exists():
                 logger.error("no rollback file: %s", down.name)
