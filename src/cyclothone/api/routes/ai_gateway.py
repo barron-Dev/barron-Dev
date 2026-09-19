@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from cyclothone.ai.injection import PromptInjectionDetector
+from cyclothone.ai.model_router import ModelRouteRequest, ModelRoutingDenied, SupabaseModelRouter
 from cyclothone.ai.tool_policy import ToolPolicyEngine
 from cyclothone.ai.trust_graph import AgentTrustGraph
 from cyclothone.developer.auth import DeveloperPrincipal, authenticate_request
@@ -18,6 +19,7 @@ router = APIRouter(prefix="/ai", tags=["ai-security"])
 _injection = PromptInjectionDetector()
 _tools = ToolPolicyEngine()
 _graph = AgentTrustGraph()
+_router = SupabaseModelRouter()
 
 class PromptCheck(BaseModel):
     agent_id: UUID
@@ -42,6 +44,15 @@ class AgentCall(BaseModel):
     source_agent_id: UUID
     target_agent_id: UUID
     trace_id: UUID | None = None
+
+class ModelRouteRequestBody(BaseModel):
+    workload_layer: str = Field(min_length=1, max_length=64)
+    risk_level: str = Field(pattern="^(LOW|MEDIUM|HIGH|CRITICAL)$")
+    required_capabilities: list[str] = Field(default_factory=list, max_length=100)
+    mission_id: str | None = Field(default=None, min_length=1, max_length=256)
+    mission_version: int | None = Field(default=None, ge=1)
+    mission_hash: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+
 
 class AgentCreate(BaseModel):
     name: str = Field(min_length=1, max_length=120)
@@ -86,6 +97,43 @@ async def _incident(tenant_id: UUID, agent_id: UUID, action_id: int, category: s
             "category": category, "severity": severity, "action_taken": "blocked", "details": details,
         }).execute()
     await supabase._retry(do)
+
+@router.post("/route")
+async def resolve_model_route(
+    body: ModelRouteRequestBody,
+    principal: DeveloperPrincipal = Depends(authenticate_request),
+):
+    principal.require(("ai:inspect",))
+    if (body.mission_id is None) != (body.mission_version is None):
+        raise HTTPException(400, "mission identity must be complete")
+    try:
+        route = await _router.resolve(
+            ModelRouteRequest(
+                tenant_id=UUID(principal.tenant_id),
+                workload_layer=body.workload_layer,
+                risk_level=body.risk_level,
+                required_capabilities=tuple(body.required_capabilities),
+                mission_id=body.mission_id,
+                mission_version=body.mission_version,
+                mission_hash=body.mission_hash,
+            )
+        )
+    except ModelRoutingDenied as exc:
+        raise HTTPException(409, str(exc)) from exc
+    return {
+        "route_id": str(route.route_id),
+        "route_name": route.route_name,
+        "workload_layer": route.workload_layer,
+        "model_id": route.model_id,
+        "model_version": route.model_version,
+        "provider_id": route.provider_id,
+        "priority": route.priority,
+        "max_risk_level": route.max_risk_level,
+        "capabilities": list(route.capabilities),
+        "constraints": route.constraints,
+        "tenant_specific": route.tenant_specific,
+    }
+
 
 @router.post("/check-prompt")
 async def check_prompt(body: PromptCheck, principal: DeveloperPrincipal = Depends(authenticate_request)):
