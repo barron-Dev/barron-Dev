@@ -30,9 +30,11 @@ class AgentEnvelope:
     expires_at: datetime
     signer_kid: str
     signature_b64: str
+    version: str = "1"
+    binding_hash: str = ""
 
     def canonical(self) -> dict[str, Any]:
-        return {"envelope_id": self.envelope_id, "tenant_id": str(self.tenant_id), "agent_id": str(self.agent_id), "model_id": self.model_id, "provider_id": self.provider_id, "tool_name": self.tool_name, "action": self.action, "args": self.args, "target": self.target, "issued_at": self.issued_at.isoformat(), "expires_at": self.expires_at.isoformat()}
+        return {"envelope_id": self.envelope_id, "tenant_id": str(self.tenant_id), "agent_id": str(self.agent_id), "model_id": self.model_id, "provider_id": self.provider_id, "tool_name": self.tool_name, "action": self.action, "args": self.args, "target": self.target, "issued_at": self.issued_at.isoformat(), "expires_at": self.expires_at.isoformat(), "version": self.version, "binding_hash": self.binding_hash}
 
     def to_record(self) -> dict[str, Any]:
         return {**self.canonical(), "signer_kid": self.signer_kid, "signature_b64": self.signature_b64}
