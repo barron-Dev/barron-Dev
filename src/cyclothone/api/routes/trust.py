@@ -75,7 +75,7 @@ async def list_evidence(subject_id: str, principal: DeveloperPrincipal = Depends
         raise HTTPException(404, "trust_subject_not_found")
     rows = await supabase.select(
         "trust_evidence",
-        "id,subject_id,evidence_type,source_type,source_id,content_type,content_uri,content_hash,evidence_hash,collected_at,expires_at,signature_algorithm,signer_key_id,metadata,created_at",
+        "id,subject_id,evidence_type,source_type,source_id,content_type,content_uri,content_hash,evidence_hash,collected_at,expires_at,signature_algorithm,signer_key_id,verification_status,verifier_type,verifier_id,verifier_version,verification_method,verified_payload_hash,verification_hash,verified_at,verification_failure_reason,metadata,created_at",
         subject_id=subject_id,
         tenant_id=principal.tenant_id,
     )
@@ -109,6 +109,134 @@ async def record_evidence(body: EvidenceRequest, principal: DeveloperPrincipal =
     except Exception as exc:
         raise HTTPException(400, "trust_evidence_rejected") from exc
     return {"evidence": row}
+
+
+class VerifyEvidenceRequest(BaseModel):
+    verifier_type: str = Field(default="CYCLOTHONE", min_length=1, max_length=128)
+    verifier_id: str = Field(default="cyclothone-trust-verifier", min_length=1, max_length=256)
+    verifier_version: str | None = Field(default="1", max_length=128)
+
+
+@router.post("/evidence/{evidence_id}/verify")
+async def verify_evidence(
+    evidence_id: str,
+    body: VerifyEvidenceRequest,
+    principal: DeveloperPrincipal = Depends(_write),
+) -> dict:
+    evidence = await supabase.select_one(
+        "trust_evidence",
+        "id,tenant_id,subject_id,evidence_type,source_type,source_id,content_hash,evidence_hash,collected_at,expires_at,signature_algorithm,signer_key_id,signature,verification_status",
+        id=evidence_id,
+        tenant_id=principal.tenant_id,
+    )
+    if not evidence:
+        raise HTTPException(404, "trust_evidence_not_found")
+
+    now = datetime.now(timezone.utc)
+    reason = None
+    key = None
+    try:
+        if evidence["expires_at"]:
+            expires = datetime.fromisoformat(evidence["expires_at"].replace("Z", "+00:00"))
+            if now >= expires:
+                raise ValueError("evidence_expired")
+        if evidence["signature_algorithm"] != "ED25519":
+            raise ValueError("unsupported_evidence_signature_algorithm")
+        if not evidence["signer_key_id"] or not evidence["signature"]:
+            raise ValueError("signed_evidence_required")
+
+        key = await supabase.select_one(
+            "trust_signing_keys",
+            "key_id,tenant_id,algorithm,purpose,public_key,status,not_before,not_after",
+            tenant_id=principal.tenant_id,
+            key_id=evidence["signer_key_id"],
+        )
+        if not key or key["purpose"] != "TRUST_EVIDENCE" or key["algorithm"] != "ED25519":
+            raise ValueError("trust_evidence_signing_key_not_found")
+        if key["status"] != "ACTIVE":
+            raise ValueError("trust_evidence_signing_key_not_active")
+        not_before = datetime.fromisoformat(key["not_before"].replace("Z", "+00:00"))
+        not_after = (
+            datetime.fromisoformat(key["not_after"].replace("Z", "+00:00"))
+            if key["not_after"] else None
+        )
+        if now < not_before or (not_after and now >= not_after):
+            raise ValueError("trust_evidence_signing_key_not_active")
+
+        # The signed message is the exact canonical evidence envelope digest
+        # already stored by the authority. This proves signer possession over
+        # the recorded evidence identity; content retrieval/integrity remains
+        # a separate source-specific verification step.
+        _verify_ed25519(
+            key["public_key"],
+            evidence["signature"],
+            bytes.fromhex(evidence["evidence_hash"]),
+        )
+    except (HTTPException, ValueError) as exc:
+        reason = exc.detail if isinstance(exc, HTTPException) else str(exc)
+        try:
+            await supabase.rpc("trust_commit_evidence_verification", {
+                "p_evidence_id": evidence_id,
+                "p_verification_status": "EXPIRED" if reason == "evidence_expired" else "FAILED",
+                "p_verifier_type": body.verifier_type,
+                "p_verifier_id": body.verifier_id,
+                "p_verifier_version": body.verifier_version,
+                "p_verification_method": "ED25519_CANONICAL_EVIDENCE_HASH",
+                "p_signer_key_id": evidence["signer_key_id"],
+                "p_signature_algorithm": evidence["signature_algorithm"],
+                "p_verified_payload_hash": None,
+                "p_verified_at": now.isoformat(),
+                "p_reason": reason,
+            })
+        except Exception:
+            pass
+        raise HTTPException(400, "trust_evidence_verification_failed") from exc
+
+    try:
+        event = await supabase.rpc("trust_commit_evidence_verification", {
+            "p_evidence_id": evidence_id,
+            "p_verification_status": "VERIFIED",
+            "p_verifier_type": body.verifier_type,
+            "p_verifier_id": body.verifier_id,
+            "p_verifier_version": body.verifier_version,
+            "p_verification_method": "ED25519_CANONICAL_EVIDENCE_HASH",
+            "p_signer_key_id": evidence["signer_key_id"],
+            "p_signature_algorithm": evidence["signature_algorithm"],
+            "p_verified_payload_hash": evidence["evidence_hash"],
+            "p_verified_at": now.isoformat(),
+            "p_reason": None,
+        })
+    except Exception as exc:
+        raise HTTPException(400, "trust_evidence_verification_commit_failed") from exc
+
+    return {
+        "verified": True,
+        "evidence_id": evidence_id,
+        "verification": event,
+        "checked_at": now.isoformat(),
+    }
+
+
+@router.get("/evidence/{evidence_id}/verification")
+async def list_evidence_verification(
+    evidence_id: str,
+    principal: DeveloperPrincipal = Depends(_read),
+) -> dict:
+    evidence = await supabase.select_one(
+        "trust_evidence",
+        "id,tenant_id,subject_id,verification_status,verification_hash,verified_at,verification_failure_reason",
+        id=evidence_id,
+        tenant_id=principal.tenant_id,
+    )
+    if not evidence:
+        raise HTTPException(404, "trust_evidence_not_found")
+    events = await supabase.select(
+        "trust_evidence_verification_events",
+        "id,evidence_id,subject_id,verification_status,verifier_type,verifier_id,verifier_version,verification_method,signer_key_id,signature_algorithm,verified_payload_hash,evidence_hash,verification_hash,reason,verified_at,created_at",
+        evidence_id=evidence_id,
+        tenant_id=principal.tenant_id,
+    )
+    return {"evidence": evidence, "events": events}
 
 
 @router.get("/subjects/{subject_id}/attestations")
