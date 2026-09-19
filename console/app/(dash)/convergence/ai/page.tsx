@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { startAIRun, type AIRunStart } from "../../../lib/api";
+import { executeAIRun, startAIRun, type AIRunExecution, type AIRunStart } from "../../../lib/api";
 
 export default function AISecurityPage() {
   const [missionId, setMissionId] = useState("");
@@ -11,6 +11,7 @@ export default function AISecurityPage() {
   const [risk, setRisk] = useState<"LOW"|"MEDIUM"|"HIGH"|"CRITICAL">("LOW");
   const [input, setInput] = useState("");
   const [run, setRun] = useState<AIRunStart | null>(null);
+  const [execution, setExecution] = useState<AIRunExecution | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -18,6 +19,7 @@ export default function AISecurityPage() {
     setBusy(true);
     setError("");
     setRun(null);
+    setExecution(null);
     try {
       if (!missionId || !missionHash || !input) throw new Error("Mission ID, mission hash, and input are required.");
       const result = await startAIRun({
@@ -31,6 +33,8 @@ export default function AISecurityPage() {
         correlation_id: crypto.randomUUID(),
       });
       setRun(result);
+      const executed = await executeAIRun(result.run_id, input);
+      setExecution(executed);
     } catch (e) {
       setError(e instanceof Error ? e.message : "AI run could not be started");
     } finally {
@@ -72,9 +76,20 @@ export default function AISecurityPage() {
           <label className="block text-xs text-[#8a97a8]">Input
             <textarea value={input} onChange={e=>setInput(e.target.value)} rows={5} className="mt-1 w-full border border-[#2a3646] bg-[#030508] p-2 text-sm" placeholder="Execution input is supplied to the provider after canonical run authorization." />
           </label>
-          <button disabled={busy} onClick={()=>void execute()} className="h-9 rounded border border-[#00d9ff] px-4 text-xs text-[#00d9ff] disabled:opacity-50">{busy ? "Starting…" : "Start canonical AI run"}</button>
+          <button disabled={busy} onClick={()=>void execute()} className="h-9 rounded border border-[#00d9ff] px-4 text-xs text-[#00d9ff] disabled:opacity-50">{busy ? "Executing…" : "Execute canonical AI run"}</button>
           {error && <div role="alert" className="border border-[#ff2d55]/40 bg-[#ff2d55]/5 p-3 text-xs text-[#ff6b83]">{error}</div>}
         </section>
+
+        {execution && <section className="border border-[#1a2330] bg-[#0a0e14] p-5">
+          <div className="text-xs uppercase tracking-[.12em] text-[#5a6675]">Provider execution completed</div>
+          <pre className="mt-3 whitespace-pre-wrap break-words text-sm">{execution.output_text}</pre>
+          <div className="mt-4 grid gap-3 md:grid-cols-2">
+            <div><div className="text-[10px] uppercase text-[#5a6675]">Model</div><div className="mt-1 font-mono text-xs">{execution.model_id}</div></div>
+            <div><div className="text-[10px] uppercase text-[#5a6675]">Provider</div><div className="mt-1 font-mono text-xs">{execution.provider_id}</div></div>
+            <div><div className="text-[10px] uppercase text-[#5a6675]">Tokens</div><div className="mt-1 font-mono text-xs">{execution.usage.tokens_in} in / {execution.usage.tokens_out} out / {execution.usage.tokens_cached} cached</div></div>
+            <div><div className="text-[10px] uppercase text-[#5a6675]">Latency</div><div className="mt-1 font-mono text-xs">{execution.usage.latency_ms} ms</div></div>
+          </div>
+        </section>}
 
         {run && <section className="border border-[#1a2330] bg-[#0a0e14] p-5">
           <div className="text-xs uppercase tracking-[.12em] text-[#5a6675]">Canonical run admitted</div>

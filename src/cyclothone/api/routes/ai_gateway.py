@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 
 from cyclothone.ai.injection import PromptInjectionDetector
 from cyclothone.ai.model_router import ModelRouteRequest, ModelRoutingDenied, SupabaseModelRouter
+from cyclothone.ai.provider_execution import execute_openai_run
 from cyclothone.ai.tool_policy import ToolPolicyEngine
 from cyclothone.ai.trust_graph import AgentTrustGraph
 from cyclothone.developer.auth import DeveloperPrincipal, authenticate_request
@@ -52,6 +53,10 @@ class ModelRouteRequestBody(BaseModel):
     mission_id: str | None = Field(default=None, min_length=1, max_length=256)
     mission_version: int | None = Field(default=None, ge=1)
     mission_hash: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+
+
+class AIRunExecuteRequest(BaseModel):
+    input_text: str = Field(min_length=1, max_length=1_000_000)
 
 
 class AIRunStartRequest(BaseModel):
@@ -207,6 +212,51 @@ async def start_model_run(
         raise
     except Exception as exc:
         raise HTTPException(503, "AI run authority unavailable") from exc
+
+
+@router.post("/run/{run_id}/execute")
+async def execute_model_run(
+    run_id: UUID,
+    body: AIRunExecuteRequest,
+    principal: DeveloperPrincipal = Depends(authenticate_request),
+):
+    principal.require(("ai:inspect",))
+    tenant_id = UUID(principal.tenant_id)
+    client = await supabase._ensure()
+    try:
+        response = await client.table("ai_runs").select(
+            "id,tenant_id,provider_id,model_id,run_state"
+        ).eq("id", str(run_id)).eq("tenant_id", str(tenant_id)).limit(1).execute()
+    except Exception as exc:
+        raise HTTPException(503, "AI run authority unavailable") from exc
+    rows = response.data or []
+    if not rows:
+        raise HTTPException(404, "AI run not found")
+    run = rows[0]
+    try:
+        result = await execute_openai_run(
+            run_id=run_id,
+            input_text=body.input_text,
+            actor=f"developer_ai:{principal.app_id}",
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(502, "AI provider execution failed") from exc
+    return {
+        "run_id": str(run_id),
+        "provider_id": str(run["provider_id"]),
+        "model_id": str(run["model_id"]),
+        "run_state": "COMPLETED",
+        "output_text": result.output_text,
+        "usage": {
+            "tokens_in": result.tokens_in,
+            "tokens_out": result.tokens_out,
+            "tokens_cached": result.tokens_cached,
+            "latency_ms": result.latency_ms,
+            "cost_usd": str(result.cost_usd),
+        },
+    }
 
 
 @router.post("/route")
