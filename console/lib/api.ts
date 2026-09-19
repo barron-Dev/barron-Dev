@@ -284,3 +284,22 @@ export function getCustomerVerification(organizationId: string) {
     submitted_at: string | null; verified_at: string | null; expires_at: string | null; created_at: string;
   }> }>(`/api/v1/customer/organizations/${encodeURIComponent(organizationId)}/verification`);
 }
+
+
+export type OrganizationMember = { organization_id:string; user_id:string; role:string; status:string; created_at:string };
+export type OrganizationInvitation = { id:string; organization_id:string; invited_by:string; email:string; role:string; expires_at:string; accepted_at:string|null; accepted_user_id:string|null; created_at:string };
+
+export function getOrganizationMembers(id:string) {
+  return apiFetch<{members:OrganizationMember[]}>(`/api/v1/customer/organizations/${encodeURIComponent(id)}/members`);
+}
+export function getOrganizationInvitations(id:string) {
+  return apiFetch<{invitations:OrganizationInvitation[]}>(`/api/v1/customer/organizations/${encodeURIComponent(id)}/invitations`);
+}
+export function createOrganizationInvitation(id:string,email:string,role:string) {
+  return apiFetch<{invitation:OrganizationInvitation;invite_token:string;warning:string}>(`/api/v1/customer/organizations/${encodeURIComponent(id)}/invitations`,{
+    method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email,role})
+  });
+}
+export function revokeOrganizationInvitation(orgId:string,invitationId:string) {
+  return apiFetch<{status:string}>(`/api/v1/customer/organizations/${encodeURIComponent(orgId)}/invitations/${encodeURIComponent(invitationId)}/revoke`,{method:"POST"});
+}
