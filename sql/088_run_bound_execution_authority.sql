@@ -23,6 +23,8 @@ set search_path = public,pg_catalog
 as $$
 declare
   r public.ai_runs;
+  v_result jsonb;
+  v_claimed boolean;
 begin
   select * into r
     from public.ai_runs
@@ -33,11 +35,7 @@ begin
     raise exception 'run_not_found';
   end if;
 
-  declare
-    v_result jsonb;
-    v_claimed boolean;
-  begin
-    v_result := public.ai_authorize_and_commit_execution(
+  v_result := public.ai_authorize_and_commit_execution(
       r.id,
       r.agent_id,
       r.mission_id,
@@ -83,8 +81,7 @@ begin
       end if;
     end if;
 
-    return v_result;
-  end;
+  return v_result;
 end;
 $$;
 
