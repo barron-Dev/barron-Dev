@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { setApiToken } from "../lib/api";
+import { getOverview, setApiToken } from "../lib/api";
 
 type FeedItem = { id:string; device_id:string|null; detector:string; score:number|null; verdict:string|null; reasons:string[]|null; created_at:string; mitre_technique?:string|null };
 type Overview = { generated_at:string; agents:{total:number}; threats:{last_24h:number;previous_24h:number;delta_percent:number|null}; critical:{count:number}; uptime_percent:number|null; response_p95_ms:number|null; coverage:Record<string,{observed:number}|null>; feed:FeedItem[] };
@@ -18,7 +18,7 @@ function verdictTone(v:string|null){const x=(v??"").toLowerCase();return x==="bl
 export default function Home(){
  const [data,setData]=useState<Overview|null>(null),[error,setError]=useState<string|null>(null),[token,setToken]=useState(""),[collapsed,setCollapsed]=useState(false),[palette,setPalette]=useState(false),[query,setQuery]=useState("");
  const load=async()=>{try{const r=await fetch(`${apiBase}/api/v1/console/overview`,{headers:token?{Authorization:`Bearer ${token}`}:{} ,cache:"no-store"});if(!r.ok)throw new Error(r.status===401?"Authentication required":r.status===403?"console:read scope required":`API ${r.status}`);setData(await r.json());setError(null)}catch(e){setError(e instanceof Error?e.message:"Unable to reach Cyclothone API")}};
- useEffect(()=>{void load()},[]);useEffect(()=>{const h=(e:KeyboardEvent)=>{if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==="k"){e.preventDefault();setPalette(true);setQuery("")}if((e.metaKey||e.ctrlKey)&&e.key==="\\"){e.preventDefault();setCollapsed(v=>!v)}if(e.key==="Escape")setPalette(false)};window.addEventListener("keydown",h);return()=>window.removeEventListener("keydown",h)},[]);
+ useEffect(()=>{if(typeof window!=="undefined"){const saved=sessionStorage.getItem("cyclothone_access_token")??"";setToken(saved)}void load()},[]);useEffect(()=>{const h=(e:KeyboardEvent)=>{if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==="k"){e.preventDefault();setPalette(true);setQuery("")}if((e.metaKey||e.ctrlKey)&&e.key==="\\"){e.preventDefault();setCollapsed(v=>!v)}if(e.key==="Escape")setPalette(false)};window.addEventListener("keydown",h);return()=>window.removeEventListener("keydown",h)},[]);
  const delta=useMemo(()=>data?.threats.delta_percent==null?"—":`${data.threats.delta_percent>0?"+":""}${data.threats.delta_percent}%`,[data]);
  const feed=useMemo(()=>{const q=query.trim().toLowerCase();if(!q)return data?.feed??[];return (data?.feed??[]).filter(x=>[x.detector,x.verdict,x.device_id,...(x.reasons??[]),x.mitre_technique].some(v=>(v??"").toLowerCase().includes(q)))},[data,query]);
  const suggestions=["critical detections","executive overview","response queue","device"];
