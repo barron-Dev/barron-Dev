@@ -284,6 +284,7 @@ create or replace function workforce.authorize(
   p_user_id uuid,
   p_permission_key text,
   p_tenant_id uuid default null,
+  p_project_id uuid default null,
   p_resource_id uuid default null
 )
 returns table (
@@ -370,6 +371,7 @@ begin
        and (
          (es.scope_type = 'global' and es.scope_id is null)
          or (es.scope_type = 'tenant' and es.scope_id = p_tenant_id)
+         or (p_project_id is not null and es.scope_type = 'project' and es.scope_id = p_project_id)
          or (p_resource_id is not null and es.scope_type = 'resource' and es.scope_id = p_resource_id)
        )
   ) into v_has_scope;
@@ -407,7 +409,7 @@ revoke all on all sequences in schema workforce from public, anon, authenticated
 grant all on all sequences in schema workforce to service_role;
 
 revoke all on all routines in schema workforce from public, anon, authenticated;
-grant execute on function workforce.authorize(uuid,text,uuid,uuid) to service_role;
+grant execute on function workforce.authorize(uuid,text,uuid,uuid,uuid) to service_role;
 grant execute on function workforce.queue_offboarding() to service_role;
 grant execute on function workforce.touch_updated_at() to service_role;
 
