@@ -109,7 +109,7 @@ async def authorize_response_execution(
                 "p_run_id": str(run_id),
                 "p_risk_level": risk_level,
                 "p_destructive": destructive,
-                "p_estimated_cost_usd": estimated_cost_usd,
+                "p_estimated_cost_usd": str(estimated_cost_usd),
                 "p_execution_config": execution_config,
                 "p_approval_ref": approval_ref,
                 "p_action_hash": action_hash,
