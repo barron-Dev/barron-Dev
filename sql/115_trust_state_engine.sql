@@ -29,15 +29,7 @@ create table if not exists public.trust_state_snapshots (
 create index if not exists idx_trust_state_subject_time
  on public.trust_state_snapshots(subject_id, computed_at desc);
 
-create unique index if not exists uq_trust_state_current_subject
- on public.trust_state_snapshots(subject_id)
- where computed_at = (select max(s2.computed_at) from public.trust_state_snapshots s2 where s2.subject_id = trust_state_snapshots.subject_id);
-
--- The partial unique index above is intentionally replaced by a simpler
--- authoritative current-state table. PostgreSQL does not allow the subquery
--- form in an index predicate.
-drop index if exists uq_trust_state_current_subject;
-
+-- Current state is maintained in trust_current_state below; no subquery index is required.
 create table if not exists public.trust_current_state (
   subject_id uuid primary key references public.trust_subjects(id) on delete cascade,
   tenant_id uuid references public.tenants(id) on delete cascade,
