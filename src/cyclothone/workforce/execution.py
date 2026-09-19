@@ -60,7 +60,7 @@ async def authorize_workforce_ai_execution(
                 "p_execution_config": execution_config,
                 "p_risk_level": risk_level,
                 "p_destructive": destructive,
-                "p_estimated_cost_usd": estimated_cost_usd,
+                "p_estimated_cost_usd": str(estimated_cost_usd),
                 "p_approval_ref": approval_ref,
                 "p_action_hash": action_hash,
                 "p_actor": actor,
@@ -133,7 +133,7 @@ async def complete_workforce_ai_execution(
                 "p_turn_id": str(turn_id),
                 "p_output_hash": output_hash,
                 "p_status": outcome,
-                "p_actual_cost_usd": actual_cost_usd,
+                "p_actual_cost_usd": str(actual_cost_usd),
             },
         ).execute()
     except Exception as exc:
