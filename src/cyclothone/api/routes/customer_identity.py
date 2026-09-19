@@ -74,8 +74,8 @@ class OpenCaseRequest(BaseModel):
 @router.get("/customer/cases")
 async def customer_cases(p: DeveloperPrincipal=Depends(principal)):
     if not p.user_id: raise HTTPException(403,detail="user_identity_required")
-    orgs=await supabase.select("customer_organizations","id",owner_user_id=p.user_id)
-    org_ids=[x["id"] for x in orgs]
+    memberships=await supabase.select("organization_members","organization_id",user_id=p.user_id,status="active")
+    org_ids=list({x["organization_id"] for x in memberships})
     items=[]
     for oid in org_ids:
         links=await supabase.select("customer_case_links","id,organization_id,service_request_id,case_id,created_at",organization_id=oid)
