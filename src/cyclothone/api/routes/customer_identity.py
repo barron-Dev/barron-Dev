@@ -94,6 +94,18 @@ async def reject_admission(admission_id: str, body: AdmissionDecisionRequest, p:
     return {"status":"rejected","organization_id":org_id}
 
 
+@router.post("/customer/organizations/{organization_id}/admission")
+async def request_admission(organization_id: str, p: DeveloperPrincipal=Depends(principal)):
+    if not p.user_id: raise HTTPException(403,detail="user_identity_required")
+    try:
+        admission_id=await supabase.rpc("request_workspace_admission",{"p_organization_id":organization_id})
+    except Exception as exc:
+        detail=str(exc)
+        if "organization_not_found" in detail: raise HTTPException(404,detail="organization_not_found")
+        if "already_actionable" in detail: raise HTTPException(409,detail="admission_already_actionable")
+        raise
+    return {"admission_id":admission_id,"status":"pending"}
+
 @router.get("/customer/organizations")
 async def organizations(p:DeveloperPrincipal=Depends(principal)):
     rows=await supabase.select("customer_organizations","id,tenant_id,organization_type,legal_name,country_code,website_domain,registration_number,verification_status,created_at,updated_at",owner_user_id=p.user_id)
