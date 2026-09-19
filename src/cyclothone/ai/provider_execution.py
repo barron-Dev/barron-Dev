@@ -72,24 +72,23 @@ def _parse_response(data: dict, *, latency_ms: int) -> ProviderExecutionResult:
 
 
 async def execute_openai_run(
-    *, run_id: UUID, provider_id: str, model_id: str, input_text: str,
-    actor: str = "ai_provider",
+    *, run_id: UUID, input_text: str, actor: str = "ai_provider",
 ) -> ProviderExecutionResult:
-    if provider_id.lower() != "openai":
-        raise HTTPException(status_code=409, detail="unsupported provider executor")
     if not input_text:
         raise HTTPException(status_code=400, detail="AI input is required")
 
     client = await supabase._ensure()
     response = await client.table("ai_runs").select(
-        "id,provider_id,model_id,run_state"
+        "id,tenant_id,provider_id,model_id,run_state"
     ).eq("id", str(run_id)).limit(1).execute()
     rows = response.data or []
     if not rows:
         raise HTTPException(status_code=404, detail="AI run not found")
     run = rows[0]
-    if run["provider_id"] != provider_id or run["model_id"] != model_id:
-        raise HTTPException(status_code=409, detail="AI provider identity mismatch")
+    provider_id = str(run["provider_id"])
+    model_id = str(run["model_id"])
+    if provider_id.lower() != "openai":
+        raise HTTPException(status_code=409, detail="unsupported provider executor")
     if run["run_state"] not in {"AUTHORIZED", "RUNNING"}:
         raise HTTPException(status_code=409, detail="AI run is not executable")
 
