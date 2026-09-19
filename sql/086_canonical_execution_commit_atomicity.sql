@@ -195,8 +195,7 @@ revoke all on function public.ai_authorize_and_commit_execution(
   text,text,text,text,text,text,text,text,text,integer,text
 ) from public,anon,authenticated;
 grant execute on function public.ai_authorize_and_commit_execution(
-  uuid,uuid,text,text,text,text,text,boolean,numeric,jsonb,integer,integer,text,integer,integer,integer,
-  text,text,text,text,text,text,text,text,integer,text
+  uuid,uuid,text,text,text,text,text,boolean,numeric,jsonb,integer,integer,text,integer,integer,integer,text,text,text,text,text,text,text,text,text,text,integer,text
 ) to service_role;
 
 comment on function public.ai_authorize_and_commit_execution is
