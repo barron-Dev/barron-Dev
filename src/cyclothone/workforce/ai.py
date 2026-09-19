@@ -68,7 +68,7 @@ async def start_workforce_ai_run(
     if not row:
         raise HTTPException(status_code=503, detail="workforce AI run authority returned incomplete state")
 
-    if str(row.get("tenant_id")) is None:
+    if row.get("tenant_id") is None:
         raise HTTPException(status_code=503, detail="workforce AI run authority returned invalid state")
 
     return WorkforceAIRunAuthority(
