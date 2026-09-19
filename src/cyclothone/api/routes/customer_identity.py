@@ -148,6 +148,32 @@ async def open_case(service_request_id: str, body: OpenCaseRequest, p: Developer
         raise
     return {"status":"opened","case_id":case_id}
 
+@router.get("/customer/operator/cases")
+async def operator_cases(p: DeveloperPrincipal=Depends(operator_principal)):
+    rows=await supabase.select("crime_cases","id,tenant_id,case_number,category,severity,status,title,summary,device_id,created_at,updated_at",tenant_id=p.tenant_id)
+    result=[]
+    for case in rows:
+        link=await supabase.select_one("customer_case_links","organization_id,service_request_id,case_id,created_at",case_id=case["id"])
+        if not link: continue
+        req=await supabase.select_one("service_requests","id,service_key,urgency,status,requester_user_id,created_at,updated_at",id=link["service_request_id"])
+        assignment=await supabase.select_one("customer_case_assignments","operator_user_id,assigned_by,active,created_at,ended_at",case_id=case["id"],active=True)
+        result.append({"case":case,"link":link,"service_request":req,"assignment":assignment})
+    return {"cases":result}
+
+@router.post("/customer/operator/cases/{case_id}/assign")
+async def assign_case(case_id: str, body: dict, p: DeveloperPrincipal=Depends(operator_principal)):
+    if not p.user_id: raise HTTPException(403,detail="operator_identity_required")
+    operator_user_id=str(body.get("operator_user_id") or "").strip()
+    if not operator_user_id: raise HTTPException(422,detail="operator_user_id_required")
+    try:
+        assignment_id=await supabase.rpc("assign_customer_case",{"p_case_id":case_id,"p_operator_user_id":p.user_id,"p_assigned_operator":operator_user_id})
+    except Exception as exc:
+        detail=str(exc)
+        if "case_not_found" in detail: raise HTTPException(404,detail="case_not_found")
+        if "assigned_operator_not_found" in detail: raise HTTPException(404,detail="assigned_operator_not_found")
+        raise
+    return {"assignment_id":assignment_id,"case_id":case_id,"operator_user_id":operator_user_id}
+
 @router.get("/customer/admissions")
 async def admissions(p: DeveloperPrincipal=Depends(operator_principal)):
     rows=await supabase.select(
