@@ -7,7 +7,12 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
 from cyclothone.storage.supabase_client import supabase
-from cyclothone.workforce.ai import WorkforceAITurnAuthority, admit_workforce_ai_turn
+from cyclothone.workforce.ai import (
+    WorkforceAITurnAuthority,
+    admit_workforce_ai_turn,
+    WorkforceAIRunAuthority,
+    start_workforce_ai_run,
+)
 from cyclothone.workforce.execution import (
     WorkforceAIExecutionAuthority,
     authorize_workforce_ai_execution,
@@ -175,6 +180,54 @@ async def admit_ai_turn(
         mission_version=authority.mission_version,
         mission_hash=authority.mission_hash,
         sequence_no=authority.sequence_no,
+    )
+
+
+class AIRunStartRequest(BaseModel):
+    idempotency_token: str = Field(min_length=1, max_length=128)
+    trace_id: str | None = Field(default=None, max_length=256)
+    correlation_id: str | None = Field(default=None, max_length=256)
+
+
+class AIRunStartResponse(BaseModel):
+    run_id: UUID
+    tenant_id: UUID
+    mission_id: str
+    mission_version: int
+    mission_hash: str
+    agent_id: UUID
+    agent_version: int
+    model_id: str
+    model_version: int
+    provider_id: str
+    provider_binding_version: int
+
+
+@router.post("/turns/{turn_id}/run", response_model=AIRunStartResponse)
+async def start_ai_run(
+    turn_id: UUID,
+    request: AIRunStartRequest,
+    principal: WorkforcePrincipal = Depends(authenticate_workforce_request),
+) -> AIRunStartResponse:
+    authority: WorkforceAIRunAuthority = await start_workforce_ai_run(
+        principal=principal,
+        turn_id=turn_id,
+        idempotency_token=request.idempotency_token,
+        trace_id=request.trace_id,
+        correlation_id=request.correlation_id,
+    )
+    return AIRunStartResponse(
+        run_id=authority.run_id,
+        tenant_id=authority.tenant_id,
+        mission_id=authority.mission_id,
+        mission_version=authority.mission_version,
+        mission_hash=authority.mission_hash,
+        agent_id=authority.agent_id,
+        agent_version=authority.agent_version,
+        model_id=authority.model_id,
+        model_version=authority.model_version,
+        provider_id=authority.provider_id,
+        provider_binding_version=authority.provider_binding_version,
     )
 
 
