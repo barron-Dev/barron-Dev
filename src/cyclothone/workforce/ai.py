@@ -21,6 +21,71 @@ class WorkforceAITurnAuthority:
     sequence_no: int
 
 
+@dataclass(frozen=True, slots=True)
+class WorkforceAIRunAuthority:
+    run_id: UUID
+    tenant_id: UUID
+    mission_id: str
+    mission_version: int
+    mission_hash: str
+    agent_id: UUID
+    agent_version: int
+    model_id: str
+    model_version: int
+    provider_id: str
+    provider_binding_version: int
+
+
+async def start_workforce_ai_run(
+    principal: WorkforcePrincipal,
+    turn_id: UUID,
+    idempotency_token: str,
+    trace_id: str | None = None,
+    correlation_id: str | None = None,
+) -> WorkforceAIRunAuthority:
+    if not idempotency_token or len(idempotency_token.strip()) > 128:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="invalid AI run idempotency token")
+
+    client = await supabase._ensure()
+    try:
+        result = await client.schema("workforce").rpc(
+            "start_ai_turn_run",
+            {
+                "p_user_id": principal.user_id,
+                "p_turn_id": str(turn_id),
+                "p_idempotency_token": idempotency_token.strip(),
+                "p_trace_id": trace_id,
+                "p_correlation_id": correlation_id,
+            },
+        ).execute()
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="workforce AI run authority unavailable",
+        ) from exc
+
+    row = result.data if isinstance(result.data, dict) else None
+    if not row:
+        raise HTTPException(status_code=503, detail="workforce AI run authority returned incomplete state")
+
+    if str(row.get("tenant_id")) is None:
+        raise HTTPException(status_code=503, detail="workforce AI run authority returned invalid state")
+
+    return WorkforceAIRunAuthority(
+        run_id=UUID(str(row["id"])),
+        tenant_id=UUID(str(row["tenant_id"])),
+        mission_id=str(row["mission_id"]),
+        mission_version=int(row["mission_version"]),
+        mission_hash=str(row["mission_hash"]),
+        agent_id=UUID(str(row["agent_id"])),
+        agent_version=int(row["agent_version"]),
+        model_id=str(row["model_id"]),
+        model_version=int(row["model_version"]),
+        provider_id=str(row["provider_id"]),
+        provider_binding_version=int(row["provider_binding_version"]),
+    )
+
+
 async def admit_workforce_ai_turn(
     principal: WorkforcePrincipal,
     session_id: UUID,
