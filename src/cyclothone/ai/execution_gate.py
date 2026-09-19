@@ -86,6 +86,10 @@ class AgentExecutionGate:
             raise AgentExecutionDenied("provider binding mismatch")
         if not envelope.envelope_id or len(envelope.envelope_id) > 128:
             raise AgentExecutionDenied("invalid envelope id")
+        if envelope.version != "1":
+            raise AgentExecutionDenied("unsupported envelope version")
+        if len(envelope.binding_hash) != 64 or any(c not in "0123456789abcdef" for c in envelope.binding_hash):
+            raise AgentExecutionDenied("invalid provider binding hash")
         if not envelope.tool_name or not envelope.action or envelope.tool_name != envelope.action:
             raise AgentExecutionDenied("tool/action binding mismatch")
         digest = hashlib.sha256(
