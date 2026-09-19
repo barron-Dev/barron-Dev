@@ -19,7 +19,7 @@ const modules: Record<string, ModuleDef> = {
   "convergence/ai": { title: "AI Security", section: "CONVERGENCE", endpoint: "/api/v1/ai/agents" },
   "assurance/compliance": { title: "Compliance", section: "ASSURANCE", endpoint: "/api/v1/compliance/assurance" },
   "assurance/recovery": { title: "Recovery", section: "ASSURANCE", endpoint: "/api/v1/assurance/recovery" },
-  "assurance/hunting": { title: "Hunting", section: "ASSURANCE", endpoint: "/api/v1/hunts" },
+  "assurance/hunting": { title: "Hunting", section: "ASSURANCE", endpoint: "/api/v1/hunts/" },
   "platform/federation": { title: "Federation", section: "PLATFORM", endpoint: "/api/v1/federation/peers" },
   "platform/developer": { title: "Developer", section: "PLATFORM", endpoint: "/api/v1/developer/apps" },
   "platform/settings": { title: "Settings", section: "PLATFORM", endpoint: "/api/v1/platform/settings" },
