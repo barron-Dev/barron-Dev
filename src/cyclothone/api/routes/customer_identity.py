@@ -85,6 +85,46 @@ async def customer_cases(p: DeveloperPrincipal=Depends(principal)):
             if case: items.append({**link,"case":case,"service_request":req})
     return {"cases":items}
 
+@router.get("/customer/cases/{case_id}")
+async def customer_case_detail(case_id: str, p: DeveloperPrincipal=Depends(principal)):
+    if not p.user_id: raise HTTPException(403,detail="user_identity_required")
+    link=await supabase.select_one("customer_case_links","id,organization_id,service_request_id,case_id,created_at",case_id=case_id)
+    if not link: raise HTTPException(404,detail="case_not_found")
+    member=await supabase.select_one("organization_members","organization_id,user_id,status,role",organization_id=link["organization_id"],user_id=p.user_id,status="active")
+    if not member: raise HTTPException(404,detail="case_not_found")
+    case=await supabase.select_one("crime_cases","id,tenant_id,case_number,category,severity,status,title,summary,device_id,created_at,updated_at",id=case_id)
+    req=await supabase.select_one("service_requests","id,service_key,urgency,description,status,requester_user_id,created_at,updated_at",id=link["service_request_id"])
+    assignment=await supabase.select_one("customer_case_assignments","id,operator_user_id,assigned_by,active,created_at,ended_at",case_id=case_id,active=True)
+    return {"case":case,"service_request":req,"link":link,"assignment":assignment}
+
+@router.post("/customer/cases/{case_id}/activity")
+async def customer_case_update(case_id: str, body: dict, p: DeveloperPrincipal=Depends(principal)):
+    if not p.user_id: raise HTTPException(403,detail="user_identity_required")
+    message=str(body.get("message") or "").strip()
+    if not message: raise HTTPException(422,detail="message_required")
+    try:
+        activity_id=await supabase.rpc("add_customer_case_activity",{"p_case_id":case_id,"p_user_id":p.user_id,"p_message":message})
+    except Exception as exc:
+        detail=str(exc)
+        if "case_not_found" in detail or "organization_access_required" in detail: raise HTTPException(404,detail="case_not_found")
+        if "invalid_activity_message" in detail: raise HTTPException(422,detail="invalid_activity_message")
+        raise
+    return {"id":activity_id,"status":"recorded"}
+
+@router.post("/customer/cases/{case_id}/transition")
+async def transition_case(case_id: str, body: dict, p: DeveloperPrincipal=Depends(operator_principal)):
+    if not p.user_id: raise HTTPException(403,detail="operator_identity_required")
+    status=str(body.get("status") or "")
+    reason=str(body.get("reason") or "").strip() or None
+    try:
+        new_status=await supabase.rpc("transition_customer_case",{"p_case_id":case_id,"p_operator_user_id":p.user_id,"p_status":status,"p_reason":reason})
+    except Exception as exc:
+        detail=str(exc)
+        if "case_not_found" in detail or "customer_case_not_found" in detail: raise HTTPException(404,detail="case_not_found")
+        if "invalid_case_status" in detail: raise HTTPException(422,detail="invalid_case_status")
+        raise
+    return {"case_id":case_id,"status":new_status}
+
 @router.get("/customer/cases/{case_id}/activity")
 async def customer_case_activity(case_id: str, p: DeveloperPrincipal=Depends(principal)):
     if not p.user_id: raise HTTPException(403,detail="user_identity_required")
