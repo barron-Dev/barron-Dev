@@ -33,7 +33,7 @@ async def authenticate_api_key(raw_key: str) -> dict[str, Any] | None:
             return None
         if expires_at <= datetime.now(UTC):
             return None
-    app = await supabase.select_one("developer_apps", "tenant_id,active", id=row["app_id"])
+    app = await supabase.select_one("developer_apps", "tenant_id,owner_user_id,active", id=row["app_id"])
     if not app or not app["active"]:
         return None
-    return {"app_id": str(row["app_id"]), "tenant_id": str(app["tenant_id"]), "scopes": tuple(row.get("scopes") or [])}
+    return {"app_id": str(row["app_id"]), "tenant_id": str(app["tenant_id"]), "user_id": str(app["owner_user_id"]), "scopes": tuple(row.get("scopes") or [])}
