@@ -320,3 +320,5 @@ export function addCustomerCaseActivity(id:string,message:string){ return apiFet
 export function transitionCustomerCase(id:string,status:string,reason?:string){ return apiFetch<any>(`/api/v1/customer/cases/${encodeURIComponent(id)}/transition`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({status,reason})}); }
 export function getOperatorCustomerCases(){ return apiFetch<any>("/api/v1/customer/operator/cases"); }
 export function assignCustomerCase(id:string,operator_user_id:string){ return apiFetch<any>(`/api/v1/customer/operator/cases/${encodeURIComponent(id)}/assign`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({operator_user_id})}); }
+
+export function getCustomerCaseActions(id:string){ return apiFetch<{actions:any[]}>(`/api/v1/customer/cases/${encodeURIComponent(id)}/actions`); }
