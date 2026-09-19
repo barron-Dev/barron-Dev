@@ -67,11 +67,25 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
   });
 
   const contentType = response.headers.get("content-type") ?? "";
+  const raw = await response.text();
+  let payload: unknown = null;
+  if (raw) {
+    try { payload = JSON.parse(raw); } catch { payload = null; }
+  }
+
   if (!response.ok) {
+    const detail = payload && typeof payload === "object"
+      ? (payload as Record<string, unknown>).detail ?? (payload as Record<string, unknown>).message
+      : null;
+    const detailText = typeof detail === "string"
+      ? detail
+      : detail && typeof detail === "object"
+        ? JSON.stringify(detail)
+        : "";
     const message =
       response.status === 401 ? "Authentication required" :
-      response.status === 403 ? "console:read scope required" :
-      `Backend request failed (HTTP ${response.status})`;
+      response.status === 403 ? (detailText || "Required API scope is missing") :
+      detailText || `Backend request failed (HTTP ${response.status})`;
     throw new Error(message);
   }
 
@@ -79,11 +93,8 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
     throw new Error("Backend returned a non-JSON response");
   }
 
-  try {
-    return await response.json() as T;
-  } catch {
-    throw new Error("Backend returned invalid JSON");
-  }
+  if (payload === null) throw new Error("Backend returned invalid JSON");
+  return payload as T;
 }
 
 export function getOverview() {
