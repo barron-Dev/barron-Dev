@@ -303,3 +303,9 @@ export function createOrganizationInvitation(id:string,email:string,role:string)
 export function revokeOrganizationInvitation(orgId:string,invitationId:string) {
   return apiFetch<{status:string}>(`/api/v1/customer/organizations/${encodeURIComponent(orgId)}/invitations/${encodeURIComponent(invitationId)}/revoke`,{method:"POST"});
 }
+
+export function acceptOrganizationInvitation(token:string) {
+  return apiFetch<{status:string;organization_id:string}>("/api/v1/customer/invitations/accept",{
+    method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token})
+  });
+}
