@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from hashlib import sha256
+from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
@@ -30,7 +31,7 @@ async def authorize_workforce_ai_execution(
     execution_config: dict[str, Any],
     risk_level: str,
     destructive: bool = False,
-    estimated_cost_usd: float = 0,
+    estimated_cost_usd: Decimal = Decimal("0"),
     approval_ref: str | None = None,
     action_hash: str | None = None,
     actor: str = "workforce_ai",
@@ -113,7 +114,7 @@ async def complete_workforce_ai_execution(
     turn_id: UUID,
     output_text: str,
     outcome: str = "completed",
-    actual_cost_usd: float = 0,
+    actual_cost_usd: Decimal = Decimal("0"),
 ) -> dict[str, Any]:
     if not output_text:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="AI output is required")
