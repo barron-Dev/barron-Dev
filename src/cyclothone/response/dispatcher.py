@@ -120,6 +120,7 @@ class SupabaseCommandDispatcher:
             "signer_kid": signature.kid, "status": "pending", "issued_by": issued_by[:256],
             "issued_at": now.isoformat(), "expires_at": expires_at.isoformat(),
             "case_action_id": str(case_action_id) if case_action_id else None,
+            "ai_run_id": (execution_context or {}).get("run_id"),
             "ai_agent_id": (execution_context or {}).get("agent_id"),
             "ai_model_id": (execution_context or {}).get("model_id"),
             "ai_provider_id": (execution_context or {}).get("provider_id"),
