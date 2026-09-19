@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { getCustomerOrganizations, getCustomerServiceRequests, getCustomerVerification, setApiToken, type CustomerOrganization, type CustomerServiceRequest } from "../../lib/api";
+import { getCustomerOrganizations, getCustomerServiceRequests, getCustomerVerification, getOrganizationMembers, getOrganizationInvitations, createOrganizationInvitation, revokeOrganizationInvitation, setApiToken, type CustomerOrganization, type CustomerServiceRequest, type OrganizationMember, type OrganizationInvitation } from "../../lib/api";
 
 const labels: Record<string,string> = {
   cybersecurity_assessment:"Cybersecurity Assessment", incident_response:"Incident Response", threat_intelligence:"Threat Intelligence",
@@ -22,6 +22,12 @@ export default function CustomerWorkspace() {
   const [requests,setRequests]=useState<CustomerServiceRequest[]>([]);
   const [selected,setSelected]=useState("");
   const [verification,setVerification]=useState<any[]>([]);
+  const [members,setMembers]=useState<OrganizationMember[]>([]);
+  const [invitations,setInvitations]=useState<OrganizationInvitation[]>([]);
+  const [inviteEmail,setInviteEmail]=useState("");
+  const [inviteRole,setInviteRole]=useState("requester");
+  const [inviteToken,setInviteToken]=useState<string|null>(null);
+  const [memberBusy,setMemberBusy]=useState(false);
   const [loading,setLoading]=useState(true);
   const [error,setError]=useState<string|null>(null);
 
@@ -33,9 +39,9 @@ export default function CustomerWorkspace() {
       const current=selected && o.organizations.some(x=>x.id===selected) ? selected : o.organizations[0]?.id || "";
       setSelected(current);
       if(current) {
-        const v=await getCustomerVerification(current);
-        setVerification(v.verifications);
-      } else setVerification([]);
+        const [v,m,i]=await Promise.all([getCustomerVerification(current),getOrganizationMembers(current),getOrganizationInvitations(current)]);
+        setVerification(v.verifications); setMembers(m.members); setInvitations(i.invitations);
+      } else { setVerification([]); setMembers([]); setInvitations([]); }
     } catch(e) { setError(e instanceof Error ? e.message : "Unable to load customer workspace"); }
     finally { setLoading(false); }
   }
@@ -46,6 +52,30 @@ export default function CustomerWorkspace() {
   },[]);
 
   const org=orgs.find(x=>x.id===selected) || null;
+  async function selectOrganization(id:string) {
+    setSelected(id); setInviteToken(null);
+    try {
+      const [v,m,i]=await Promise.all([getCustomerVerification(id),getOrganizationMembers(id),getOrganizationInvitations(id)]);
+      setVerification(v.verifications); setMembers(m.members); setInvitations(i.invitations);
+    } catch(e) { setError(e instanceof Error ? e.message : "Unable to load organization membership"); }
+  }
+  async function inviteMember() {
+    if(!selected || !inviteEmail.trim()) return;
+    setMemberBusy(true); setError(null); setInviteToken(null);
+    try {
+      const r=await createOrganizationInvitation(selected,inviteEmail,inviteRole);
+      setInviteToken(r.invite_token); setInviteEmail("");
+      const i=await getOrganizationInvitations(selected); setInvitations(i.invitations);
+    } catch(e) { setError(e instanceof Error ? e.message : "Unable to create invitation"); }
+    finally { setMemberBusy(false); }
+  }
+  async function revokeInvitation(id:string) {
+    setMemberBusy(true); setError(null);
+    try { await revokeOrganizationInvitation(selected,id); const i=await getOrganizationInvitations(selected); setInvitations(i.invitations); }
+    catch(e) { setError(e instanceof Error ? e.message : "Unable to revoke invitation"); }
+    finally { setMemberBusy(false); }
+  }
+
   const orgRequests=useMemo(()=>requests.filter(x=>x.organization_id===selected),[requests,selected]);
   const counts=useMemo(()=>({
     total:orgRequests.length,
@@ -67,7 +97,7 @@ export default function CustomerWorkspace() {
       <div className="grid gap-5 lg:grid-cols-[250px_1fr]">
         <aside className="border border-[#1a2330] bg-[#0a0e14] p-3">
           <div className="mb-3 px-2 text-[9px] uppercase tracking-[.16em] text-[#5a6675]">Organizations</div>
-          {orgs.map(o=><button key={o.id} onClick={async()=>{setSelected(o.id);try{const v=await getCustomerVerification(o.id);setVerification(v.verifications)}catch(e){setError(e instanceof Error?e.message:"Unable to load verification")}}} className={"mb-1 w-full border p-3 text-left "+(o.id===selected?"border-[#00d9ff]/60 bg-[#111823]":"border-[#1a2330]")}>
+          {orgs.map(o=><button key={o.id} onClick={()=>void selectOrganization(o.id)} className={"mb-1 w-full border p-3 text-left "+(o.id===selected?"border-[#00d9ff]/60 bg-[#111823]":"border-[#1a2330]")}>
             <div className="truncate text-xs font-medium">{o.legal_name}</div><div className="mt-1 text-[10px] text-[#5a6675]">{o.organization_type} · {o.country_code||"—"}</div><div className={"mt-2 inline-block rounded border px-1.5 py-0.5 font-mono text-[9px] "+tone(o.admission_status)}>{o.admission_status}</div>
           </button>)}
         </aside>
@@ -82,6 +112,19 @@ export default function CustomerWorkspace() {
               <div className="border border-[#1a2330] p-3"><div className="font-mono text-2xl">{counts.total}</div><div className="text-[10px] uppercase tracking-[.12em] text-[#5a6675]">Service requests</div></div>
               <div className="border border-[#1a2330] p-3"><div className="font-mono text-2xl">{counts.active}</div><div className="text-[10px] uppercase tracking-[.12em] text-[#5a6675]">Active</div></div>
               <div className="border border-[#1a2330] p-3"><div className="font-mono text-2xl">{counts.resolved}</div><div className="text-[10px] uppercase tracking-[.12em] text-[#5a6675]">Resolved</div></div>
+            </div>
+          </div>
+
+          <div className="grid gap-5 xl:grid-cols-2">
+            <div className="border border-[#1a2330] bg-[#0a0e14] p-4">
+              <h2 className="text-xs font-medium">Organization members</h2>
+              <div className="mt-3 space-y-2">{members.map(m=><div key={m.user_id} className="flex items-center justify-between border-b border-[#1a2330] py-2"><div><div className="font-mono text-[10px]">{m.user_id}</div><div className="text-[10px] text-[#5a6675]">{m.created_at ? new Date(m.created_at).toLocaleString() : "—"}</div></div><span className="rounded border border-[#2a3646] px-1.5 py-0.5 font-mono text-[9px]">{m.role} · {m.status}</span></div>)}{!members.length&&<div className="text-[11px] text-[#5a6675]">No members returned.</div>}</div>
+            </div>
+            <div className="border border-[#1a2330] bg-[#0a0e14] p-4">
+              <h2 className="text-xs font-medium">Invite organization member</h2>
+              <div className="mt-3 flex gap-2"><input value={inviteEmail} onChange={e=>setInviteEmail(e.target.value)} type="email" placeholder="member@organization.com" className="min-w-0 flex-1 border border-[#2a3646] bg-[#030508] p-2 text-xs"/><select value={inviteRole} onChange={e=>setInviteRole(e.target.value)} className="border border-[#2a3646] bg-[#030508] p-2 text-xs"><option>requester</option><option>viewer</option><option>analyst</option><option>developer</option><option>security_admin</option><option>admin</option></select><button disabled={memberBusy||!inviteEmail.trim()} onClick={()=>void inviteMember()} className="border border-[#00d9ff] px-3 text-[10px] text-[#00d9ff] disabled:opacity-40">Invite</button></div>
+              {inviteToken&&<div className="mt-3 border border-[#ffb020]/40 bg-[#ffb020]/5 p-3"><div className="text-[10px] text-[#ffd27a]">One-time invitation token. It is not stored in plaintext; deliver it through a trusted channel.</div><div className="mt-2 break-all font-mono text-[10px]">{inviteToken}</div></div>}
+              <div className="mt-4 space-y-2">{invitations.filter(i=>!i.accepted_at).map(i=><div key={i.id} className="flex items-center justify-between gap-2 border-b border-[#1a2330] py-2"><div><div className="text-xs">{i.email}</div><div className="text-[10px] text-[#5a6675]">{i.role} · expires {new Date(i.expires_at).toLocaleString()}</div></div><button disabled={memberBusy} onClick={()=>void revokeInvitation(i.id)} className="text-[10px] text-[#ff6b83]">Revoke</button></div>)}</div>
             </div>
           </div>
 
