@@ -45,18 +45,81 @@ class AgentExecutionGate:
         self.replay_store = replay_store
         self.policy = policy or ToolPolicyEngine()
 
-    async def authorize(self, *, envelope: AgentEnvelope, tenant_id: UUID, expected_model_id: str, expected_provider_id: str, twin: DigitalTwinService, consume_replay: bool = True) -> dict[str, Any]:
+    async def validate(
+        self,
+        *,
+        envelope: AgentEnvelope,
+        tenant_id: UUID,
+        expected_model_id: str,
+        expected_provider_id: str,
+        twin: DigitalTwinService,
+    ) -> dict[str, Any]:
+        """Validate an envelope and simulate it without consuming replay state."""
         now = datetime.now(UTC)
-        if envelope.tenant_id != tenant_id: raise AgentExecutionDenied("envelope tenant mismatch")
-        if envelope.expires_at <= now or envelope.issued_at > now: raise AgentExecutionDenied("envelope expired or issued in the future")
-        if envelope.model_id != expected_model_id: raise AgentExecutionDenied("model binding mismatch")
-        if envelope.provider_id != expected_provider_id: raise AgentExecutionDenied("provider binding mismatch")
-        if not envelope.envelope_id or len(envelope.envelope_id) > 128: raise AgentExecutionDenied("invalid envelope id")
-        if not envelope.tool_name or not envelope.action or envelope.tool_name != envelope.action: raise AgentExecutionDenied("tool/action binding mismatch")
-        digest = hashlib.sha256(json.dumps(envelope.canonical(), sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("utf-8")).hexdigest()
-        if not await verify_digest_signature(digest, envelope.signature_b64, envelope.signer_kid): raise AgentExecutionDenied("invalid envelope signature")
-        if consume_replay and not await self.replay_store.claim(tenant_id=tenant_id, envelope_id=envelope.envelope_id, expires_at=envelope.expires_at): raise AgentExecutionDenied("envelope replay detected")
+        if envelope.tenant_id != tenant_id:
+            raise AgentExecutionDenied("envelope tenant mismatch")
+        if envelope.expires_at <= now or envelope.issued_at > now:
+            raise AgentExecutionDenied("envelope expired or issued in the future")
+        if envelope.model_id != expected_model_id:
+            raise AgentExecutionDenied("model binding mismatch")
+        if envelope.provider_id != expected_provider_id:
+            raise AgentExecutionDenied("provider binding mismatch")
+        if not envelope.envelope_id or len(envelope.envelope_id) > 128:
+            raise AgentExecutionDenied("invalid envelope id")
+        if not envelope.tool_name or not envelope.action or envelope.tool_name != envelope.action:
+            raise AgentExecutionDenied("tool/action binding mismatch")
+        digest = hashlib.sha256(
+            json.dumps(
+                envelope.canonical(), sort_keys=True, separators=(",", ":"), ensure_ascii=True
+            ).encode("utf-8")
+        ).hexdigest()
+        if not await verify_digest_signature(digest, envelope.signature_b64, envelope.signer_kid):
+            raise AgentExecutionDenied("invalid envelope signature")
         policy = await self.policy.check(tenant_id, envelope.agent_id, envelope.tool_name, envelope.args)
-        if not policy.get("allowed") or policy.get("requires_approval"): raise AgentExecutionDenied(str(policy.get("reason") or "tool policy denied"))
+        if not policy.get("allowed") and not policy.get("requires_approval"):
+            raise AgentExecutionDenied(str(policy.get("reason") or "tool policy denied"))
         simulation = await twin.simulate(envelope.target, envelope.action, envelope.args)
-        return {"authorized": True, "envelope_id": envelope.envelope_id, "simulation_id": simulation["simulation_id"], "impact_score": simulation["impact_score"], "recommendation": simulation["recommendation"]}
+        return {
+            "authorized": True,
+            "requires_approval": bool(policy.get("requires_approval")),
+            "envelope_id": envelope.envelope_id,
+            "simulation_id": simulation["simulation_id"],
+            "impact_score": simulation["impact_score"],
+            "recommendation": simulation["recommendation"],
+        }
+
+    async def consume(self, *, envelope: AgentEnvelope, tenant_id: UUID) -> None:
+        """Consume an envelope exactly once after all approval gates pass."""
+        now = datetime.now(UTC)
+        if envelope.tenant_id != tenant_id:
+            raise AgentExecutionDenied("envelope tenant mismatch")
+        if envelope.expires_at <= now:
+            raise AgentExecutionDenied("envelope expired")
+        if not await self.replay_store.claim(
+            tenant_id=tenant_id,
+            envelope_id=envelope.envelope_id,
+            expires_at=envelope.expires_at,
+        ):
+            raise AgentExecutionDenied("envelope replay detected")
+
+    async def authorize(
+        self,
+        *,
+        envelope: AgentEnvelope,
+        tenant_id: UUID,
+        expected_model_id: str,
+        expected_provider_id: str,
+        twin: DigitalTwinService,
+        consume_replay: bool = True,
+    ) -> dict[str, Any]:
+        """Validate and optionally consume replay state for immediate execution."""
+        result = await self.validate(
+            envelope=envelope,
+            tenant_id=tenant_id,
+            expected_model_id=expected_model_id,
+            expected_provider_id=expected_provider_id,
+            twin=twin,
+        )
+        if consume_replay:
+            await self.consume(envelope=envelope, tenant_id=tenant_id)
+        return result
