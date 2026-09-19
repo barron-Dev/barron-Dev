@@ -7,7 +7,7 @@ import pytest
 from cyclothone.ai.execution_gate import AgentEnvelope, AgentExecutionDenied
 
 def envelope():
-    return AgentEnvelope("env-1", uuid4(), uuid4(), "model-a", "provider-a", "kill_process", "kill_process", {"pid": 7}, "device-1", datetime.now(UTC), datetime.now(UTC) + timedelta(minutes=1), "kid", "sig")
+    return AgentEnvelope("env-1", uuid4(), uuid4(), "model-a", "provider-a", "kill_process", "kill_process", {"pid": 7}, "device-1", datetime.now(UTC), datetime.now(UTC) + timedelta(minutes=1), "kid", "sig", "1", "a" * 64)
 
 def test_envelope_canonical_binds_security_context():
     env = envelope()
