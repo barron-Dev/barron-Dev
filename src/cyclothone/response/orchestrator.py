@@ -176,18 +176,34 @@ class ResponseOrchestrator:
                         expected_mission_hash=request.mission_hash,
                         twin=DigitalTwinService(tenant_id),
                     )
-                    if not approval_required and not dry_run:
-                        await self.execution_gate.consume(envelope=step_envelope, tenant_id=tenant_id)
                     step = ActionPlan(
                         action=step.action, args=step.args, requires_approval=step.requires_approval,
                         rollback=step.rollback, agent_envelope=step_envelope, envelope_request=request,
                         model_id=request.model_id, provider_id=request.provider_id, target=request.target,
                         mission_id=request.mission_id, mission_version=request.mission_version, mission_hash=request.mission_hash,
+                        run_id=step.run_id,
                     )
+                    if not approval_required and not dry_run:
+                        if step.run_id is None:
+                            raise RuntimeError("canonical AI run binding is required for executable response actions")
+                        action_hash = response_action_hash(action=step.action, args=step.args, target=step.target)
+                        await self.execution_authorizer(
+                            run_id=step.run_id,
+                            risk_level=action_class.name.upper(),
+                            destructive=False,
+                            estimated_cost_usd=Decimal("0"),
+                            execution_config=self._execution_context(step),
+                            actor=f"response:{issued_by}",
+                            envelope_id=step_envelope.envelope_id,
+                            envelope_hash=self._envelope_hash(step_envelope),
+                            envelope_expires_at=step_envelope.expires_at.isoformat(),
+                            action_hash=action_hash,
+                        )
 
                 if blast_rule_id and device_id and not await self.store.blast_allowed(blast_rule_id, blast_limit, tenant_id=tenant_id, device_id=device_id):
                     row_id = await self.store.create(
                         tenant_id=tenant_id, case_id=case_id, device_id=device_id,
+                        ai_run_id=step.run_id,
                         action=step.action, args=step.args, status="rejected",
                         issued_by=issued_by, initiated_by_rule=initiated_by_rule,
                         rollback_args=step.rollback, error="blast radius exceeded",
