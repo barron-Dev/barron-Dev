@@ -50,9 +50,27 @@ async def report_command_result(command_id: UUID, body: CommandResult,
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                             detail="command result persistence unavailable") from exc
     row = result[0] if isinstance(result, list) and result else result
-    if not row or not row.get("accepted"):
+    if not row:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT,
-                            detail="command is no longer executable")
+                            detail="command completion was not accepted")
+
+    if not row.get("accepted"):
+        # A previously persisted terminal result may only retry its own
+        # settlement. The SQL bridge re-checks the durable command state.
+        try:
+            settlement = await supabase.rpc("ai_complete_device_command_execution", {
+                "p_command_id": str(command_id),
+                "p_status": body.status,
+                "p_result": body.result,
+                "p_error": body.error,
+                "p_actor": f"device:{device.device_id}",
+            })
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="AI execution settlement unavailable",
+            ) from exc
+        return {"accepted": False, "settlement": settlement}
 
     try:
         await supabase.rpc("ai_complete_device_command_execution", {
