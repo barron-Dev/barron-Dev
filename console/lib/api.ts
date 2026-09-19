@@ -187,3 +187,58 @@ export function executeAIRun(runId: string, input_text: string) {
     body: JSON.stringify({ input_text }),
   });
 }
+
+
+export type AdmissionRecord = {
+  id: string;
+  organization_id: string;
+  requested_by: string;
+  status: string;
+  assurance_level: string | null;
+  submitted_at: string | null;
+  reviewed_at: string | null;
+  organization: {
+    id: string;
+    owner_user_id: string;
+    tenant_id: string | null;
+    organization_type: string;
+    legal_name: string;
+    country_code: string | null;
+    website_domain: string | null;
+    registration_number: string | null;
+    verification_status: string;
+    admission_status: string;
+  } | null;
+  verifications: Array<{
+    id: string;
+    verification_type: string;
+    status: string;
+    provider: string | null;
+    reference: string | null;
+    submitted_at: string | null;
+    verified_at: string | null;
+  }>;
+  service_requests: Array<{
+    id: string;
+    service_key: string;
+    urgency: string;
+    description: string;
+    status: string;
+    created_at: string;
+  }>;
+};
+
+export function getAdmissions() {
+  return apiFetch<{ admissions: AdmissionRecord[] }>("/api/v1/customer/admissions");
+}
+
+export function decideAdmission(admissionId: string, decision: "approve" | "reject", reason?: string) {
+  return apiFetch<{ status: string; tenant_id?: string; organization_id?: string }>(
+    `/api/v1/customer/admissions/${encodeURIComponent(admissionId)}/${decision}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reason: reason?.trim() || null }),
+    },
+  );
+}
