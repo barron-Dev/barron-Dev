@@ -24,13 +24,14 @@ class ServiceRequest(BaseModel):
 
 @router.get("/customer/organizations")
 async def organizations(p:DeveloperPrincipal=Depends(principal)):
-    rows=await supabase.select("customer_organizations","id,tenant_id,organization_type,legal_name,country_code,website_domain,registration_number,verification_status,created_at,updated_at",tenant_id=p.tenant_id)
+    rows=await supabase.select("customer_organizations","id,tenant_id,organization_type,legal_name,country_code,website_domain,registration_number,verification_status,created_at,updated_at",owner_user_id=p.user_id,tenant_id=p.tenant_id)
     return {"organizations":rows}
 
 @router.post("/customer/organizations")
 async def create_organization(body:OrgRequest,p:DeveloperPrincipal=Depends(principal)):
     if body.organization_type not in {"company","government","security_provider","developer","client","partner","individual"}: raise HTTPException(400,detail="invalid organization type")
-    row=await supabase.insert("customer_organizations",{"owner_user_id":p.app_id,"tenant_id":p.tenant_id,"organization_type":body.organization_type,"legal_name":body.legal_name.strip(),"country_code":body.country_code,"website_domain":body.website_domain,"registration_number":body.registration_number,"verification_status":"pending"})
+    if not p.user_id: raise HTTPException(403,detail="user_identity_required")
+    row=await supabase.insert_one("customer_organizations",{"owner_user_id":p.user_id,"tenant_id":p.tenant_id,"organization_type":body.organization_type,"legal_name":body.legal_name.strip(),"country_code":body.country_code,"website_domain":body.website_domain,"registration_number":body.registration_number,"verification_status":"pending"})
     return row
 
 @router.get("/customer/service-requests")
@@ -44,5 +45,6 @@ async def create_service_request(body:ServiceRequest,p:DeveloperPrincipal=Depend
     if not org: raise HTTPException(404,detail="organization_not_found")
     if body.service_key not in {"cybersecurity_assessment","incident_response","threat_intelligence","brand_protection","dark_web_monitoring","soc_mdr","ai_security","physical_security","compliance","other"}: raise HTTPException(400,detail="invalid service")
     if body.urgency not in {"low","normal","high","critical"}: raise HTTPException(400,detail="invalid urgency")
-    row=await supabase.insert("service_requests",{"organization_id":body.organization_id,"requester_user_id":p.app_id,"service_key":body.service_key,"urgency":body.urgency,"description":body.description.strip(),"status":"submitted"})
+    if not p.user_id: raise HTTPException(403,detail="user_identity_required")
+    row=await supabase.insert_one("service_requests",{"organization_id":body.organization_id,"requester_user_id":p.user_id,"service_key":body.service_key,"urgency":body.urgency,"description":body.description.strip(),"status":"submitted"})
     return row
