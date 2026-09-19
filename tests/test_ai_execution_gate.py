@@ -135,11 +135,11 @@ async def test_envelope_issuer_requires_authoritative_agent_and_provider_binding
         AsyncMock(return_value=ComplianceSignature("signed", "kid-1")),
     )
 
-    env = await AIEnvelopeIssuer(Provider()).issue(
+    env = await AIEnvelopeIssuer(Provider(), AsyncMock(resolve=AsyncMock(return_value={"active": True}))).issue(
         EnvelopeIssueRequest(
             tenant_id=tenant, agent_id=agent_id, model_id="model-a",
             provider_id="provider-a", tool_name="isolate_host",
-            action="isolate_host", args={}, target="device-1",
+            action="isolate_host", args={}, target="device-1", mission_id="mission-a", mission_version=1, mission_hash="d" * 64,
         )
     )
     assert env.tenant_id == tenant
@@ -162,7 +162,7 @@ async def test_envelope_issuer_rejects_undeclared_tool(monkeypatch):
     monkeypatch.setattr("cyclothone.ai.envelope_issuer.supabase.select_one", owned)
 
     with pytest.raises(Exception, match="tool is not declared by agent"):
-        await AIEnvelopeIssuer(AsyncMock()).issue(
+        await AIEnvelopeIssuer(AsyncMock(), AsyncMock(resolve=AsyncMock(return_value={"active": True}))).issue(
             EnvelopeIssueRequest(
                 tenant_id=tenant, agent_id=agent_id, model_id="model-a",
                 provider_id="provider-a", tool_name="isolate_host",
@@ -193,7 +193,7 @@ async def test_envelope_issuer_requires_persisted_provider_authority(monkeypatch
         async def resolve(self, **kwargs):
             return None
 
-    issuer = AIEnvelopeIssuer(Binding())
+    issuer = AIEnvelopeIssuer(Binding(), AsyncMock(resolve=AsyncMock(return_value={"active": True})))
     with pytest.raises(EnvelopeIssuanceDenied, match="provider binding"):
         await issuer.issue(EnvelopeIssueRequest(
             tenant_id=tenant_id, agent_id=agent_id, model_id="model-a",
@@ -231,7 +231,7 @@ async def test_envelope_issuer_signs_only_bound_agent(monkeypatch):
     envelope = await AIEnvelopeIssuer(Binding()).issue(EnvelopeIssueRequest(
         tenant_id=tenant_id, agent_id=agent_id, model_id="model-a",
         provider_id="provider-a", tool_name="kill_process", action="kill_process",
-        args={"pid": 7}, target="device-1",
+        args={"pid": 7}, target="device-1", mission_id="mission-a", mission_version=1, mission_hash="d" * 64,
     ))
 
     assert envelope.tenant_id == tenant_id
