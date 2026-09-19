@@ -322,8 +322,6 @@ async def test_execution_gate_rejects_stale_mission_binding(monkeypatch):
 
 def test_mission_binding_changes_envelope_canonical_digest():
     from cyclothone.ai.execution_gate import AgentExecutionGate
-    import hashlib, json
-
     env = envelope()
     a = AgentExecutionGate._envelope_hash(env)
     changed = AgentEnvelope(
