@@ -86,3 +86,36 @@ revoke all on function transition_customer_case(uuid,uuid,text,text) from public
 grant execute on function transition_customer_case(uuid,uuid,text,text) to service_role;
 revoke all on function add_customer_case_activity(uuid,uuid,text) from public;
 grant execute on function add_customer_case_activity(uuid,uuid,text) to service_role;
+
+create or replace function assign_customer_case(
+  p_case_id uuid,
+  p_operator_user_id uuid,
+  p_assigned_operator uuid
+) returns uuid
+language plpgsql security definer
+set search_path = public, auth
+as $$
+declare
+  v_link customer_case_links%rowtype;
+  v_assignment uuid;
+  v_old uuid;
+begin
+  if p_operator_user_id is null or p_assigned_operator is null then raise exception 'operator_required'; end if;
+  select * into v_link from customer_case_links where case_id=p_case_id;
+  if not found then raise exception 'case_not_found'; end if;
+  if not exists(select 1 from auth.users where id=p_assigned_operator) then raise exception 'assigned_operator_not_found'; end if;
+  select id into v_old from customer_case_assignments where case_id=p_case_id and active for update;
+  if v_old is not null then
+    update customer_case_assignments set active=false,ended_at=now() where id=v_old;
+  end if;
+  insert into customer_case_assignments(organization_id,case_id,operator_user_id,assigned_by)
+  values(v_link.organization_id,p_case_id,p_assigned_operator,p_operator_user_id)
+  returning id into v_assignment;
+  insert into customer_case_activity(organization_id,case_id,actor_user_id,actor_type,event_type,message,metadata)
+  values(v_link.organization_id,p_case_id,p_operator_user_id,'operator','case_assigned',
+         'Case assignment updated.',
+         jsonb_build_object('operator_user_id',p_assigned_operator,'previous_assignment_id',v_old));
+  return v_assignment;
+end $$;
+revoke all on function assign_customer_case(uuid,uuid,uuid) from public;
+grant execute on function assign_customer_case(uuid,uuid,uuid) to service_role;
