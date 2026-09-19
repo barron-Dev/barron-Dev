@@ -153,3 +153,26 @@ export function startAIRun(body: AIRunStartRequest) {
     body: JSON.stringify(body),
   });
 }
+
+export type AIRunExecution = {
+  run_id: string;
+  provider_id: string;
+  model_id: string;
+  run_state: string;
+  output_text: string;
+  usage: {
+    tokens_in: number;
+    tokens_out: number;
+    tokens_cached: number;
+    latency_ms: number;
+    cost_usd: string;
+  };
+};
+
+export function executeAIRun(runId: string, input_text: string) {
+  return apiFetch<AIRunExecution>(`/api/v1/ai/run/${encodeURIComponent(runId)}/execute`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ input_text }),
+  });
+}
