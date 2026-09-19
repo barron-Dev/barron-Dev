@@ -19,6 +19,9 @@ class EnvelopeIssuanceDenied(RuntimeError):
 class ProviderBinding(Protocol):
     async def resolve(self, *, tenant_id: UUID, agent_id: UUID, model_id: str, provider_id: str) -> dict[str, Any] | None: ...
 
+class MissionAuthority(Protocol):
+    async def resolve(self, *, tenant_id: UUID, mission_id: str, version: int, compiled_hash: str) -> dict[str, Any] | None: ...
+
 
 @dataclass(frozen=True, slots=True)
 class EnvelopeIssueRequest:
@@ -32,6 +35,9 @@ class EnvelopeIssueRequest:
     target: str
     ttl_seconds: int = 300
     version: str = "1"
+    mission_id: str | None = None
+    mission_version: int | None = None
+    mission_hash: str | None = None
 
 
 def _canonical_hash(envelope: AgentEnvelope) -> str:
@@ -49,8 +55,9 @@ class AIEnvelopeIssuer:
     the tenant/model/provider relationship before signing.
     """
 
-    def __init__(self, provider_binding: ProviderBinding) -> None:
+    def __init__(self, provider_binding: ProviderBinding, mission_authority: MissionAuthority | None = None) -> None:
         self.provider_binding = provider_binding
+        self.mission_authority = mission_authority
 
     async def issue(self, request: EnvelopeIssueRequest) -> AgentEnvelope:
         if request.version != "1":
@@ -65,6 +72,15 @@ class AIEnvelopeIssuer:
             raise EnvelopeIssuanceDenied("tool/action binding mismatch")
         if not request.target or len(request.target) > 512:
             raise EnvelopeIssuanceDenied("invalid target")
+        if not request.mission_id or request.mission_version is None or not request.mission_hash:
+            raise EnvelopeIssuanceDenied("mission binding is required")
+        if self.mission_authority is None:
+            raise EnvelopeIssuanceDenied("mission authority is required")
+        if len(request.mission_hash) != 64 or any(c not in "0123456789abcdef" for c in request.mission_hash):
+            raise EnvelopeIssuanceDenied("invalid mission hash")
+        mission = await self.mission_authority.resolve(tenant_id=request.tenant_id, mission_id=request.mission_id, version=request.mission_version, compiled_hash=request.mission_hash)
+        if not mission or mission.get("active") is not True:
+            raise EnvelopeIssuanceDenied("mission is not active")
 
         agent = await supabase.select_one(
             "ai_agents",
@@ -108,6 +124,9 @@ class AIEnvelopeIssuer:
             signature_b64="",
             version=request.version,
             binding_hash=str(binding.get("binding_hash") or ""),
+            mission_id=request.mission_id,
+            mission_version=request.mission_version,
+            mission_hash=request.mission_hash,
         )
         if (
             len(envelope.binding_hash) != 64
@@ -133,4 +152,7 @@ class AIEnvelopeIssuer:
             signature_b64=signature.signature_b64,
             version=envelope.version,
             binding_hash=envelope.binding_hash,
+            mission_id=envelope.mission_id,
+            mission_version=envelope.mission_version,
+            mission_hash=envelope.mission_hash,
         )
