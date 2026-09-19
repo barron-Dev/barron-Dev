@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from hashlib import sha256
 from typing import Any
 from uuid import UUID
 
@@ -11,7 +12,8 @@ from cyclothone.workforce.auth import WorkforcePrincipal
 
 
 @dataclass(frozen=True, slots=True)
-class WorkforceAIExecutionCommit:
+class WorkforceAIExecutionAuthority:
+    turn_id: UUID
     run_id: UUID
     security_decision_id: int
     execution_config_hash: str
@@ -20,135 +22,82 @@ class WorkforceAIExecutionCommit:
     envelope_hash: str | None
 
 
-async def commit_workforce_ai_execution(
+async def authorize_workforce_ai_execution(
     principal: WorkforcePrincipal,
     *,
     turn_id: UUID,
     run_id: UUID,
-    security_decision_id: int,
     execution_config: dict[str, Any],
-    agent_version: int,
-    mission_id: str,
-    mission_version: int,
-    mission_hash: str,
-    model_id: str,
-    model_version: int,
-    provider_id: str,
-    provider_binding_version: int,
-    tool_id: str,
-    tool_version: int,
-    policy_version: str | None = None,
-    policy_hash: str | None = None,
-    playbook_version: str | None = None,
-    playbook_hash: str | None = None,
-    twin_version: str | None = None,
-    twin_hash: str | None = None,
-    envelope_id: str | None = None,
-    envelope_hash: str | None = None,
-    admission_hash: str | None = None,
-) -> WorkforceAIExecutionCommit:
-    if mission_version < 1 or model_version < 1 or agent_version < 1 or provider_binding_version < 1 or tool_version < 1:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="invalid execution version")
-    if not mission_hash or len(mission_hash) != 64 or any(c not in "0123456789abcdef" for c in mission_hash):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="invalid mission hash")
+    risk_level: str,
+    destructive: bool = False,
+    estimated_cost_usd: float = 0,
+    approval_ref: str | None = None,
+    action_hash: str | None = None,
+    actor: str = "workforce_ai",
+    lease_seconds: int = 600,
+) -> WorkforceAIExecutionAuthority:
+    if not execution_config:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="execution configuration is required",
+        )
+    if risk_level not in {"LOW", "MEDIUM", "HIGH", "CRITICAL"}:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="invalid execution risk")
+    if estimated_cost_usd < 0:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="invalid execution cost")
+    if lease_seconds < 30 or lease_seconds > 3600:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="invalid execution lease")
 
     client = await supabase._ensure()
-
     try:
-        turn_state = await (
-            client.schema("workforce")
-            .table("ai_turns")
-            .select("id,employee_id,tenant_id,mission_id,mission_version,mission_hash")
-            .eq("id", str(turn_id))
-            .limit(1)
-            .execute()
-        )
-    except Exception as exc:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="workforce AI turn state unavailable",
-        ) from exc
-
-    turn_rows = turn_state.data or []
-    if not turn_rows or str(turn_rows[0]["employee_id"]) != principal.employee_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="workforce principal mismatch",
-        )
-
-    turn = turn_rows[0]
-    if (
-        str(turn["mission_id"]) != mission_id
-        or int(turn["mission_version"]) != mission_version
-        or str(turn["mission_hash"]) != mission_hash
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="workforce AI mission binding mismatch",
-        )
-
-    try:
-        bound = await client.schema("workforce").rpc(
-            "bind_ai_turn_run",
-            {"p_turn_id": str(turn_id), "p_run_id": str(run_id)},
+        result = await client.schema("workforce").rpc(
+            "authorize_ai_turn_execution",
+            {
+                "p_user_id": principal.user_id,
+                "p_turn_id": str(turn_id),
+                "p_run_id": str(run_id),
+                "p_execution_config": execution_config,
+                "p_risk_level": risk_level,
+                "p_destructive": destructive,
+                "p_estimated_cost_usd": estimated_cost_usd,
+                "p_approval_ref": approval_ref,
+                "p_action_hash": action_hash,
+                "p_actor": actor,
+                "p_lease_seconds": lease_seconds,
+            },
         ).execute()
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="workforce AI run binding unavailable",
+            detail="workforce AI execution authority unavailable",
         ) from exc
 
-    binding_rows = bound.data or []
-    if not binding_rows or not bool(binding_rows[0].get("allowed")):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="workforce AI run binding denied",
-        )
-
-    binding = binding_rows[0]
-    try:
-        committed = await client.rpc(
-            "ai_execution_commit",
-            {
-                "p_run_id": str(run_id),
-                "p_security_decision_id": security_decision_id,
-                "p_execution_config": execution_config,
-                "p_agent_version": agent_version,
-                "p_mission_id": mission_id,
-                "p_mission_version": mission_version,
-                "p_mission_hash": mission_hash,
-                "p_model_id": model_id,
-                "p_model_version": model_version,
-                "p_provider_id": provider_id,
-                "p_provider_binding_version": provider_binding_version,
-                "p_tool_id": tool_id,
-                "p_tool_version": tool_version,
-                "p_policy_version": policy_version,
-                "p_policy_hash": policy_hash,
-                "p_playbook_version": playbook_version,
-                "p_playbook_hash": playbook_hash,
-                "p_twin_version": twin_version,
-                "p_twin_hash": twin_hash,
-                "p_envelope_id": envelope_id,
-                "p_envelope_hash": envelope_hash,
-                "p_admission_hash": admission_hash,
-            },
-        )
-    except Exception as exc:
+    row = result.data if isinstance(result.data, dict) else None
+    if not row:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="canonical AI execution commit unavailable",
-        ) from exc
-
-    rows = committed.data if isinstance(committed.data, list) else [committed.data]
-    row = rows[0] if rows else None
-    if not row or row.get("committed") is not True:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="canonical AI execution commit denied",
+            detail="workforce AI execution authority returned incomplete state",
         )
 
-    return WorkforceAIExecutionCommit(
+    if row.get("allowed") is False:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": "workforce_ai_execution_denied",
+                "reason": row.get("reason_code", row.get("reason", "execution_denied")),
+                "decision": row.get("decision"),
+                "approval_required": row.get("approval_required", False),
+            },
+        )
+
+    if row.get("committed") is not True:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="canonical AI execution commit was not established",
+        )
+
+    return WorkforceAIExecutionAuthority(
+        turn_id=turn_id,
         run_id=UUID(str(row["run_id"])),
         security_decision_id=int(row["security_decision_id"]),
         execution_config_hash=str(row["execution_config_hash"]),
@@ -156,3 +105,46 @@ async def commit_workforce_ai_execution(
         envelope_id=row.get("envelope_id"),
         envelope_hash=row.get("envelope_hash"),
     )
+
+
+async def complete_workforce_ai_execution(
+    principal: WorkforcePrincipal,
+    *,
+    turn_id: UUID,
+    output_text: str,
+    outcome: str = "completed",
+    actual_cost_usd: float = 0,
+) -> dict[str, Any]:
+    if not output_text:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="AI output is required")
+    if outcome not in {"completed", "rejected", "failed"}:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="invalid AI turn outcome")
+    if actual_cost_usd < 0:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="invalid actual cost")
+
+    output_hash = sha256(output_text.encode("utf-8")).hexdigest()
+    client = await supabase._ensure()
+    try:
+        result = await client.schema("workforce").rpc(
+            "complete_ai_turn_execution",
+            {
+                "p_user_id": principal.user_id,
+                "p_turn_id": str(turn_id),
+                "p_output_hash": output_hash,
+                "p_status": outcome,
+                "p_actual_cost_usd": actual_cost_usd,
+            },
+        ).execute()
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="workforce AI execution completion authority unavailable",
+        ) from exc
+
+    row = result.data if isinstance(result.data, dict) else None
+    if not row or row.get("completed") is not True:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="workforce AI execution completion denied",
+        )
+    return row
