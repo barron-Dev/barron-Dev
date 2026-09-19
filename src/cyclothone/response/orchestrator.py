@@ -373,11 +373,20 @@ class ResponseOrchestrator:
                 "envelope_hash": self._envelope_hash(envelope),
                 "args_hash": hashlib.sha256(json.dumps(row.get("args") or {}, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("utf-8")).hexdigest(),
             }
-            command = await self.dispatcher.issue(
-                tenant_id=UUID(str(row["tenant_id"])), device_id=UUID(str(row["device_id"])) if row.get("device_id") else None,
-                action=row["action"], args=row.get("args") or {}, issued_by=f"approval:{approved_by}",
-                case_action_id=case_action_id, execution_context=execution_context,
-            )
+            try:
+                command = await self.dispatcher.issue(
+                    tenant_id=UUID(str(row["tenant_id"])), device_id=UUID(str(row["device_id"])) if row.get("device_id") else None,
+                    action=row["action"], args=row.get("args") or {}, issued_by=f"approval:{approved_by}",
+                    case_action_id=case_action_id, execution_context=execution_context,
+                )
+            except Exception as exc:
+                try:
+                    run_id_raw = row.get("ai_run_id")
+                    if run_id_raw:
+                        await self._fail_committed_execution(UUID(str(run_id_raw)), str(exc), f"approval-dispatch:{approved_by}")
+                except Exception:
+                    logger.exception("failed to finalize approved response execution after dispatch failure")
+                raise
             await self.store.update(case_action_id, status="dispatched", command_id=command["id"], dispatched_at=datetime.now(timezone.utc).isoformat())
             if rule_id and device_id:
                 await self.store.record_blast(rule_id=rule_id, tenant_id=UUID(str(row["tenant_id"])), device_id=device_id, case_id=UUID(str(row["case_id"])))
