@@ -1,0 +1,7 @@
+"use client";
+import {useEffect,useState} from "react";
+import {apiFetch} from "../../../../lib/api";
+type Row=Record<string,unknown>;
+export default function FederationPage(){const[p,setP]=useState<Row[]>([]),[i,setI]=useState<Row[]>([]),[e,setE]=useState("");
+useEffect(()=>{void Promise.all([apiFetch<unknown>("/api/v1/federation/peers"),apiFetch<unknown>("/api/v1/federation/indicators")]).then(([a,b])=>{setP(Array.isArray(a)?a:[]);setI(Array.isArray(b)?b:[])}).catch(x=>setE(x instanceof Error?x.message:"Could not load federation"))},[]);
+return <main className="min-h-screen bg-[#05070a] p-6 text-[#e8eef6]"><div className="mx-auto max-w-6xl space-y-5"><header><div className="text-[10px] uppercase tracking-[.16em] text-[#5a6675]">Platform</div><h1 className="mt-1 text-2xl font-semibold">Threat Intelligence Federation</h1><p className="mt-1 text-xs text-[#8a97a8]">Tenant-scoped federation peers and indicators.</p></header>{e&&<div className="border border-[#ff2d55]/40 p-3 text-xs text-[#ff6b83]">{e}</div>}<section className="border border-[#1a2330] bg-[#0a0e14] p-5"><h2 className="text-sm font-semibold">Peers ({p.length})</h2><pre className="mt-3 max-h-96 overflow-auto whitespace-pre-wrap text-xs">{JSON.stringify(p,null,2)}</pre></section><section className="border border-[#1a2330] bg-[#0a0e14] p-5"><h2 className="text-sm font-semibold">Indicators ({i.length})</h2><pre className="mt-3 max-h-96 overflow-auto whitespace-pre-wrap text-xs">{JSON.stringify(i,null,2)}</pre></section></div></main>
