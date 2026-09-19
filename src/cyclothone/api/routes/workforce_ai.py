@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from decimal import Decimal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -182,7 +183,7 @@ class AIExecutionRequest(BaseModel):
     execution_config: dict
     risk_level: str = Field(pattern=r"^(LOW|MEDIUM|HIGH|CRITICAL)$")
     destructive: bool = False
-    estimated_cost_usd: float = Field(default=0, ge=0)
+    estimated_cost_usd: Decimal = Field(default=Decimal("0"), ge=0)
     approval_ref: str | None = None
     action_hash: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     actor: str = Field(default="workforce_ai", min_length=1, max_length=128)
