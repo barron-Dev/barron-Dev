@@ -14,6 +14,7 @@ class CompiledMission:
     edges: tuple[tuple[str, str], ...]
     compiled_hash: str
     is_dag: bool = True
+    max_parallel: int = 1
 
 class MissionCompiler:
     def __init__(self, *, max_nodes: int = 256, max_edges: int = 1024) -> None:
@@ -37,13 +38,16 @@ class MissionCompiler:
             nodes[nid] = {k: node[k] for k in sorted(node)}
         if len(triggers) != 1: raise MissionCompileError("mission requires exactly one trigger")
         edges: set[tuple[str,str]] = set()
+        edge_meta: dict[tuple[str,str], dict[str, Any]] = {}
         for edge in raw_edges:
             if not isinstance(edge, dict): raise MissionCompileError("edge must be an object")
             src, dst = str(edge.get("from") or ""), str(edge.get("to") or "")
             pair=(src,dst)
             if src not in nodes or dst not in nodes: raise MissionCompileError("dangling edge")
             if src == dst or pair in edges: raise MissionCompileError("self-edge or duplicate edge")
+            if "when" in edge and not isinstance(edge["when"], str): raise MissionCompileError("edge condition label must be text")
             edges.add(pair)
+            edge_meta[pair] = {"when": edge.get("when")} if "when" in edge else {}
         incoming={n:0 for n in nodes}; outgoing={n:[] for n in nodes}
         for src,dst in edges: incoming[dst]+=1; outgoing[src].append(dst)
         queue=[n for n in nodes if incoming[n]==0]; visited=[]
@@ -60,6 +64,21 @@ class MissionCompiler:
                 if dst not in reachable: reachable.add(dst); stack.append(dst)
         if reachable != set(nodes): raise MissionCompileError("mission contains unreachable nodes")
         if any(nodes[n]["kind"]=="finalize" and outgoing[n] for n in nodes): raise MissionCompileError("finalize node must terminate a path")
-        canonical={"mission_id":mission_id,"version":version,"nodes":[nodes[n] for n in sorted(nodes)],"edges":[{"from":a,"to":b} for a,b in sorted(edges)]}
+        parallel_limits = []
+        for nid, node in nodes.items():
+            kind = node["kind"]; outs = outgoing[nid]
+            if kind == "condition":
+                if len(outs) < 2: raise MissionCompileError("condition node requires at least two branches")
+                labels = [edge_meta[(nid, dst)].get("when") for dst in outs]
+                if any(not label for label in labels) or len(set(labels)) != len(labels):
+                    raise MissionCompileError("condition branches require unique labels")
+            if kind == "parallel":
+                if len(outs) < 2: raise MissionCompileError("parallel node requires at least two branches")
+                limit = node.get("max_parallel", len(outs))
+                if not isinstance(limit, int) or not 1 <= limit <= 32 or limit < len(outs):
+                    raise MissionCompileError("parallel max_parallel must bound all branches and be <= 32")
+                parallel_limits.append(limit)
+        max_parallel = max(parallel_limits, default=1)
+        canonical={"mission_id":mission_id,"version":version,"nodes":[nodes[n] for n in sorted(nodes)],"edges":[{"from":a,"to":b, **edge_meta[(a,b)]} for a,b in sorted(edges)]}
         digest=hashlib.sha256(json.dumps(canonical,sort_keys=True,separators=(",",":"),ensure_ascii=True).encode()).hexdigest()
-        return CompiledMission(mission_id,version,triggers[0],tuple(canonical["nodes"]),tuple(sorted(edges)),digest,True)
+        return CompiledMission(mission_id,version,triggers[0],tuple(canonical["nodes"]),tuple(sorted(edges)),digest,True,max_parallel)
