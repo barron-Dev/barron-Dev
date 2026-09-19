@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime
-from typing import Any
 
 from fastapi import Header, HTTPException, status
 
@@ -13,7 +11,6 @@ from cyclothone.storage.supabase_client import supabase
 class WorkforcePrincipal:
     user_id: str
     employee_id: str
-    tenant_id: str | None
     department_id: str | None
 
     def require_active(self) -> None:
@@ -24,10 +21,7 @@ class WorkforcePrincipal:
 async def authenticate_workforce_request(
     authorization: str | None = Header(None),
 ) -> WorkforcePrincipal:
-    """
-    Authenticate a workforce request using Supabase Auth's server-side
-    get_user validation. Never treats a JWT payload as trusted by itself.
-    """
+    """Authenticate Supabase Auth identity, then resolve private workforce authority."""
     scheme, _, token = (authorization or "").partition(" ")
     if scheme.lower() != "bearer" or not token.strip():
         raise HTTPException(
@@ -55,21 +49,32 @@ async def authenticate_workforce_request(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    row = await supabase.select_one(
-        "employees",
-        "id,user_id,status,tenant_id,department_id",
-        user_id=str(user_id),
-    )
+    try:
+        response = await (
+            client.schema("workforce")
+            .table("employees")
+            .select("id,user_id,status,department_id")
+            .eq("user_id", str(user_id))
+            .eq("status", "active")
+            .limit(1)
+            .execute()
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="workforce identity lookup unavailable",
+        ) from exc
 
-    if not row or row.get("status") != "active":
+    rows = response.data or []
+    if not rows:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="workforce identity is not active",
         )
 
+    row = rows[0]
     return WorkforcePrincipal(
         user_id=str(user_id),
         employee_id=str(row["id"]),
-        tenant_id=str(row["tenant_id"]) if row.get("tenant_id") else None,
         department_id=str(row["department_id"]) if row.get("department_id") else None,
     )
