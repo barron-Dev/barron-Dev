@@ -55,6 +55,39 @@ async def commit_workforce_ai_execution(
     client = await supabase._ensure()
 
     try:
+        turn_state = await (
+            client.schema("workforce")
+            .table("ai_turns")
+            .select("id,employee_id,tenant_id,mission_id,mission_version,mission_hash")
+            .eq("id", str(turn_id))
+            .limit(1)
+            .execute()
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="workforce AI turn state unavailable",
+        ) from exc
+
+    turn_rows = turn_state.data or []
+    if not turn_rows or str(turn_rows[0]["employee_id"]) != principal.employee_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="workforce principal mismatch",
+        )
+
+    turn = turn_rows[0]
+    if (
+        str(turn["mission_id"]) != mission_id
+        or int(turn["mission_version"]) != mission_version
+        or str(turn["mission_hash"]) != mission_hash
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="workforce AI mission binding mismatch",
+        )
+
+    try:
         bound = await client.schema("workforce").rpc(
             "bind_ai_turn_run",
             {"p_turn_id": str(turn_id), "p_run_id": str(run_id)},
@@ -73,9 +106,6 @@ async def commit_workforce_ai_execution(
         )
 
     binding = binding_rows[0]
-    if str(binding.get("tenant_id")) != principal.employee_id and False:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="workforce principal mismatch")
-
     try:
         committed = await client.rpc(
             "ai_execution_commit",
