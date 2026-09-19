@@ -96,7 +96,7 @@ async def reject_admission(admission_id: str, body: AdmissionDecisionRequest, p:
 
 @router.get("/customer/organizations")
 async def organizations(p:DeveloperPrincipal=Depends(principal)):
-    rows=await supabase.select("customer_organizations","id,tenant_id,organization_type,legal_name,country_code,website_domain,registration_number,verification_status,created_at,updated_at",owner_user_id=p.user_id,tenant_id=p.tenant_id)
+    rows=await supabase.select("customer_organizations","id,tenant_id,organization_type,legal_name,country_code,website_domain,registration_number,verification_status,created_at,updated_at",owner_user_id=p.user_id)
     return {"organizations":rows}
 
 @router.post("/customer/organizations")
@@ -114,7 +114,7 @@ class VerificationRequest(BaseModel):
 
 @router.get("/customer/organizations/{organization_id}/verification")
 async def verification_status(organization_id: str, p:DeveloperPrincipal=Depends(principal)):
-    org=await supabase.select_one("customer_organizations","id,verification_status",id=organization_id,tenant_id=p.tenant_id,owner_user_id=p.user_id)
+    org=await supabase.select_one("customer_organizations","id,verification_status",id=organization_id,owner_user_id=p.user_id)
     if not org: raise HTTPException(404,detail="organization_not_found")
     rows=await supabase.select("identity_verifications","id,verification_type,status,provider,reference,submitted_at,verified_at,expires_at,created_at",organization_id=organization_id)
     return {"organization":org,"verifications":rows}
@@ -139,7 +139,7 @@ async def service_requests(p:DeveloperPrincipal=Depends(principal)):
 
 @router.post("/customer/service-requests")
 async def create_service_request(body:ServiceRequest,p:DeveloperPrincipal=Depends(principal)):
-    org=await supabase.select_one("customer_organizations","id,tenant_id,admission_status",id=body.organization_id,tenant_id=p.tenant_id,owner_user_id=p.user_id)
+    org=await supabase.select_one("customer_organizations","id,tenant_id,admission_status",id=body.organization_id,owner_user_id=p.user_id)
     if not org or org.get("admission_status") != "approved": raise HTTPException(403,detail="workspace_not_admitted")
     if not org: raise HTTPException(404,detail="organization_not_found")
     if body.service_key not in {"cybersecurity_assessment","incident_response","threat_intelligence","brand_protection","dark_web_monitoring","soc_mdr","ai_security","physical_security","compliance","other"}: raise HTTPException(400,detail="invalid service")
