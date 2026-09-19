@@ -124,6 +124,19 @@ async def organization_members(organization_id: str, p: DeveloperPrincipal=Depen
     rows=await supabase.select("organization_members","organization_id,user_id,role,status,created_at",organization_id=organization_id)
     return {"members":rows}
 
+@router.post("/customer/organizations/{organization_id}/invitations/{invitation_id}/revoke")
+async def revoke_invitation(organization_id: str, invitation_id: str, p: DeveloperPrincipal=Depends(principal)):
+    if not p.user_id: raise HTTPException(403,detail="user_identity_required")
+    org=await supabase.select_one("customer_organizations","id,owner_user_id",id=organization_id,owner_user_id=p.user_id)
+    if not org:
+        member=await supabase.select_one("organization_members","organization_id,user_id,role,status",organization_id=organization_id,user_id=p.user_id,status="active")
+        if not member or member["role"] not in {"owner","admin"}: raise HTTPException(403,detail="organization_admin_required")
+    invitation=await supabase.select_one("organization_invitations","id,organization_id,accepted_at",id=invitation_id,organization_id=organization_id)
+    if not invitation: raise HTTPException(404,detail="invitation_not_found")
+    if invitation.get("accepted_at"): raise HTTPException(409,detail="invitation_already_closed")
+    await supabase.update("organization_invitations",{"expires_at":datetime.now(UTC).isoformat(),"accepted_at":datetime.now(UTC).isoformat()},id=invitation_id,organization_id=organization_id)
+    return {"status":"revoked","invitation_id":invitation_id}
+
 @router.get("/customer/organizations/{organization_id}/invitations")
 async def organization_invitations(organization_id: str, p: DeveloperPrincipal=Depends(principal)):
     if not p.user_id: raise HTTPException(403,detail="user_identity_required")
