@@ -9,6 +9,7 @@ from enum import StrEnum
 from typing import Any, Protocol
 from uuid import UUID
 
+from cyclothone.ai.envelope_issuer import AIEnvelopeIssuer, EnvelopeIssueRequest
 from cyclothone.ai.execution_gate import AgentEnvelope, AgentExecutionGate
 
 logger = logging.getLogger(__name__)
@@ -43,7 +44,8 @@ class ActionPlan:
     args: dict[str, Any]
     requires_approval: bool = False
     rollback: dict[str, Any] | None = None
-    agent_envelope: AgentEnvelope | None = None
+    agent_envelope: AgentEnvelope | None = None  # persisted/internal only; never accepted as execution input
+    envelope_request: EnvelopeIssueRequest | None = None
     model_id: str | None = None
     provider_id: str | None = None
     target: str | None = None
@@ -99,11 +101,12 @@ class ResponseOrchestrator:
             "args_hash": hashlib.sha256(args_encoded).hexdigest(),
         }
 
-    def __init__(self, dispatcher: Dispatcher, store: ActionStore, signer: Signer | None = None, execution_gate: AgentExecutionGate | None = None) -> None:
+    def __init__(self, dispatcher: Dispatcher, store: ActionStore, signer: Signer | None = None, execution_gate: AgentExecutionGate | None = None, envelope_issuer: AIEnvelopeIssuer | None = None) -> None:
         self.dispatcher = dispatcher
         self.store = store
         self.signer = signer
         self.execution_gate = execution_gate
+        self.envelope_issuer = envelope_issuer
 
     async def run_chain(
         self, *, tenant_id: UUID, case_id: UUID, device_id: UUID | None,
@@ -124,17 +127,32 @@ class ResponseOrchestrator:
                 approval_required = step.requires_approval or action_class in (ActionClass.HIGH, ActionClass.CRITICAL)
 
                 if action_class in (ActionClass.MEDIUM, ActionClass.HIGH, ActionClass.CRITICAL):
-                    if self.execution_gate is None:
-                        raise RuntimeError("AI execution gate is required for destructive response actions")
-                    if step.agent_envelope is None or not step.model_id or not step.provider_id or not step.target:
-                        raise RuntimeError("signed agent envelope, model binding, provider binding, and target are required")
+                    if self.execution_gate is None or self.envelope_issuer is None:
+                        raise RuntimeError("authoritative AI envelope issuer and execution gate are required for destructive response actions")
+                    if step.envelope_request is None:
+                        raise RuntimeError("destructive response requires an envelope issuance request")
+                    request = step.envelope_request
+                    if request.tenant_id != tenant_id or request.action != step.action or request.args != step.args:
+                        raise RuntimeError("envelope issuance request does not match response plan")
+                    if step.model_id and request.model_id != step.model_id:
+                        raise RuntimeError("envelope request model mismatch")
+                    if step.provider_id and request.provider_id != step.provider_id:
+                        raise RuntimeError("envelope request provider mismatch")
+                    if step.target and request.target != step.target:
+                        raise RuntimeError("envelope request target mismatch")
+                    step_envelope = await self.envelope_issuer.issue(request)
                     from cyclothone.twin.service import DigitalTwinService
                     await self.execution_gate.validate(
-                        envelope=step.agent_envelope,
+                        envelope=step_envelope,
                         tenant_id=tenant_id,
-                        expected_model_id=step.model_id,
-                        expected_provider_id=step.provider_id,
+                        expected_model_id=request.model_id,
+                        expected_provider_id=request.provider_id,
                         twin=DigitalTwinService(tenant_id),
+                    )
+                    step = ActionPlan(
+                        action=step.action, args=step.args, requires_approval=step.requires_approval,
+                        rollback=step.rollback, agent_envelope=step_envelope, envelope_request=request,
+                        model_id=request.model_id, provider_id=request.provider_id, target=request.target,
                     )
 
                 if blast_rule_id and device_id and not await self.store.blast_allowed(blast_rule_id, blast_limit, tenant_id=tenant_id, device_id=device_id):
@@ -155,6 +173,13 @@ class ResponseOrchestrator:
                         issued_by=issued_by, initiated_by_rule=initiated_by_rule,
                         rollback_args=step.rollback,
                         agent_envelope=step.agent_envelope.to_record() if step.agent_envelope else None,
+                        ai_agent_id=str(step.agent_envelope.agent_id) if step.agent_envelope else None,
+                        ai_model_id=step.model_id, ai_provider_id=step.provider_id,
+                        ai_tool_name=step.agent_envelope.tool_name if step.agent_envelope else None,
+                        ai_target=step.target,
+                        ai_envelope_id=step.agent_envelope.envelope_id if step.agent_envelope else None,
+                        ai_envelope_hash=self._envelope_hash(step.agent_envelope),
+                        ai_args_hash=self._execution_context(step)["args_hash"],
                         model_id=step.model_id, provider_id=step.provider_id, target=step.target,
                     )
                     queued.append(row_id)
