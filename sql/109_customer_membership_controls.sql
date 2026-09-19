@@ -4,9 +4,8 @@
 create index if not exists organization_members_org_status_idx
   on organization_members(organization_id,status);
 
-create unique index if not exists organization_invitation_active_email_uq
-  on organization_invitations(organization_id,lower(email))
-  where accepted_at is null and expires_at > now();
+create index if not exists organization_invitation_email_idx
+  on organization_invitations(organization_id,lower(email),created_at desc);
 
 create or replace function revoke_organization_invitation(p_invitation_id uuid)
 returns void
