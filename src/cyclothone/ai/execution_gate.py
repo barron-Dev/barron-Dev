@@ -10,9 +10,10 @@ from uuid import UUID
 from cyclothone.ai.tool_policy import ToolPolicyEngine
 from cyclothone.compliance.signing import verify_digest_signature
 from cyclothone.twin.service import DigitalTwinService
+from cyclothone.storage.supabase_client import supabase
 
 class ReplayStore(Protocol):
-    async def claim(self, *, tenant_id: UUID, envelope_id: str, expires_at: datetime) -> bool: ...
+    async def claim(self, *, tenant_id: UUID, envelope_id: str, expires_at: datetime, envelope_hash: str) -> bool: ...
 
 @dataclass(frozen=True, slots=True)
 class AgentEnvelope:
@@ -36,6 +37,19 @@ class AgentEnvelope:
     def to_record(self) -> dict[str, Any]:
         return {**self.canonical(), "signer_kid": self.signer_kid, "signature_b64": self.signature_b64}
 
+
+class SupabaseReplayStore:
+    """Durable, tenant-scoped, atomic envelope replay ledger."""
+
+    async def claim(self, *, tenant_id: UUID, envelope_id: str, expires_at: datetime, envelope_hash: str) -> bool:
+        result = await supabase.rpc("claim_ai_execution_envelope", {
+            "p_tenant_id": str(tenant_id),
+            "p_envelope_id": envelope_id,
+            "p_envelope_hash": envelope_hash,
+            "p_expires_at": expires_at.isoformat(),
+        })
+        return bool(result)
+
 class AgentExecutionDenied(RuntimeError):
     pass
 
@@ -44,6 +58,10 @@ class AgentExecutionGate:
     def __init__(self, replay_store: ReplayStore, policy: ToolPolicyEngine | None = None) -> None:
         self.replay_store = replay_store
         self.policy = policy or ToolPolicyEngine()
+
+    @staticmethod
+    def _envelope_hash(envelope: AgentEnvelope) -> str:
+        return hashlib.sha256(json.dumps(envelope.canonical(), sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("utf-8")).hexdigest()
 
     async def validate(
         self,
@@ -99,6 +117,7 @@ class AgentExecutionGate:
             tenant_id=tenant_id,
             envelope_id=envelope.envelope_id,
             expires_at=envelope.expires_at,
+            envelope_hash=self._envelope_hash(envelope),
         ):
             raise AgentExecutionDenied("envelope replay detected")
 
