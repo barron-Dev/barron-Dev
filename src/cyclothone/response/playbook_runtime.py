@@ -13,12 +13,24 @@ class SupabaseActionStore(ActionStore):
         row = await supabase.insert_one("case_actions", values)
         case_id = values.get("case_id")
         if case_id:
-            await supabase.insert_one("case_timeline", {
+            event = {
                 "case_id": str(case_id),
                 "actor": str(values.get("issued_by") or "response"),
                 "kind": "response_action_created",
                 "payload": {"case_action_id": str(row["id"]), "action": values.get("action"), "status": values.get("status")},
-            })
+            }
+            await supabase.insert_one("case_timeline", event)
+            customer_link = await supabase.select_one("customer_case_links", "organization_id", case_id=str(case_id))
+            if customer_link:
+                await supabase.insert_one("customer_case_activity", {
+                    "organization_id": customer_link["organization_id"],
+                    "case_id": str(case_id),
+                    "actor_user_id": None,
+                    "actor_type": "system",
+                    "event_type": "response_action_created",
+                    "message": f"Response action {values.get('action') or 'action'} created.",
+                    "metadata": event["payload"],
+                })
         return str(row["id"])
 
     async def get(self, action_id: UUID) -> dict[str, Any] | None:
@@ -33,12 +45,24 @@ class SupabaseActionStore(ActionStore):
             raise RuntimeError("case_action not found during update")
         if current.get("case_id"):
             actor = str(values.get("issued_by") or values.get("approved_by") or values.get("rejected_by") or "response")
+            payload = {"case_action_id": str(action_id), "changes": values}
             await supabase.insert_one("case_timeline", {
                 "case_id": str(current["case_id"]),
                 "actor": actor,
                 "kind": "response_action_updated",
-                "payload": {"case_action_id": str(action_id), "changes": values},
+                "payload": payload,
             })
+            customer_link = await supabase.select_one("customer_case_links", "organization_id", case_id=str(current["case_id"]))
+            if customer_link:
+                await supabase.insert_one("customer_case_activity", {
+                    "organization_id": customer_link["organization_id"],
+                    "case_id": str(current["case_id"]),
+                    "actor_user_id": None,
+                    "actor_type": "system",
+                    "event_type": "response_action_updated",
+                    "message": "A response action changed state.",
+                    "metadata": payload,
+                })
 
     async def blast_allowed(
         self, rule_id: UUID, limit: int, window_minutes: int = 60,
