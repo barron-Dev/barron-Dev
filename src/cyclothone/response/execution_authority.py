@@ -75,6 +75,41 @@ async def create_response_execution_approval(
     return result.data if isinstance(result.data, dict) else {"approval": result.data}
 
 
+async def complete_response_execution(
+    *,
+    run_id: UUID,
+    outcome: str,
+    error: dict[str, Any] | None = None,
+    actual_cost_usd: Decimal = Decimal("0"),
+    actor: str = "response_orchestrator",
+) -> dict[str, Any]:
+    if outcome not in {"COMPLETED", "FAILED", "CANCELLED", "TIMEOUT", "REJECTED"}:
+        raise HTTPException(status_code=400, detail="invalid execution outcome")
+    if actual_cost_usd < 0:
+        raise HTTPException(status_code=400, detail="invalid execution cost")
+    client = await supabase._ensure()
+    try:
+        result = await client.rpc(
+            "ai_complete_execution",
+            {
+                "p_run_id": str(run_id),
+                "p_outcome": outcome,
+                "p_actual_cost_usd": str(actual_cost_usd),
+                "p_error": error,
+                "p_actor": actor,
+            },
+        ).execute()
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="execution outcome authority unavailable",
+        ) from exc
+    row = result.data if isinstance(result.data, dict) else None
+    if not row or row.get("completed") is not True:
+        raise HTTPException(status_code=503, detail="execution outcome authority returned incomplete state")
+    return row
+
+
 async def authorize_response_execution(
     *,
     run_id: UUID,
