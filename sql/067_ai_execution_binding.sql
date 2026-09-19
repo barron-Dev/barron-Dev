@@ -82,3 +82,50 @@ revoke all on function public.claim_ai_execution_envelope(uuid,text,text,timesta
     from public, anon, authenticated;
 grant execute on function public.claim_ai_execution_envelope(uuid,text,text,timestamptz)
     to service_role;
+
+create or replace function public.validate_ai_command_binding()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+declare
+  a public.case_actions%rowtype;
+begin
+  if new.case_action_id is null then
+    return new;
+  end if;
+
+  select * into a
+    from public.case_actions
+   where id = new.case_action_id
+     and tenant_id = new.tenant_id;
+
+  if not found then
+    raise exception 'case action binding not found for command';
+  end if;
+
+  if a.ai_envelope_id is not null then
+    if new.ai_envelope_id is distinct from a.ai_envelope_id
+       or new.ai_envelope_hash is distinct from a.ai_envelope_hash
+       or new.ai_agent_id is distinct from a.ai_agent_id
+       or new.ai_model_id is distinct from a.ai_model_id
+       or new.ai_provider_id is distinct from a.ai_provider_id
+       or new.ai_tool_name is distinct from a.ai_tool_name
+       or new.ai_target is distinct from a.ai_target
+       or new.ai_args_hash is distinct from a.ai_args_hash then
+      raise exception 'AI command binding mismatch';
+    end if;
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_validate_ai_command_binding on public.commands;
+create trigger trg_validate_ai_command_binding
+before insert or update of case_action_id, tenant_id, ai_agent_id, ai_model_id,
+    ai_provider_id, ai_tool_name, ai_target, ai_envelope_id, ai_envelope_hash, ai_args_hash
+on public.commands
+for each row execute function public.validate_ai_command_binding();
+
+revoke all on function public.validate_ai_command_binding() from public, anon, authenticated;
