@@ -10,7 +10,7 @@ from decimal import Decimal
 from time import monotonic
 from uuid import UUID
 
-from fastapi import HTTPException, status
+from fastapi import HTTPException
 
 from cyclothone.response.execution_authority import complete_response_execution
 from cyclothone.storage.supabase_client import supabase
@@ -91,6 +91,19 @@ async def execute_openai_run(
         raise HTTPException(status_code=409, detail="unsupported provider executor")
     if run["run_state"] not in {"AUTHORIZED", "RUNNING"}:
         raise HTTPException(status_code=409, detail="AI run is not executable")
+
+    claim_response = await client.rpc(
+        "ai_claim_provider_execution",
+        {"p_run_id": str(run_id), "p_actor": actor},
+    ).execute()
+    claim = claim_response.data or {}
+    if isinstance(claim, list):
+        claim = claim[0] if claim else {}
+    if claim.get("claimed") is not True:
+        raise HTTPException(
+            status_code=409,
+            detail=f"AI run execution already claimed or finalized ({claim.get('reason', 'unknown')})",
+        )
 
     started = monotonic()
     try:
