@@ -53,6 +53,8 @@ class AIEnvelopeIssuer:
         self.provider_binding = provider_binding
 
     async def issue(self, request: EnvelopeIssueRequest) -> AgentEnvelope:
+        if request.version != "1":
+            raise EnvelopeIssuanceDenied("unsupported envelope version")
         if not 1 <= request.ttl_seconds <= 900:
             raise EnvelopeIssuanceDenied("invalid envelope ttl")
         if not request.model_id or len(request.model_id) > 128:
@@ -107,7 +109,10 @@ class AIEnvelopeIssuer:
             version=request.version,
             binding_hash=str(binding.get("binding_hash") or ""),
         )
-        if not envelope.binding_hash or len(envelope.binding_hash) != 64:
+        if (
+            len(envelope.binding_hash) != 64
+            or any(c not in "0123456789abcdef" for c in envelope.binding_hash)
+        ):
             raise EnvelopeIssuanceDenied("provider binding has no valid binding hash")
 
         digest = _canonical_hash(envelope)
