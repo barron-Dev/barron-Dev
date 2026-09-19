@@ -12,3 +12,6 @@ create table if not exists schema_migrations (
 
 create index if not exists idx_schema_migrations_applied
     on schema_migrations(applied_at desc);
+
+alter table schema_migrations enable row level security;
+revoke all on table schema_migrations from public;
