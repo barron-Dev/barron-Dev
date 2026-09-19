@@ -5,12 +5,14 @@ import json
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from decimal import Decimal
 from enum import StrEnum
 from typing import Any, Protocol
 from uuid import UUID
 
 from cyclothone.ai.envelope_issuer import AIEnvelopeIssuer, EnvelopeIssueRequest
 from cyclothone.ai.execution_gate import AgentEnvelope, AgentExecutionGate
+from cyclothone.response.execution_authority import authorize_response_execution, create_response_execution_approval, response_action_hash
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +54,7 @@ class ActionPlan:
     mission_id: str | None = None
     mission_version: int | None = None
     mission_hash: str | None = None
+    run_id: UUID | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -107,12 +110,21 @@ class ResponseOrchestrator:
             "mission_hash": step.agent_envelope.mission_hash if step.agent_envelope else step.mission_hash,
         }
 
-    def __init__(self, dispatcher: Dispatcher, store: ActionStore, signer: Signer | None = None, execution_gate: AgentExecutionGate | None = None, envelope_issuer: AIEnvelopeIssuer | None = None) -> None:
+    def __init__(
+        self,
+        dispatcher: Dispatcher,
+        store: ActionStore,
+        signer: Signer | None = None,
+        execution_gate: AgentExecutionGate | None = None,
+        envelope_issuer: AIEnvelopeIssuer | None = None,
+        execution_authorizer=authorize_response_execution,
+    ) -> None:
         self.dispatcher = dispatcher
         self.store = store
         self.signer = signer
         self.execution_gate = execution_gate
         self.envelope_issuer = envelope_issuer
+        self.execution_authorizer = execution_authorizer
 
     async def run_chain(
         self, *, tenant_id: UUID, case_id: UUID, device_id: UUID | None,
