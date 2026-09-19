@@ -12,7 +12,7 @@ security definer
 set search_path = public,pg_catalog
 as $$
   select encode(
-    digest(
+    extensions.digest(
       convert_to(
         coalesce(
           (
@@ -190,13 +190,8 @@ begin
 end;
 $$;
 
-revoke all on function public.ai_authorize_and_commit_execution(
-  uuid,uuid,text,text,text,text,text,boolean,numeric,jsonb,integer,integer,text,integer,integer,integer,
-  text,text,text,text,text,text,text,text,text,integer,text
-) from public,anon,authenticated;
-grant execute on function public.ai_authorize_and_commit_execution(
-  uuid,uuid,text,text,text,text,text,boolean,numeric,jsonb,integer,integer,text,integer,integer,integer,text,text,text,text,text,text,text,text,text,text,integer,text
-) to service_role;
+revoke all on function public.ai_authorize_and_commit_execution(uuid,uuid,text,text,text,text,text,boolean,numeric(18,8),jsonb,integer,integer,text,integer,integer,integer,text,text,text,text,text,text,text,text,text,text,integer,text) from public,anon,authenticated;
+grant execute on function public.ai_authorize_and_commit_execution(uuid,uuid,text,text,text,text,text,boolean,numeric(18,8),jsonb,integer,integer,text,integer,integer,integer,text,text,text,text,text,text,text,text,text,text,integer,text) to service_role;
 
 comment on function public.ai_authorize_and_commit_execution is
 'Canonical atomic execution boundary: security admission, resource admission, exact provenance commit, and destructive approval consumption occur in one transaction.';
