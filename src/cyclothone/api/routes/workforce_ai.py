@@ -130,3 +130,42 @@ async def create_ai_session(
         mission_hash=request.mission_hash,
         expires_at=str(session["expires_at"]),
     )
+
+
+
+class AITurnRequest(BaseModel):
+    input: str = Field(min_length=1)
+    sequence_no: int = Field(ge=1)
+
+
+class AITurnResponse(BaseModel):
+    turn_id: UUID
+    employee_id: UUID
+    tenant_id: UUID
+    mission_id: UUID
+    mission_version: int
+    mission_hash: str
+    sequence_no: int
+
+
+@router.post("/sessions/{session_id}/turns", response_model=AITurnResponse)
+async def admit_ai_turn(
+    session_id: UUID,
+    request: AITurnRequest,
+    principal: WorkforcePrincipal = Depends(authenticate_workforce_request),
+) -> AITurnResponse:
+    authority: WorkforceAITurnAuthority = await admit_workforce_ai_turn(
+        principal=principal,
+        session_id=session_id,
+        input_text=request.input,
+        sequence_no=request.sequence_no,
+    )
+    return AITurnResponse(
+        turn_id=authority.turn_id,
+        employee_id=authority.employee_id,
+        tenant_id=authority.tenant_id,
+        mission_id=authority.mission_id,
+        mission_version=authority.mission_version,
+        mission_hash=authority.mission_hash,
+        sequence_no=authority.sequence_no,
+    )
