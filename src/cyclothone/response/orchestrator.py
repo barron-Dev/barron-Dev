@@ -304,9 +304,45 @@ class ResponseOrchestrator:
                     expected_provider_id=str(row.get("provider_id") or ""),
                     twin=__import__("cyclothone.twin.service", fromlist=["DigitalTwinService"]).DigitalTwinService(UUID(str(row["tenant_id"]))),
                 )
-                await self.execution_gate.consume(
-                    envelope=envelope,
-                    tenant_id=UUID(str(row["tenant_id"])),
+                run_id_raw = row.get("ai_run_id")
+                if not run_id_raw:
+                    raise RuntimeError("approved response action is missing canonical AI run binding")
+                run_id = UUID(str(run_id_raw))
+                risk_level = action_class.name.upper()
+                action_hash = response_action_hash(
+                    action=row["action"],
+                    args=row.get("args") or {},
+                    target=str(row.get("target")) if row.get("target") else None,
+                )
+                approval_ref = f"case-action:{case_action_id}"
+                await create_response_execution_approval(
+                    run_id=run_id,
+                    approval_ref=approval_ref,
+                    action_hash=action_hash,
+                    risk_level=risk_level,
+                    approver=approved_by,
+                    expires_at=envelope.expires_at.isoformat(),
+                    metadata={"case_action_id": str(case_action_id), "action": row["action"]},
+                )
+                await self.execution_authorizer(
+                    run_id=run_id,
+                    risk_level=risk_level,
+                    destructive=True,
+                    estimated_cost_usd=Decimal("0"),
+                    execution_config={
+                        "case_action_id": str(case_action_id),
+                        "action": row["action"],
+                        "args": row.get("args") or {},
+                        "target": envelope.target,
+                        "envelope_id": envelope.envelope_id,
+                        "envelope_hash": self._envelope_hash(envelope),
+                    },
+                    approval_ref=approval_ref,
+                    action_hash=action_hash,
+                    actor=f"approval:{approved_by}",
+                    envelope_id=envelope.envelope_id,
+                    envelope_hash=self._envelope_hash(envelope),
+                    envelope_expires_at=envelope.expires_at.isoformat(),
                 )
             execution_context = {
                 "case_action_id": str(case_action_id),
