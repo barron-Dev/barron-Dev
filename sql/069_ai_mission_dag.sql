@@ -16,3 +16,15 @@ create table if not exists public.ai_missions (
 create index if not exists idx_ai_missions_active on public.ai_missions(tenant_id, name, version desc) where status='active';
 alter table public.ai_missions enable row level security;
 revoke all on public.ai_missions from public, anon, authenticated;
+
+-- Mission bindings on durable response actions/commands.
+alter table public.case_actions
+  add column if not exists ai_mission_id text,
+  add column if not exists ai_mission_version integer,
+  add column if not exists ai_mission_hash text;
+alter table public.commands
+  add column if not exists ai_mission_id text,
+  add column if not exists ai_mission_version integer,
+  add column if not exists ai_mission_hash text;
+create index if not exists idx_case_actions_ai_mission on public.case_actions(tenant_id, ai_mission_id, ai_mission_version) where ai_mission_id is not null;
+create index if not exists idx_commands_ai_mission on public.commands(tenant_id, ai_mission_id, ai_mission_version) where ai_mission_id is not null;
