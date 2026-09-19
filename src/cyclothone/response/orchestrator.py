@@ -105,13 +105,12 @@ class ResponseOrchestrator:
                     if step.agent_envelope is None or not step.model_id or not step.provider_id or not step.target:
                         raise RuntimeError("signed agent envelope, model binding, provider binding, and target are required")
                     from cyclothone.twin.service import DigitalTwinService
-                    await self.execution_gate.authorize(
+                    await self.execution_gate.validate(
                         envelope=step.agent_envelope,
                         tenant_id=tenant_id,
                         expected_model_id=step.model_id,
                         expected_provider_id=step.provider_id,
                         twin=DigitalTwinService(tenant_id),
-                        consume_replay=not approval_required,
                     )
 
                 if blast_rule_id and device_id and not await self.store.blast_allowed(blast_rule_id, blast_limit, tenant_id=tenant_id, device_id=device_id):
@@ -201,13 +200,16 @@ class ResponseOrchestrator:
                 raise RuntimeError("AI execution gate is required for destructive approval")
             action_class = ACTION_CLASS.get(row["action"], ActionClass.MEDIUM)
             if action_class in (ActionClass.MEDIUM, ActionClass.HIGH, ActionClass.CRITICAL):
-                await self.execution_gate.authorize(
+                await self.execution_gate.validate(
                     envelope=envelope,
                     tenant_id=UUID(str(row["tenant_id"])),
                     expected_model_id=str(row.get("model_id") or ""),
                     expected_provider_id=str(row.get("provider_id") or ""),
                     twin=__import__("cyclothone.twin.service", fromlist=["DigitalTwinService"]).DigitalTwinService(UUID(str(row["tenant_id"]))),
-                    consume_replay=True,
+                )
+                await self.execution_gate.consume(
+                    envelope=envelope,
+                    tenant_id=UUID(str(row["tenant_id"])),
                 )
             command = await self.dispatcher.issue(
                 tenant_id=UUID(str(row["tenant_id"])), device_id=UUID(str(row["device_id"])) if row.get("device_id") else None,
