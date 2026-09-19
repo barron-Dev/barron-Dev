@@ -10,14 +10,14 @@ type Row = Record<string, unknown>;
 
 const modules: Record<string, ModuleDef> = {
   detection: { title: "Detection", section: "OPERATIONS", endpoint: "/api/v1/console/threats?limit=50&offset=0&sort=created_at&direction=desc" },
-  response: { title: "Response", section: "OPERATIONS", endpoint: "/api/v1/investigations" },
+  response: { title: "Response", section: "OPERATIONS", endpoint: "/api/v1/console/response/runs" },
   "intelligence/web": { title: "Web Intel", section: "INTELLIGENCE", endpoint: "/api/v1/web-intel/targets" },
   "intelligence/scam": { title: "Scam", section: "INTELLIGENCE", endpoint: "/api/v1/intelligence/scam" },
   "intelligence/dark-web": { title: "Dark Web", section: "INTELLIGENCE", endpoint: "/api/v1/darkweb/stats" },
   "intelligence/brand": { title: "Brand", section: "INTELLIGENCE", endpoint: "/api/v1/brand/brands" },
   "convergence/physical": { title: "Physical", section: "CONVERGENCE", endpoint: "/api/v1/physical/stats" },
   "convergence/ai": { title: "AI Security", section: "CONVERGENCE", endpoint: "/api/v1/ai/agents" },
-  "assurance/compliance": { title: "Compliance", section: "ASSURANCE", endpoint: "/api/v1/compliance/assurance" },
+  "assurance/compliance": { title: "Compliance", section: "ASSURANCE", endpoint: "/api/v1/compliance/frameworks" },
   "assurance/recovery": { title: "Recovery", section: "ASSURANCE", endpoint: "/api/v1/assurance/recovery" },
   "assurance/hunting": { title: "Hunting", section: "ASSURANCE", endpoint: "/api/v1/hunts/" },
   "platform/federation": { title: "Federation", section: "PLATFORM", endpoint: "/api/v1/federation/peers" },
