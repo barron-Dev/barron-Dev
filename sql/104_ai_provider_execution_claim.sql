@@ -5,6 +5,7 @@ create or replace function public.ai_assert_transition(p_from text, p_to text)
 returns boolean
 language sql
 immutable strict
+set search_path = pg_catalog
 as $function$
   select case p_from
     when 'REQUESTED' then p_to in ('QUEUED','REJECTED','CANCELLED')
@@ -18,6 +19,11 @@ as $function$
     else false
   end
 $function$;
+
+revoke all on function public.ai_assert_transition(text,text)
+  from public,anon,authenticated;
+grant execute on function public.ai_assert_transition(text,text)
+  to service_role;
 
 create or replace function public.ai_claim_provider_execution(
   p_run_id uuid,
