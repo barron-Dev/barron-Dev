@@ -222,3 +222,61 @@ async def compute_trust_state(subject_id: str, principal: DeveloperPrincipal = D
     except Exception as exc:
         raise HTTPException(400, "trust_state_computation_rejected") from exc
     return {"state": state}
+
+
+class CreateTrustProofRequest(BaseModel):
+    state_snapshot_id: str
+    attestation_id: str | None = None
+    claims: dict[str, Any] = Field(default_factory=dict)
+
+
+@router.get("/subjects/{subject_id}/proofs")
+async def list_trust_proofs(subject_id: str, principal: DeveloperPrincipal = Depends(_read)) -> dict:
+    subject = await supabase.select_one(
+        "trust_subjects", "id,tenant_id,subject_kind,external_ref",
+        id=subject_id, tenant_id=principal.tenant_id,
+    )
+    if not subject:
+        raise HTTPException(404, "trust_subject_not_found")
+    rows = await supabase.select(
+        "trust_proofs",
+        "id,subject_id,state_snapshot_id,attestation_id,state,assurance_level,measurement_root_hash,evidence_root_hash,attestation_root_hash,subject_identity_hash,proof_hash,claims,signature_algorithm,signer_key_id,created_at",
+        subject_id=subject_id, tenant_id=principal.tenant_id,
+    )
+    return {"proofs": rows}
+
+
+@router.get("/proofs/{proof_id}")
+async def get_trust_proof(proof_id: str, principal: DeveloperPrincipal = Depends(_read)) -> dict:
+    row = await supabase.select_one(
+        "trust_proofs",
+        "id,tenant_id,subject_id,state_snapshot_id,attestation_id,state,assurance_level,measurement_root_hash,evidence_root_hash,attestation_root_hash,subject_identity_hash,proof_hash,claims,signature_algorithm,signer_key_id,created_at",
+        id=proof_id, tenant_id=principal.tenant_id,
+    )
+    if not row:
+        raise HTTPException(404, "trust_proof_not_found")
+    return {"proof": row}
+
+
+@router.post("/subjects/{subject_id}/proofs")
+async def create_trust_proof(
+    subject_id: str,
+    body: CreateTrustProofRequest,
+    principal: DeveloperPrincipal = Depends(_write),
+) -> dict:
+    subject = await supabase.select_one(
+        "trust_subjects", "id,tenant_id",
+        id=subject_id, tenant_id=principal.tenant_id,
+    )
+    if not subject:
+        raise HTTPException(404, "trust_subject_not_found")
+    try:
+        row = await supabase.rpc("trust_create_proof", {
+            "p_subject_id": subject_id,
+            "p_state_snapshot_id": body.state_snapshot_id,
+            "p_attestation_id": body.attestation_id,
+            "p_claims": body.claims,
+        })
+    except Exception as exc:
+        raise HTTPException(400, "trust_proof_rejected") from exc
+    return {"proof": row}
