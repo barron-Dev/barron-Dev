@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
 from cyclothone.storage.supabase_client import supabase
-from cyclothone.workforce.ai import WorkforceAITurnAuthority, admit_workforce_ai_turn
+from cyclothone.workforce.ai import WorkforceAITurnAuthority, admit_workforce_ai_turn, complete_workforce_ai_turn
 from cyclothone.workforce.auth import WorkforcePrincipal, authenticate_workforce_request
 
 router = APIRouter(prefix="/workforce/ai", tags=["workforce-ai"])
@@ -170,3 +170,23 @@ async def admit_ai_turn(
         mission_hash=authority.mission_hash,
         sequence_no=authority.sequence_no,
     )
+
+
+class AITurnCompletionRequest(BaseModel):
+    output: str = Field(min_length=1)
+    outcome: str = Field(default="completed", pattern=r"^(completed|rejected|failed)$")
+
+
+@router.post("/turns/{turn_id}/complete", response_model=dict[str, bool])
+async def complete_ai_turn(
+    turn_id: UUID,
+    request: AITurnCompletionRequest,
+    principal: WorkforcePrincipal = Depends(authenticate_workforce_request),
+) -> dict[str, bool]:
+    await complete_workforce_ai_turn(
+        principal=principal,
+        turn_id=turn_id,
+        output_text=request.output,
+        outcome=request.outcome,
+    )
+    return {"completed": True}
