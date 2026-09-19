@@ -884,3 +884,127 @@ async def public_verify_certificate(serial_number: str) -> dict:
         "checked_at": now.isoformat(),
         "reasons": reasons,
     }
+
+
+class AssuranceProfileRequest(BaseModel):
+    profile_id: str = Field(min_length=1, max_length=128)
+    version: int = Field(default=1, ge=1)
+    display_name: str = Field(min_length=1, max_length=256)
+    description: str | None = Field(default=None, max_length=2000)
+    min_state: str = "VERIFIED"
+    min_assurance: str = "BASIC"
+    max_evidence_age_seconds: int = Field(default=86400, ge=1, le=31536000)
+    max_attestation_age_seconds: int = Field(default=86400, ge=1, le=31536000)
+    require_verified_attestation: bool = True
+    require_measurement: bool = True
+    required_evidence_types: list[str] = Field(default_factory=list, max_length=64)
+    allowed_subject_kinds: list[str] = Field(default_factory=list, max_length=32)
+
+
+class TrustPolicyRequest(BaseModel):
+    policy_id: str = Field(min_length=1, max_length=128)
+    version: int = Field(default=1, ge=1)
+    display_name: str = Field(min_length=1, max_length=256)
+    description: str | None = Field(default=None, max_length=2000)
+    assurance_profile_id: str
+    certificate_profile_id: str | None = None
+    decision: str = "CERTIFY"
+    rules: dict[str, Any] = Field(default_factory=dict)
+
+
+@router.post("/assurance-profiles")
+async def create_assurance_profile(body: AssuranceProfileRequest, principal: DeveloperPrincipal = Depends(_write)) -> dict:
+    valid_states = {"REGISTERED","OBSERVED","ATTESTED","VERIFIED","DEGRADED","SUSPENDED","REVOKED","EXPIRED"}
+    valid_assurance = {"NONE","BASIC","MEASURED","HARDWARE_BACKED","CRYPTOGRAPHIC"}
+    if body.min_state not in valid_states or body.min_assurance not in valid_assurance:
+        raise HTTPException(400, "invalid_trust_assurance_requirement")
+    try:
+        row = await supabase.insert("trust_assurance_profiles", {
+            "tenant_id": principal.tenant_id,
+            "profile_id": body.profile_id,
+            "version": body.version,
+            "display_name": body.display_name,
+            "description": body.description,
+            "min_state": body.min_state,
+            "min_assurance": body.min_assurance,
+            "max_evidence_age_seconds": body.max_evidence_age_seconds,
+            "max_attestation_age_seconds": body.max_attestation_age_seconds,
+            "require_verified_attestation": body.require_verified_attestation,
+            "require_measurement": body.require_measurement,
+            "required_evidence_types": body.required_evidence_types,
+            "allowed_subject_kinds": body.allowed_subject_kinds,
+            "status": "ACTIVE",
+        })
+    except Exception as exc:
+        raise HTTPException(400, "trust_assurance_profile_rejected") from exc
+    return {"assurance_profile": row}
+
+
+@router.get("/assurance-profiles")
+async def list_assurance_profiles(principal: DeveloperPrincipal = Depends(_read)) -> dict:
+    rows = await supabase.select("trust_assurance_profiles",
+        "id,profile_id,version,display_name,description,min_state,min_assurance,max_evidence_age_seconds,max_attestation_age_seconds,require_verified_attestation,require_measurement,required_evidence_types,allowed_subject_kinds,status,created_at",
+        tenant_id=principal.tenant_id)
+    return {"assurance_profiles": rows}
+
+
+@router.post("/policies")
+async def create_trust_policy(body: TrustPolicyRequest, principal: DeveloperPrincipal = Depends(_write)) -> dict:
+    if body.decision not in {"ALLOW","CERTIFY","DENY"}:
+        raise HTTPException(400, "invalid_trust_policy_decision")
+    profile = await supabase.select_one("trust_assurance_profiles", "id,tenant_id,status", id=body.assurance_profile_id)
+    if not profile or profile["status"] != "ACTIVE" or (profile["tenant_id"] not in (None, principal.tenant_id)):
+        raise HTTPException(400, "trust_assurance_profile_not_available")
+    try:
+        row = await supabase.insert("trust_policies", {
+            "tenant_id": principal.tenant_id,
+            "policy_id": body.policy_id,
+            "version": body.version,
+            "display_name": body.display_name,
+            "description": body.description,
+            "assurance_profile_id": body.assurance_profile_id,
+            "certificate_profile_id": body.certificate_profile_id,
+            "decision": body.decision,
+            "status": "ACTIVE",
+            "rules": body.rules,
+        })
+    except Exception as exc:
+        raise HTTPException(400, "trust_policy_rejected") from exc
+    return {"policy": row}
+
+
+@router.get("/policies")
+async def list_trust_policies(principal: DeveloperPrincipal = Depends(_read)) -> dict:
+    rows = await supabase.select("trust_policies",
+        "id,policy_id,version,display_name,description,assurance_profile_id,certificate_profile_id,decision,status,rules,created_at",
+        tenant_id=principal.tenant_id)
+    return {"policies": rows}
+
+
+@router.post("/policies/{policy_id}/evaluate/{subject_id}")
+async def evaluate_trust_policy(policy_id: str, subject_id: str, principal: DeveloperPrincipal = Depends(_write)) -> dict:
+    policy = await supabase.select_one("trust_policies", "id,tenant_id,status", id=policy_id, tenant_id=principal.tenant_id)
+    subject = await supabase.select_one("trust_subjects", "id,tenant_id", id=subject_id, tenant_id=principal.tenant_id)
+    if not policy or policy["status"] != "ACTIVE":
+        raise HTTPException(404, "trust_policy_not_found")
+    if not subject:
+        raise HTTPException(404, "trust_subject_not_found")
+    try:
+        row = await supabase.rpc("trust_evaluate_policy", {
+            "p_policy_id": policy_id,
+            "p_subject_id": subject_id,
+        })
+    except Exception as exc:
+        raise HTTPException(400, "trust_policy_evaluation_failed") from exc
+    return {"evaluation": row}
+
+
+@router.get("/subjects/{subject_id}/policy-evaluations")
+async def list_policy_evaluations(subject_id: str, principal: DeveloperPrincipal = Depends(_read)) -> dict:
+    subject = await supabase.select_one("trust_subjects", "id,tenant_id", id=subject_id, tenant_id=principal.tenant_id)
+    if not subject:
+        raise HTTPException(404, "trust_subject_not_found")
+    rows = await supabase.select("trust_policy_evaluations",
+        "id,policy_id,subject_id,state_snapshot_id,decision,assurance,evidence_fresh,attestation_fresh,measurement_present,required_evidence_present,reasons,evaluation_hash,evaluated_at",
+        tenant_id=principal.tenant_id, subject_id=subject_id)
+    return {"evaluations": rows}
