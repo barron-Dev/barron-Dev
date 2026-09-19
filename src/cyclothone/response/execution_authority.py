@@ -88,6 +88,7 @@ async def authorize_response_execution(
     lease_seconds: int = 600,
     envelope_id: str | None = None,
     envelope_hash: str | None = None,
+    envelope_expires_at: str | None = None,
 ) -> ResponseExecutionAuthority:
     if not execution_config:
         raise HTTPException(status_code=400, detail="execution configuration is required")
@@ -116,6 +117,7 @@ async def authorize_response_execution(
                 "p_lease_seconds": lease_seconds,
                 "p_envelope_id": envelope_id,
                 "p_envelope_hash": envelope_hash,
+                "p_envelope_expires_at": envelope_expires_at,
             },
         ).execute()
     except Exception as exc:
