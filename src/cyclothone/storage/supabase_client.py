@@ -50,6 +50,12 @@ class SupabaseServiceClient:
             return rows[0] if rows else None
         return await self._retry(operation)
 
+    async def select(self, table: str, columns: str, **filters: Any) -> list[dict[str, Any]]:
+        async def operation() -> list[dict[str, Any]]:
+            response = await (await self._ensure()).table(table).select(columns).match(filters).execute()
+            return response.data or []
+        return await self._retry(operation)
+
     async def insert_one(self, table: str, values: dict[str, Any]) -> dict[str, Any]:
         async def operation() -> dict[str, Any]:
             response = await (await self._ensure()).table(table).insert(values).select("*").single().execute()
