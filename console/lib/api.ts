@@ -40,12 +40,19 @@ function resolveApiBase() {
 const API_BASE = resolveApiBase();
 let accessToken: string | null = null;
 
+if (typeof window !== "undefined") accessToken = sessionStorage.getItem("cyclothone_access_token");
+
 export function setApiToken(token: string) {
   accessToken = token.trim() || null;
+  if (typeof window !== "undefined") {
+    if (accessToken) sessionStorage.setItem("cyclothone_access_token", accessToken);
+    else sessionStorage.removeItem("cyclothone_access_token");
+  }
 }
 
 export function clearApiToken() {
   accessToken = null;
+  if (typeof window !== "undefined") sessionStorage.removeItem("cyclothone_access_token");
 }
 
 export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
