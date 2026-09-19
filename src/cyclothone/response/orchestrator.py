@@ -146,6 +146,12 @@ class ResponseOrchestrator:
                         raise RuntimeError("envelope request provider mismatch")
                     if step.target and request.target != step.target:
                         raise RuntimeError("envelope request target mismatch")
+                    if step.mission_id and request.mission_id != step.mission_id:
+                        raise RuntimeError("envelope request mission mismatch")
+                    if step.mission_version is not None and request.mission_version != step.mission_version:
+                        raise RuntimeError("envelope request mission version mismatch")
+                    if step.mission_hash and request.mission_hash != step.mission_hash:
+                        raise RuntimeError("envelope request mission hash mismatch")
                     step_envelope = await self.envelope_issuer.issue(request)
                     from cyclothone.twin.service import DigitalTwinService
                     await self.execution_gate.validate(
