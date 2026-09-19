@@ -7,7 +7,11 @@ from pydantic import BaseModel, Field
 
 from cyclothone.storage.supabase_client import supabase
 from cyclothone.workforce.ai import WorkforceAITurnAuthority, admit_workforce_ai_turn
-from cyclothone.workforce.execution import complete_workforce_ai_execution
+from cyclothone.workforce.execution import (
+    WorkforceAIExecutionAuthority,
+    authorize_workforce_ai_execution,
+    complete_workforce_ai_execution,
+)
 from cyclothone.workforce.auth import WorkforcePrincipal, authenticate_workforce_request
 
 router = APIRouter(prefix="/workforce/ai", tags=["workforce-ai"])
@@ -170,6 +174,58 @@ async def admit_ai_turn(
         mission_version=authority.mission_version,
         mission_hash=authority.mission_hash,
         sequence_no=authority.sequence_no,
+    )
+
+
+class AIExecutionRequest(BaseModel):
+    run_id: UUID
+    execution_config: dict
+    risk_level: str = Field(pattern=r"^(LOW|MEDIUM|HIGH|CRITICAL)$")
+    destructive: bool = False
+    estimated_cost_usd: float = Field(default=0, ge=0)
+    approval_ref: str | None = None
+    action_hash: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    actor: str = Field(default="workforce_ai", min_length=1, max_length=128)
+    lease_seconds: int = Field(default=600, ge=30, le=3600)
+
+
+class AIExecutionResponse(BaseModel):
+    turn_id: UUID
+    run_id: UUID
+    security_decision_id: int
+    execution_config_hash: str
+    admission_hash: str | None = None
+    envelope_id: str | None = None
+    envelope_hash: str | None = None
+
+
+@router.post("/turns/{turn_id}/execute", response_model=AIExecutionResponse)
+async def authorize_ai_execution(
+    turn_id: UUID,
+    request: AIExecutionRequest,
+    principal: WorkforcePrincipal = Depends(authenticate_workforce_request),
+) -> AIExecutionResponse:
+    authority: WorkforceAIExecutionAuthority = await authorize_workforce_ai_execution(
+        principal=principal,
+        turn_id=turn_id,
+        run_id=request.run_id,
+        execution_config=request.execution_config,
+        risk_level=request.risk_level,
+        destructive=request.destructive,
+        estimated_cost_usd=request.estimated_cost_usd,
+        approval_ref=request.approval_ref,
+        action_hash=request.action_hash,
+        actor=request.actor,
+        lease_seconds=request.lease_seconds,
+    )
+    return AIExecutionResponse(
+        turn_id=authority.turn_id,
+        run_id=authority.run_id,
+        security_decision_id=authority.security_decision_id,
+        execution_config_hash=authority.execution_config_hash,
+        admission_hash=authority.admission_hash,
+        envelope_id=authority.envelope_id,
+        envelope_hash=authority.envelope_hash,
     )
 
 
