@@ -170,6 +170,7 @@ class ResponseOrchestrator:
                         action=step.action, args=step.args, requires_approval=step.requires_approval,
                         rollback=step.rollback, agent_envelope=step_envelope, envelope_request=request,
                         model_id=request.model_id, provider_id=request.provider_id, target=request.target,
+                        mission_id=request.mission_id, mission_version=request.mission_version, mission_hash=request.mission_hash,
                     )
 
                 if blast_rule_id and device_id and not await self.store.blast_allowed(blast_rule_id, blast_limit, tenant_id=tenant_id, device_id=device_id):
@@ -197,6 +198,7 @@ class ResponseOrchestrator:
                         ai_envelope_id=step.agent_envelope.envelope_id if step.agent_envelope else None,
                         ai_envelope_hash=self._envelope_hash(step.agent_envelope),
                         ai_args_hash=self._execution_context(step)["args_hash"],
+                        ai_mission_id=step.mission_id, ai_mission_version=step.mission_version, ai_mission_hash=step.mission_hash,
                         model_id=step.model_id, provider_id=step.provider_id, target=step.target,
                     )
                     queued.append(row_id)
