@@ -37,6 +37,30 @@ class ServiceRequest(BaseModel):
 class AdmissionDecisionRequest(BaseModel):
     reason: str|None=None
 
+class InvitationAcceptRequest(BaseModel):
+    token: str = Field(min_length=20,max_length=512)
+
+@router.post("/customer/invitations/accept")
+async def accept_invitation(body: InvitationAcceptRequest, p: DeveloperPrincipal=Depends(principal)):
+    try:
+        organization_id=await supabase.rpc("accept_organization_invitation",{"p_token":body.token.strip()})
+    except Exception as exc:
+        detail=str(exc)
+        mapping={
+            "authentication required":(401,"authentication_required"),
+            "authenticated_email_required":(403,"authenticated_email_required"),
+            "invalid_invitation_token":(400,"invalid_invitation_token"),
+            "invitation_not_found":(404,"invitation_not_found"),
+            "invitation_already_accepted":(409,"invitation_already_accepted"),
+            "invitation_expired":(410,"invitation_expired"),
+            "invitation_email_mismatch":(403,"invitation_email_mismatch"),
+            "invalid_invitation_role":(400,"invalid_invitation_role"),
+        }
+        for key,(status,code) in mapping.items():
+            if key in detail: raise HTTPException(status,detail=code)
+        raise
+    return {"status":"accepted","organization_id":organization_id}
+
 class InvitationRequest(BaseModel):
     email: str = Field(min_length=3,max_length=320)
     role: str = "requester"
