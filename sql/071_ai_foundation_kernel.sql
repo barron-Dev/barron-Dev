@@ -73,6 +73,20 @@ language plpgsql
 set search_path = public
 as $$
 begin
+  if tg_op = 'INSERT' then
+    if new.lifecycle_state is null then
+      new.lifecycle_state := case lower(coalesce(new.status,'registered'))
+        when 'active' then 'ACTIVE'
+        when 'suspended' then 'SUSPENDED'
+        when 'revoked' then 'REVOKED'
+        when 'deprecated' then 'DEPRECATED'
+        else 'REGISTERED'
+      end;
+    end if;
+    new.status := lower(new.lifecycle_state);
+    return new;
+  end if;
+
   if new.lifecycle_state is distinct from old.lifecycle_state then
     new.status := lower(new.lifecycle_state);
   elsif new.status is distinct from old.status then
