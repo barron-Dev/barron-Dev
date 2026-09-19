@@ -215,6 +215,7 @@ class ResponseOrchestrator:
                 if approval_required and not dry_run:
                     row_id = await self.store.create(
                         tenant_id=tenant_id, case_id=case_id, device_id=device_id,
+                        ai_run_id=step.run_id,
                         action=step.action, args=step.args, status="pending_approval",
                         issued_by=issued_by, initiated_by_rule=initiated_by_rule,
                         rollback_args=step.rollback,
@@ -380,6 +381,7 @@ class ResponseOrchestrator:
     async def _dispatch_step(self, tenant_id: UUID, case_id: UUID, device_id: UUID | None, step: ActionPlan, issued_by: str, rule_id: UUID | None) -> str:
         row_id = await self.store.create(
             tenant_id=tenant_id, case_id=case_id, device_id=device_id,
+            ai_run_id=step.run_id,
             action=step.action, args=step.args, status="approved", issued_by=issued_by,
             initiated_by_rule=rule_id, rollback_args=step.rollback,
             ai_agent_id=str(step.agent_envelope.agent_id) if step.agent_envelope else None,
