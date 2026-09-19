@@ -97,6 +97,7 @@ class ResponseOrchestrator:
         args_encoded = json.dumps(step.args, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
         return {
             "case_action_id": case_action_id,
+            "run_id": str(step.run_id) if step.run_id else None,
             "agent_id": str(step.agent_envelope.agent_id) if step.agent_envelope else None,
             "model_id": step.model_id,
             "provider_id": step.provider_id,
