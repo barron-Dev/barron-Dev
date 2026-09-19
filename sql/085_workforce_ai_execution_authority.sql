@@ -85,7 +85,7 @@ begin
     raise exception 'ai_turn_already_bound_to_different_run';
   end if;
 
-  v_auth := public.ai_authorize_execution(
+  v_commit := public.ai_authorize_and_commit_execution(
     v_run.id,
     v_run.agent_id,
     v_run.mission_id,
@@ -95,40 +95,14 @@ begin
     p_risk_level,
     p_destructive,
     p_estimated_cost_usd,
-    p_approval_ref,
-    v_run.policy_version,
-    v_run.policy_hash,
-    left(p_actor,128),
-    p_lease_seconds,
-    p_action_hash
-  );
-
-  if coalesce((v_auth->>'allowed')::boolean,false) is not true then
-    return jsonb_build_object(
-      'allowed',false,
-      'turn_id',v_turn.id,
-      'run_id',v_run.id,
-      'decision',v_auth->>'decision',
-      'reason_code',v_auth->>'reason_code',
-      'approval_required',coalesce((v_auth->>'approval_required')::boolean,false),
-      'decision_id',v_auth->>'decision_id'
-    );
-  end if;
-
-  v_commit := public.ai_execution_commit(
-    v_run.id,
-    (v_auth->>'decision_id')::bigint,
     p_execution_config,
     v_run.agent_version,
-    v_run.mission_id,
     v_run.mission_version,
     v_run.mission_hash,
-    v_run.model_id,
     v_run.model_version,
-    v_run.provider_id,
     v_run.provider_binding_version,
-    v_run.tool_id,
     v_run.tool_version,
+    p_approval_ref,
     v_run.policy_version,
     v_run.policy_hash,
     v_run.playbook_version,
@@ -137,8 +111,22 @@ begin
     v_run.twin_hash,
     null,
     null,
-    null
+    left(p_actor,128),
+    p_lease_seconds,
+    p_action_hash
   );
+
+  if coalesce((v_commit->>'allowed')::boolean,false) is not true then
+    return jsonb_build_object(
+      'allowed',false,
+      'turn_id',v_turn.id,
+      'run_id',v_run.id,
+      'decision',v_commit->>'decision',
+      'reason_code',v_commit->>'reason_code',
+      'approval_required',coalesce((v_commit->>'approval_required')::boolean,false),
+      'decision_id',v_commit->>'decision_id'
+    );
+  end if;
 
   return v_commit || jsonb_build_object(
     'allowed',true,
