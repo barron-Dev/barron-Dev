@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { executeAIRun, startAIRun, type AIRunExecution, type AIRunStart } from "../../../lib/api";
+import { executeAIRun, startAIRun, type AIRunExecution, type AIRunStart } from "../../../../lib/api";
 
 export default function AISecurityPage() {
   const [missionId, setMissionId] = useState("");
