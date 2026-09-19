@@ -129,6 +129,9 @@ class SupabaseCommandDispatcher:
             "ai_envelope_id": (execution_context or {}).get("envelope_id"),
             "ai_envelope_hash": (execution_context or {}).get("envelope_hash"),
             "ai_args_hash": (execution_context or {}).get("args_hash"),
+            "ai_mission_id": (execution_context or {}).get("mission_id"),
+            "ai_mission_version": (execution_context or {}).get("mission_version"),
+            "ai_mission_hash": (execution_context or {}).get("mission_hash"),
         })
         return {"id": str(command_id), "status": "pending",
                 "signer_kid": signature.kid, "expires_at": expires_at.isoformat()}
