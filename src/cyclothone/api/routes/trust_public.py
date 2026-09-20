@@ -52,6 +52,53 @@ def _public_key_view(key):
     }
 
 
+
+
+def _valid_authority_key(key):
+    if not key or key.get("algorithm") != "ED25519" or key.get("purpose") != "TRUST_CERTIFICATE":
+        return False
+    if key.get("status") not in {"ACTIVE", "RETIRED"} or not key.get("public_key"):
+        return False
+    now = _now()
+    return (
+        (not key.get("not_before") or _dt(key["not_before"]) <= now)
+        and (not key.get("not_after") or _dt(key["not_after"]) > now)
+    )
+
+
+def _verify_authority(key, signature, payload_hash):
+    if not _valid_authority_key(key) or not signature or not payload_hash or len(payload_hash) != 64:
+        return False
+    try:
+        _verify_ed25519(key["public_key"], signature, bytes.fromhex(payload_hash))
+        return True
+    except (ValueError, TypeError):
+        return False
+
+
+def _public_key_view(key):
+    if not key:
+        return None
+    return {
+        "key_id": key.get("key_id"),
+        "algorithm": key.get("algorithm"),
+        "public_key": key.get("public_key"),
+        "status": key.get("status"),
+        "not_before": key.get("not_before"),
+        "not_after": key.get("not_after"),
+    }
+
+
+def _b64url_from_public_key(value: str) -> str:
+    import base64
+    try:
+        raw = bytes.fromhex(value)
+    except ValueError:
+        raw = base64.b64decode(value, validate=True)
+    if len(raw) != 32:
+        raise ValueError("invalid_ed25519_public_key")
+    return base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii")
+
 @router.get("/certificates/{serial_number}")
 async def verify_public_certificate(serial_number: str):
     material = await supabase.rpc(
@@ -65,6 +112,9 @@ async def verify_public_certificate(serial_number: str):
     proof = material.get("proof") or {}
     proof_signature = material.get("proof_signature") or {}
     certificate_key = material.get("certificate_key")
+    authority_key = material.get("authority_key")
+    authority_signature = certificate.get("authority_signature")
+    authority_payload_hash = certificate.get("authority_signed_payload_hash")
     proof_key = material.get("proof_key")
     attestation = material.get("attestation")
     attestation_key = material.get("attestation_key")
@@ -74,6 +124,14 @@ async def verify_public_certificate(serial_number: str):
     certificate_signature_verified = (
         certificate.get("algorithm") == "ED25519"
         and _verify(certificate_key, certificate.get("signature"), certificate.get("payload_hash"))
+    )
+    authority_signature_verified = (
+        bool(authority_key)
+        and authority_key.get("algorithm") == "ED25519"
+        and authority_key.get("purpose") == "TRUST_CERTIFICATE"
+        and authority_key.get("status") in {"ACTIVE", "RETIRED"}
+        and authority_payload_hash == certificate.get("payload_hash")
+        and _verify_authority(authority_key, authority_signature, authority_payload_hash)
     )
     proof_signature_verified = (
         bool(proof)
@@ -92,6 +150,8 @@ async def verify_public_certificate(serial_number: str):
 
     if not certificate_signature_verified:
         reasons.append("certificate_signature_invalid")
+    if not authority_signature_verified:
+        reasons.append("authority_signature_invalid")
     if not proof_signature_verified:
         reasons.append("proof_signature_invalid")
     if not attestation_signature_verified:
@@ -106,27 +166,57 @@ async def verify_public_certificate(serial_number: str):
     if not current:
         reasons.append("certificate_not_current")
 
-    crypto_verified = certificate_signature_verified and proof_signature_verified and attestation_signature_verified and current
+    crypto_verified = (
+        certificate_signature_verified
+        and authority_signature_verified
+        and proof_signature_verified
+        and attestation_signature_verified
+        and current
+    )
 
-    chain = (
-        await supabase.rpc("trust_verify_certificate_chain", {"p_certificate_id": certificate["id"]})
+    authority_chain = (
+        await supabase.rpc(
+            "trust_verify_certificate_authority_binding",
+            {"p_certificate_id": certificate["id"]},
+        )
         if crypto_verified
         else {"verified": False, "reasons": reasons}
     )
-    chain_verified = bool(chain and chain.get("verified"))
-    if crypto_verified and not chain_verified:
-        reasons.extend(reason for reason in (chain.get("reasons") or []) if reason not in reasons)
+    authority_chain_verified = bool(authority_chain and authority_chain.get("verified"))
+    if crypto_verified and not authority_chain_verified:
+        reasons.extend(
+            reason for reason in (authority_chain.get("reasons") or [])
+            if reason not in reasons
+        )
 
-    verified = crypto_verified and chain_verified
+    chain = (
+        await supabase.rpc(
+            "trust_verify_certificate_chain",
+            {"p_certificate_id": certificate["id"]},
+        )
+        if crypto_verified and authority_chain_verified
+        else {"verified": False, "reasons": reasons}
+    )
+    chain_verified = bool(chain and chain.get("verified"))
+    if crypto_verified and authority_chain_verified and not chain_verified:
+        reasons.extend(
+            reason for reason in (chain.get("reasons") or [])
+            if reason not in reasons
+        )
+
+    verified = crypto_verified and authority_chain_verified and chain_verified
 
     verification_hash = hashlib.sha256(
         json.dumps(
             {
                 "certificate_id": certificate.get("id"),
                 "certificate_payload_hash": certificate.get("payload_hash"),
+                "authority_key_id": authority_key.get("key_id") if authority_key else None,
+                "authority_payload_hash": authority_payload_hash,
                 "proof_hash": proof.get("proof_hash"),
                 "attestation_hash": attestation.get("attestation_hash") if attestation else None,
                 "crypto_verified": crypto_verified,
+                "authority_chain_verified": authority_chain_verified,
                 "chain_verified": chain_verified,
                 "verified": verified,
                 "reasons": reasons,
@@ -137,7 +227,7 @@ async def verify_public_certificate(serial_number: str):
         ).encode()
     ).hexdigest()
 
-    if not crypto_verified:
+    if not crypto_verified or not authority_chain_verified:
         await supabase.rpc(
             "trust_commit_public_certificate_verification",
             {
@@ -155,15 +245,20 @@ async def verify_public_certificate(serial_number: str):
         "certificate_id": certificate["id"],
         "algorithm": "ED25519",
         "certificate_signature_verified": certificate_signature_verified,
+        "authority_signature_verified": authority_signature_verified,
+        "authority_chain_verified": authority_chain_verified,
         "proof_signature_verified": proof_signature_verified,
         "attestation_signature_verified": attestation_signature_verified,
         "chain_verified": chain_verified,
         "certificate_key": _public_key_view(certificate_key),
+        "authority_key": _public_key_view(authority_key),
         "proof_key": _public_key_view(proof_key),
         "attestation_key": _public_key_view(attestation_key),
         "certificate": {
             "payload_hash": certificate.get("payload_hash"),
             "signature": certificate.get("signature"),
+            "authority_signature": authority_signature,
+            "authority_signed_payload_hash": authority_payload_hash,
             "valid_from": certificate.get("valid_from"),
             "valid_until": certificate.get("valid_until"),
             "status": certificate.get("status"),
@@ -191,80 +286,13 @@ async def verify_public_certificate(serial_number: str):
 
 
 @router.get("/keys")
-async def trust_public_keys():
-    """Return the active Cyclothone public verification key directory.
-
-    Only globally published public keys are exposed; tenant-bound signing keys
-    are never copied into this directory implicitly.
-    """
-    directory = await supabase.rpc("trust_public_key_directory_json")
-    if not directory:
-        return {"keys": []}
-    return directory
-
-
-@router.get("/jwks.json")
-async def trust_public_jwks():
-    """Return active global Trust keys in JWKS-compatible form."""
-    directory = await supabase.rpc("trust_public_key_directory_json")
-    keys = []
-    for key in (directory or {}).get("keys", []):
-        if key.get("algorithm") != "ED25519" or key.get("status") != "ACTIVE":
-            continue
-        try:
-            raw = bytes.fromhex(key["public_key"])
-            x = __import__("base64").urlsafe_b64encode(raw).decode().rstrip("=")
-        except (KeyError, ValueError):
-            continue
-        keys.append({
-            "kty": "OKP",
-            "crv": "Ed25519",
-            "use": "sig",
-            "kid": key["key_id"],
-            "alg": "EdDSA",
-            "x": x,
-        })
-    return {"keys": keys}
-
-
-def _b64url_from_public_key(value: str) -> str:
-    import base64
-    try:
-        raw = bytes.fromhex(value)
-    except ValueError:
-        raw = base64.b64decode(value, validate=True)
-    if len(raw) != 32:
-        raise ValueError("invalid_ed25519_public_key")
-    return base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii")
-
-
-@router.get("/keys")
 async def public_trust_keys():
-    """Return active Cyclothone Trust public-key discovery material."""
     directory = await supabase.rpc("trust_public_key_directory_json")
-    keys = []
-    for key in (directory or {}).get("keys", []):
-        if key.get("algorithm") != "ED25519":
-            continue
-        try:
-            public_key = _b64url_from_public_key(str(key.get("public_key", "")))
-        except (TypeError, ValueError):
-            continue
-        keys.append({
-            "key_id": key.get("key_id"),
-            "algorithm": key.get("algorithm"),
-            "purpose": key.get("purpose"),
-            "public_key": public_key,
-            "status": key.get("status"),
-            "not_before": key.get("not_before"),
-            "not_after": key.get("not_after"),
-        })
-    return {"protocol": "cyclothone-trust-v1", "keys": keys}
+    return directory or {"keys": []}
 
 
 @router.get("/jwks.json")
 async def public_trust_jwks():
-    """Return a standard JWKS-compatible Trust key set."""
     directory = await supabase.rpc("trust_public_key_directory_json")
     keys = []
     for key in (directory or {}).get("keys", []):
