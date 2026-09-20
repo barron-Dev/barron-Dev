@@ -188,3 +188,40 @@ async def verify_public_certificate(serial_number: str):
         "verification_hash": verification_hash,
         "reasons": reasons,
     }
+
+
+@router.get("/keys")
+async def trust_public_keys():
+    """Return the active Cyclothone public verification key directory.
+
+    Only globally published public keys are exposed; tenant-bound signing keys
+    are never copied into this directory implicitly.
+    """
+    directory = await supabase.rpc("trust_public_key_directory_json")
+    if not directory:
+        return {"keys": []}
+    return directory
+
+
+@router.get("/jwks.json")
+async def trust_public_jwks():
+    """Return active global Trust keys in JWKS-compatible form."""
+    directory = await supabase.rpc("trust_public_key_directory_json")
+    keys = []
+    for key in (directory or {}).get("keys", []):
+        if key.get("algorithm") != "ED25519" or key.get("status") != "ACTIVE":
+            continue
+        try:
+            raw = bytes.fromhex(key["public_key"])
+            x = __import__("base64").urlsafe_b64encode(raw).decode().rstrip("=")
+        except (KeyError, ValueError):
+            continue
+        keys.append({
+            "kty": "OKP",
+            "crv": "Ed25519",
+            "use": "sig",
+            "kid": key["key_id"],
+            "alg": "EdDSA",
+            "x": x,
+        })
+    return {"keys": keys}
