@@ -29,7 +29,7 @@ async def certificate_issuance_preflight(_: DeveloperPrincipal = Depends(_read))
     try:
         keys = await supabase.select(
             "trust_public_key_directory",
-            "key_id,status,valid_from,valid_until",
+            "key_id,status,not_before,not_after",
             purpose="TRUST_CERTIFICATE",
             status="ACTIVE",
         )
