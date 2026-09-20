@@ -20,9 +20,20 @@ class ComplianceSignature:
     kid: str
 
 
-async def _load_private_key(kid: str) -> Ed25519PrivateKey:
+_ALLOWED_PURPOSES = {"COMMAND", "AI_ENVELOPE", "FEDERATION", "COMPLIANCE"}
+_ENV_BY_PURPOSE = {
+    "COMMAND": "CYCLOTHONE_COMMAND_SIGNING_KID",
+    "AI_ENVELOPE": "CYCLOTHONE_AI_ENVELOPE_SIGNING_KID",
+    "FEDERATION": "CYCLOTHONE_FEDERATION_SIGNING_KID",
+    "COMPLIANCE": "CYCLOTHONE_COMPLIANCE_SIGNING_KID",
+}
+
+
+async def _load_private_key(kid: str, purpose: str) -> Ed25519PrivateKey:
     async def _key():
-        return await (await supabase._ensure()).rpc("get_signing_key", {"p_kid": kid}).execute()
+        return await (await supabase._ensure()).rpc(
+            "get_signing_key", {"p_kid": kid, "p_purpose": purpose}
+        ).execute()
 
     response = await supabase._retry(_key, attempts=2)
     pem = response.data
@@ -36,9 +47,11 @@ async def _load_private_key(kid: str) -> Ed25519PrivateKey:
     return private_key
 
 
-async def _load_public_key(kid: str) -> Ed25519PublicKey:
+async def _load_public_key(kid: str, purpose: str) -> Ed25519PublicKey:
     async def _key():
-        return await (await supabase._ensure()).rpc("get_signing_public_key", {"p_kid": kid}).execute()
+        return await (await supabase._ensure()).rpc(
+            "get_signing_public_key", {"p_kid": kid, "p_purpose": purpose}
+        ).execute()
 
     response = await supabase._retry(_key, attempts=2)
     pem = response.data
@@ -52,30 +65,42 @@ async def _load_public_key(kid: str) -> Ed25519PublicKey:
     return public_key
 
 
-async def sign_digest(digest_hex: str) -> ComplianceSignature:
-    configured_kid = os.environ.get("CYCLOTHONE_COMPLIANCE_SIGNING_KID")
+async def sign_digest(digest_hex: str, purpose: str = "COMMAND") -> ComplianceSignature:
+    if purpose not in _ALLOWED_PURPOSES:
+        raise ComplianceSigningError("invalid signing domain")
+    configured_kid = os.environ.get(_ENV_BY_PURPOSE[purpose])
     if configured_kid:
-        row = await supabase.select_one("signing_keys", "kid,active", kid=configured_kid)
+        row = await supabase.select_one(
+            "signing_keys", "kid,active,purpose", kid=configured_kid, purpose=purpose
+        )
     else:
         async def _do():
-            return await (await supabase._ensure()).table("signing_keys").select("kid,active").eq("active", True).limit(1).execute()
+            return await (
+                await supabase._ensure()
+            ).table("signing_keys").select("kid,active,purpose").eq(
+                "active", True
+            ).eq("purpose", purpose).limit(1).execute()
+
         rows = (await supabase._retry(_do, attempts=2)).data or []
         row = rows[0] if rows else None
-    if not row or not row.get("active"):
-        raise ComplianceSigningError("no active compliance signing key is provisioned")
+    if not row or not row.get("active") or row.get("purpose") != purpose:
+        raise ComplianceSigningError(f"no active {purpose} signing key is provisioned")
     kid = str(row["kid"])
     try:
-        private_key = await _load_private_key(kid)
+        private_key = await _load_private_key(kid, purpose)
         signature = private_key.sign(digest_hex.encode("ascii"))
         return ComplianceSignature(base64.b64encode(signature).decode("ascii"), kid)
     except Exception as exc:  # noqa: BLE001
-        raise ComplianceSigningError("active compliance signing key could not be used") from exc
+        raise ComplianceSigningError(f"active {purpose} signing key could not be used") from exc
 
 
-async def verify_digest_signature(digest_hex: str, signature_b64: str, kid: str) -> bool:
-    """Verify a Cyclothone signature using only the registered public key."""
+async def verify_digest_signature(
+    digest_hex: str, signature_b64: str, kid: str, purpose: str = "COMMAND"
+) -> bool:
+    if purpose not in _ALLOWED_PURPOSES:
+        return False
     try:
-        public_key = await _load_public_key(kid)
+        public_key = await _load_public_key(kid, purpose)
         signature = base64.b64decode(signature_b64, validate=True)
         public_key.verify(signature, digest_hex.encode("ascii"))
         return True
