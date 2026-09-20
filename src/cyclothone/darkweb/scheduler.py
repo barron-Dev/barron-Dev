@@ -72,11 +72,12 @@ class DarkWebScheduler:
             await self._run_pull(monitor.SOURCE, monitor.pull)
 
     async def _domain_tick(self) -> None:
-        domains = await self._tenant_domains()
+        domains_by_tenant = await self._tenant_domains()
         hibp_key = os.getenv("SENTINEL_HIBP_KEY", "").strip()
         github_token = os.getenv("SENTINEL_GITHUB_TOKEN", "").strip()
         enabled = await self._enabled_sources()
-        for domain in domains:
+        for tenant_id, domains in domains_by_tenant.items():
+            for domain in domains:
             if hibp_key and "hibp" in enabled:
                 puller = HIBPPuller(hibp_key)
                 await self._run_pull(puller.SOURCE, lambda p=puller, d=domain: p.pull_domain(d))
@@ -138,12 +139,16 @@ class DarkWebScheduler:
         except Exception:
             logger.warning("unable to persist dark web source health: %s", source_id, exc_info=True)
 
-    async def _tenant_domains(self) -> list[str]:
+    async def _tenant_domains(self) -> dict[str, list[str]]:
         async def _do():
-            return await (await supabase._ensure()).table("dw_watchlist").select("value").eq("kind", "domain").execute()
+            return await (await supabase._ensure()).table("dw_watchlist").select("tenant_id,value").eq("kind", "domain").not_.is_("tenant_id", "null").execute()
         try:
             rows = (await supabase._retry(_do, attempts=1)).data or []
-            return sorted({str(row["value"]).strip().lower() for row in rows if row.get("value")})
+            grouped: dict[str, set[str]] = {}
+            for row in rows:
+                if row.get("tenant_id") and row.get("value"):
+                    grouped.setdefault(str(row["tenant_id"]), set()).add(str(row["value"]).strip().lower())
+            return {tenant: sorted(values) for tenant, values in grouped.items()}
         except Exception:
             logger.debug("dark web domain watchlist unavailable", exc_info=True)
             return []
