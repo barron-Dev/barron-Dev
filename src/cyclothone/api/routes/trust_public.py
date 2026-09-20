@@ -225,3 +225,61 @@ async def trust_public_jwks():
             "x": x,
         })
     return {"keys": keys}
+
+
+def _b64url_from_public_key(value: str) -> str:
+    import base64
+    try:
+        raw = bytes.fromhex(value)
+    except ValueError:
+        raw = base64.b64decode(value, validate=True)
+    if len(raw) != 32:
+        raise ValueError("invalid_ed25519_public_key")
+    return base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii")
+
+
+@router.get("/keys")
+async def public_trust_keys():
+    """Return active Cyclothone Trust public-key discovery material."""
+    directory = await supabase.rpc("trust_public_key_directory_json")
+    keys = []
+    for key in (directory or {}).get("keys", []):
+        if key.get("algorithm") != "ED25519":
+            continue
+        try:
+            public_key = _b64url_from_public_key(str(key.get("public_key", "")))
+        except (TypeError, ValueError):
+            continue
+        keys.append({
+            "key_id": key.get("key_id"),
+            "algorithm": key.get("algorithm"),
+            "purpose": key.get("purpose"),
+            "public_key": public_key,
+            "status": key.get("status"),
+            "not_before": key.get("not_before"),
+            "not_after": key.get("not_after"),
+        })
+    return {"protocol": "cyclothone-trust-v1", "keys": keys}
+
+
+@router.get("/jwks.json")
+async def public_trust_jwks():
+    """Return a standard JWKS-compatible Trust key set."""
+    directory = await supabase.rpc("trust_public_key_directory_json")
+    keys = []
+    for key in (directory or {}).get("keys", []):
+        if key.get("algorithm") != "ED25519":
+            continue
+        try:
+            x = _b64url_from_public_key(str(key.get("public_key", "")))
+        except (TypeError, ValueError):
+            continue
+        keys.append({
+            "kty": "OKP",
+            "crv": "Ed25519",
+            "use": "sig",
+            "alg": "EdDSA",
+            "kid": key.get("key_id"),
+            "x": x,
+        })
+    return {"keys": keys}
