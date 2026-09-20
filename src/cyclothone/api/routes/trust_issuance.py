@@ -8,6 +8,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, Field
 
+from cyclothone.compliance.trust_crypto import verify_ed25519_pem_signature, verify_ed25519_raw_signature
 from cyclothone.developer.auth import DeveloperPrincipal, authenticate_request
 from cyclothone.storage.supabase_client import supabase
 
@@ -204,3 +205,145 @@ async def activate_trust_authority(
         if "service_role_required" in message:
             raise HTTPException(503, "trust_service_role_configuration_error") from exc
         raise HTTPException(503, "trust_authority_activation_failed") from exc
+
+
+@router.get("/certificates/{certificate_id}/cryptographic-verify")
+async def cryptographic_verify_certificate(
+    certificate_id: str,
+    principal: DeveloperPrincipal = Depends(_read),
+):
+    """Perform real Ed25519 verification for every signature in a certificate chain."""
+    certificate = await supabase.select_one(
+        "trust_certificates",
+        "id,tenant_id,subject_id,proof_id,proof_signature_id,payload_hash,signature,issuer_key_id,authority_key_id,authority_signature,authority_signed_payload_hash",
+        id=certificate_id,
+        tenant_id=principal.tenant_id,
+    )
+    if not certificate:
+        raise HTTPException(404, "trust_certificate_not_found")
+
+    proof = await supabase.select_one(
+        "trust_proofs",
+        "id,tenant_id,attestation_id,proof_hash",
+        id=certificate["proof_id"],
+        tenant_id=principal.tenant_id,
+    )
+    proof_signature = await supabase.select_one(
+        "trust_proof_signatures",
+        "id,tenant_id,key_id,algorithm,signature,signed_payload_hash",
+        id=certificate["proof_signature_id"],
+        tenant_id=principal.tenant_id,
+    )
+
+    checks: dict[str, bool] = {
+        "certificate_signature": False,
+        "proof_signature": False,
+        "attestation_signature": False,
+        "authority_signature": False,
+    }
+    reasons: list[str] = []
+
+    issuer_key = await supabase.select_one(
+        "trust_signing_keys",
+        "key_id,purpose,algorithm,public_key,status,not_before,not_after",
+        key_id=certificate["issuer_key_id"],
+        tenant_id=principal.tenant_id,
+    )
+    if (
+        issuer_key
+        and issuer_key.get("purpose") == "TRUST_CERTIFICATE"
+        and issuer_key.get("algorithm") == "ED25519"
+        and issuer_key.get("public_key")
+    ):
+        checks["certificate_signature"] = verify_ed25519_pem_signature(
+            issuer_key["public_key"],
+            certificate["signature"],
+            certificate["payload_hash"],
+        )
+    else:
+        reasons.append("certificate_signing_key_unavailable")
+
+    if proof and proof_signature:
+        proof_key = await supabase.select_one(
+            "trust_signing_keys",
+            "key_id,purpose,algorithm,public_key,status,not_before,not_after",
+            key_id=proof_signature["key_id"],
+            tenant_id=principal.tenant_id,
+        )
+        if (
+            proof_key
+            and proof_key.get("purpose") == "TRUST_PROOF"
+            and proof_key.get("algorithm") == "ED25519"
+            and proof_signature.get("signed_payload_hash") == proof.get("proof_hash")
+        ):
+            checks["proof_signature"] = verify_ed25519_pem_signature(
+                proof_key["public_key"],
+                proof_signature["signature"],
+                proof_signature["signed_payload_hash"],
+            )
+        else:
+            reasons.append("proof_signing_key_or_binding_invalid")
+
+    attestation = None
+    attestation_signature = None
+    if proof and proof.get("attestation_id"):
+        attestation = await supabase.select_one(
+            "trust_attestations",
+            "id,tenant_id,signing_key_id,signature,signature_algorithm,signed_payload_hash",
+            id=proof["attestation_id"],
+            tenant_id=principal.tenant_id,
+        )
+        if attestation:
+            attestation_signature = attestation
+            attestation_key = await supabase.select_one(
+                "trust_signing_keys",
+                "key_id,purpose,algorithm,public_key,status,not_before,not_after",
+                key_id=attestation["signing_key_id"],
+                tenant_id=principal.tenant_id,
+            )
+            if (
+                attestation_key
+                and attestation_key.get("purpose") == "TRUST_ATTESTATION"
+                and attestation_key.get("algorithm") == "ED25519"
+                and attestation["signature_algorithm"] == "ED25519"
+            ):
+                checks["attestation_signature"] = verify_ed25519_pem_signature(
+                    attestation_key["public_key"],
+                    attestation["signature"],
+                    attestation["signed_payload_hash"],
+                )
+            else:
+                reasons.append("attestation_signing_key_unavailable")
+        else:
+            reasons.append("attestation_missing")
+
+    authority_key = await supabase.select_one(
+        "trust_public_key_directory",
+        "key_id,purpose,algorithm,public_key,status,not_before,not_after",
+        key_id=certificate["authority_key_id"],
+        purpose="TRUST_AUTHORITY",
+    )
+    if (
+        authority_key
+        and authority_key.get("algorithm") == "ED25519"
+        and certificate.get("authority_signed_payload_hash") == certificate.get("payload_hash")
+        and certificate.get("authority_signature")
+    ):
+        checks["authority_signature"] = verify_ed25519_raw_signature(
+            authority_key["public_key"],
+            certificate["authority_signature"],
+            certificate["authority_signed_payload_hash"],
+        )
+    else:
+        reasons.append("authority_key_or_binding_invalid")
+
+    cryptographic_verified = all(checks.values())
+    if not cryptographic_verified:
+        reasons.extend(name + "_verification_failed" for name, passed in checks.items() if not passed)
+
+    return {
+        "certificate_id": certificate_id,
+        "cryptographic_verified": cryptographic_verified,
+        "checks": checks,
+        "reasons": sorted(set(reasons)),
+    }
