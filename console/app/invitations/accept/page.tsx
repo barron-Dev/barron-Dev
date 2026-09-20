@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { acceptOrganizationInvitation, setApiToken } from "../../../lib/api";
 
+const INVITATION_TOKEN_KEY = "cyclothone_invitation_token";
+
 export default function AcceptInvitation() {
   const [token,setToken]=useState("");
   const [busy,setBusy]=useState(false);
@@ -12,12 +14,16 @@ export default function AcceptInvitation() {
     const t=sessionStorage.getItem("cyclothone_access_token")||"";
     setApiToken(t);
     const q=new URLSearchParams(window.location.search).get("token")||"";
-    setToken(q);
+    const stored=sessionStorage.getItem(INVITATION_TOKEN_KEY)||"";
+    const resolved=q||stored;
+    if(q) sessionStorage.setItem(INVITATION_TOKEN_KEY,q);
+    setToken(resolved);
   },[]);
   async function accept(){
     setBusy(true);setError("");setMessage("");
     try{
-      const r=await acceptOrganizationInvitation(token);
+      await acceptOrganizationInvitation(token);
+      sessionStorage.removeItem(INVITATION_TOKEN_KEY);
       setMessage("Invitation accepted. Your organization membership is now active.");
       window.setTimeout(()=>window.location.assign("/customer/workspace"),600);
     }catch(e){setError(e instanceof Error?e.message:"Unable to accept invitation");}
@@ -33,7 +39,7 @@ export default function AcceptInvitation() {
       {error&&<div className="mt-4 border border-[#ff2d55]/40 bg-[#ff2d55]/5 p-3 text-xs text-[#ff6b83]">{error}</div>}
       {message&&<div className="mt-4 border border-[#00e07a]/40 bg-[#00e07a]/5 p-3 text-xs text-[#7df0ad]">{message}</div>}
       <button disabled={busy||token.length<20} onClick={()=>void accept()} className="mt-5 w-full border border-[#00d9ff] px-4 py-3 text-xs text-[#00d9ff] disabled:opacity-40">{busy?"Accepting…":"Accept invitation"}</button>
-      <div className="mt-4 text-center text-[10px] text-[#5a6675]"><a href="/login" className="text-[#00d9ff]">Sign in</a> if you are not authenticated.</div>
+      <div className="mt-4 text-center text-[10px] text-[#5a6675]"><a href="/login" className="text-[#00d9ff]" onClick={()=>{if(token)sessionStorage.setItem(INVITATION_TOKEN_KEY,token)}}>Sign in</a> if you are not authenticated.</div>
     </section>
   </main>;
 }
