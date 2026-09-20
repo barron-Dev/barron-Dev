@@ -16,11 +16,12 @@ class TrustReevaluationScheduler:
     """
 
     POLL_INTERVAL_SECONDS = 2
+    HEARTBEAT_INTERVAL_SECONDS = 15
     CLAIM_LIMIT = 25
 
     def __init__(self) -> None:
         self._task: asyncio.Task | None = None
-        self._stop = asyncio.Event()
+        self._stop = asyncio.Event()\n        self._last_heartbeat = 0.0
 
     def start(self) -> None:
         if self._task and not self._task.done():
@@ -104,7 +105,7 @@ class TrustReevaluationScheduler:
                     "failed to settle trust re-evaluation queue=%s", queue_id
                 )
 
-    async def _sleep(self) -> None:
+    async def _heartbeat(self, status: str, *, error_code: str | None = None) -> None:\n        await supabase.rpc("trust_worker_heartbeat", {\n            "p_worker_name": "trust-reevaluation",\n            "p_status": status,\n            "p_success": status == "RUNNING",\n            "p_error_code": error_code,\n            "p_metadata": {"poll_interval_seconds": self.POLL_INTERVAL_SECONDS, "claim_limit": self.CLAIM_LIMIT},\n        })\n\n    async def _sleep(self) -> None:
         try:
             await asyncio.wait_for(
                 self._stop.wait(), timeout=self.POLL_INTERVAL_SECONDS
