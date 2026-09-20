@@ -111,7 +111,7 @@ class ThreatIntelScheduler:
         request = urllib.request.Request(endpoint, headers=headers, method="GET")
         context = ssl.create_default_context()
         opener = urllib.request.build_opener(urllib.request.HTTPRedirectHandler())
-        with opener.open(request, timeout=20, context=context) as response:
+        with opener.open(request, timeout=20) as response:
             if response.status != 200:
                 raise ValueError(f"intel_feed_http_{response.status}")
             body = response.read(self.MAX_BYTES + 1)
@@ -190,15 +190,10 @@ class ThreatIntelScheduler:
         await supabase._retry(_do, attempts=2)
 
     async def _correlate_recent_events(self) -> None:
-        async def _events():
-            return await (await supabase._ensure()).table("events").select("id,tenant_id,device_id,event_type,ts,payload").gte(
-                "ts", (datetime.now(UTC).timestamp() - 900)
-            ).limit(1000).execute()
-        # The event timestamp column is timestamptz; use an ISO bound after fetching the clock once.
         now = datetime.now(UTC)
         async def _events2():
             return await (await supabase._ensure()).table("events").select("id,tenant_id,device_id,event_type,ts,payload").gte(
-                "ts", (now.timestamp() - 900)
+                "ts", (now.replace(microsecond=0) - __import__("datetime").timedelta(minutes=15)).isoformat()
             ).limit(1000).execute()
         events = (await supabase._retry(_events2, attempts=2)).data or []
         for event in events:
