@@ -411,3 +411,25 @@ grant execute on function public.trust_certificate_issuance_preflight(
 comment on function public.trust_certificate_issuance_preflight(
   uuid,uuid,uuid,uuid,uuid,uuid,text,uuid,uuid,timestamptz,timestamptz,text,text,text,text,text,text
 ) is 'Read-only subject-specific certificate issuance preflight. Returns deterministic non-secret reason codes and never issues a certificate.';
+
+
+-- Block 41: issuer signing-key lifecycle hardening.
+create or replace function public.trust_register_signing_key(p_tenant_id uuid,p_key_id text,p_algorithm text,p_purpose text,p_public_key text,p_not_before timestamptz default now(),p_not_after timestamptz default null) returns public.trust_signing_keys language plpgsql security definer set search_path to 'public','pg_catalog' as $function$
+declare outrow public.trust_signing_keys; begin
+ if current_user <> 'service_role' then raise exception 'service_role_required'; end if;
+ if p_tenant_id is null then raise exception 'trust_key_tenant_required'; end if;
+ if not exists(select 1 from public.tenants where id=p_tenant_id) then raise exception 'trust_key_tenant_not_found'; end if;
+ if p_algorithm<>'ED25519' then raise exception 'unsupported_trust_algorithm'; end if;
+ if p_purpose not in ('TRUST_PROOF','TRUST_CERTIFICATE') then raise exception 'invalid_trust_key_purpose'; end if;
+ if p_key_id is null or length(trim(p_key_id))<8 or length(trim(p_key_id))>256 then raise exception 'invalid_trust_key_id'; end if;
+ if p_public_key is null or p_public_key !~ '^[0-9A-Fa-f]{64}$' then raise exception 'invalid_ed25519_public_key'; end if;
+ if p_not_after is not null and p_not_after<=coalesce(p_not_before,now()) then raise exception 'invalid_trust_key_validity'; end if;
+ update public.trust_signing_keys set status='RETIRED',retired_at=coalesce(retired_at,now()) where tenant_id=p_tenant_id and purpose=p_purpose and status='ACTIVE' and key_id<>trim(p_key_id);
+ insert into public.trust_signing_keys(tenant_id,key_id,algorithm,purpose,public_key,status,not_before,not_after) values(p_tenant_id,trim(p_key_id),p_algorithm,p_purpose,lower(p_public_key),'ACTIVE',coalesce(p_not_before,now()),p_not_after) returning * into outrow;
+ return outrow; end $function$;
+
+create or replace function public.trust_retire_signing_key(p_tenant_id uuid,p_key_id text) returns boolean language plpgsql security definer set search_path to 'public','pg_catalog' as $function$ declare v_changed boolean; begin if current_user<>'service_role' then raise exception 'service_role_required'; end if; update public.trust_signing_keys set status='RETIRED',retired_at=coalesce(retired_at,now()) where tenant_id=p_tenant_id and key_id=trim(p_key_id) and status='ACTIVE'; v_changed:=found; return v_changed; end $function$;
+create or replace function public.trust_revoke_signing_key(p_tenant_id uuid,p_key_id text) returns boolean language plpgsql security definer set search_path to 'public','pg_catalog' as $function$ declare v_changed boolean; begin if current_user<>'service_role' then raise exception 'service_role_required'; end if; update public.trust_signing_keys set status='REVOKED',revoked_at=coalesce(revoked_at,now()) where tenant_id=p_tenant_id and key_id=trim(p_key_id) and status<>'REVOKED'; v_changed:=found; return v_changed; end $function$;
+revoke all on function public.trust_register_signing_key(uuid,text,text,text,text,timestamptz,timestamptz) from public,anon,authenticated; grant execute on function public.trust_register_signing_key(uuid,text,text,text,text,timestamptz,timestamptz) to service_role;
+revoke all on function public.trust_retire_signing_key(uuid,text) from public,anon,authenticated; grant execute on function public.trust_retire_signing_key(uuid,text) to service_role;
+revoke all on function public.trust_revoke_signing_key(uuid,text) from public,anon,authenticated; grant execute on function public.trust_revoke_signing_key(uuid,text) to service_role;
