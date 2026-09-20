@@ -1483,13 +1483,6 @@ create table kg_nodes (
 create index kg_nodes_kind_priority on kg_nodes(kind, priority, id);
 create index kg_nodes_service on kg_nodes(service_id);
 create index kg_nodes_tags on kg_nodes using gin(tags);
-create index kg_nodes_fts on kg_nodes using gin (
-    to_tsvector('simple',
-        coalesce(label,'') || ' ' ||
-        coalesce(summary,'') || ' ' ||
-        coalesce(array_to_string(tags,' '),''))
-);
-
 create table kg_edges (
     src_id text not null references kg_nodes(id) on delete cascade,
     dst_id text not null references kg_nodes(id) on delete cascade,
