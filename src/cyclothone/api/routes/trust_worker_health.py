@@ -78,7 +78,13 @@ async def trust_readiness(_: DeveloperPrincipal = Depends(_read)):
         "database": False,
         "worker": False,
         "queue": False,
-        "authority": False,
+        "continuous_verification": False,
+    }
+    readiness = {
+        "trust_core": False,
+        "continuous_verification": False,
+        "certificate_issuance": False,
+        "public_verification": False,
     }
     authority = {"status": "UNKNOWN", "active_key_count": 0}
     queue: dict = {}
@@ -104,15 +110,24 @@ async def trust_readiness(_: DeveloperPrincipal = Depends(_read)):
         authority["active_key_count"] = len(keys)
         authority["status"] = "AVAILABLE" if keys else "NOT_CONFIGURED"
         # The trust registry remains operational without a certificate authority key.
-        checks["authority"] = True
+        checks["continuous_verification"] = checks["worker"] and checks["queue"]
+        readiness["trust_core"] = checks["database"]
+        readiness["continuous_verification"] = checks["continuous_verification"]
+        readiness["certificate_issuance"] = checks["database"] and authority["status"] == "AVAILABLE"
+        readiness["public_verification"] = checks["database"]
     except Exception:
         authority["status"] = "UNAVAILABLE"
 
-    overall = "READY" if all(checks.values()) else "NOT_READY"
+    overall = "READY" if readiness["trust_core"] else "NOT_READY"
     return {
         "status": overall,
+        "readiness": readiness,
         "checks": checks,
         "authority": authority,
+        "capabilities": {
+            "certificate_issuance": readiness["certificate_issuance"],
+            "public_certificate_verification": readiness["public_verification"],
+        },
         "worker": {
             "status": heartbeat.get("status") if heartbeat else "NOT_SEEN",
             "last_heartbeat_at": heartbeat.get("last_heartbeat_at") if heartbeat else None,
