@@ -112,7 +112,7 @@ class SupabaseCommandDispatcher:
             issued_at=now, expires_at=expires_at,
             case_action_id=case_action_id, execution_context=execution_context,
         )
-        signature = await sign_digest(command_digest(payload))
+        signature = await sign_digest(command_digest(payload), purpose="COMMAND")
 
         await supabase.insert_one("commands", {
             "id": str(command_id), "tenant_id": str(tenant_id), "device_id": str(device_id),
