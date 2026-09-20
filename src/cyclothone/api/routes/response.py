@@ -31,6 +31,11 @@ class RunPlaybookRequest(BaseModel):
     dry_run: bool = False
 
 
+class CaseTransitionRequest(BaseModel):
+    status: str = Field(pattern="^(open|in_progress|resolved|closed)$")
+    reason: str | None = Field(default=None, max_length=4000)
+
+
 class RejectRequest(BaseModel):
     reason: str = Field(min_length=1, max_length=500)
 
@@ -82,6 +87,20 @@ async def case_actions(case_id: UUID, principal: DeveloperPrincipal = Depends(_r
         .execute()
     )
     return {"items": list(response.data or [])}
+
+
+@router.post("/cases/{case_id}/transition")
+async def transition_case(case_id: UUID, body: CaseTransitionRequest, principal: DeveloperPrincipal = Depends(_write)) -> dict:
+    try:
+        result = await supabase.rpc("transition_security_case", {"p_case_id": str(case_id), "p_tenant_id": principal.tenant_id, "p_to_status": body.status, "p_actor": f"console:{principal.app_id}", "p_reason": body.reason})
+        return {"case_id": str(result), "status": body.status}
+    except Exception as exc:
+        message = str(exc)
+        if "case_not_found" in message:
+            raise HTTPException(404, {"error": "case_not_found"}) from exc
+        if "invalid_case_transition" in message or "closed_case_is_terminal" in message:
+            raise HTTPException(409, {"error": message}) from exc
+        raise HTTPException(503, {"error": "case transition unavailable"}) from exc
 
 
 @router.post("/playbooks/{playbook_id}/runs")
