@@ -1,0 +1,2 @@
+import { C } from "@/lib/design/tokens";
+export function Biolume({state}:{state:"healthy"|"degraded"|"down"|"unknown"}){const m={healthy:{c:C.glowGreen,p:true},degraded:{c:C.warn,p:true},down:{c:C.alert,p:true},unknown:{c:C.textFaint,p:false}}[state];return <span className="relative inline-flex h-2 w-2">{m.p&&<span className="absolute inset-0 rounded-full animate-ping opacity-40" style={{background:m.c}}/>}<span className="relative inline-flex h-2 w-2 rounded-full" style={{background:m.c,boxShadow:"0 0 8px "+m.c}}/></span>}
