@@ -1,6 +1,7 @@
 """Cyclothone Trust v1 verification SDK.
 
-Performs local Ed25519 verification of a public certificate response.
+Performs independent Ed25519 verification of public Trust certificates and
+supports separately discovered Cyclothone JWKS keys.
 """
 
 from __future__ import annotations
@@ -34,15 +35,8 @@ def verify_signature(public_key: str, signature: str, payload_hash: str) -> bool
         return False
 
 
-def _key_current(
-    key: Mapping[str, Any] | None,
-    *,
-    allow_retired: bool = False,
-) -> bool:
-    if not key or key.get("algorithm") != "ED25519":
-        return False
-    allowed_status = {"ACTIVE", "RETIRED"} if allow_retired else {"ACTIVE"}
-    if key.get("status") not in allowed_status:
+def _key_current(key: Mapping[str, Any] | None) -> bool:
+    if not key or key.get("algorithm") != "ED25519" or key.get("status") not in {"ACTIVE", "RETIRED"}:
         return False
     now = datetime.now(timezone.utc)
     before = key.get("not_before")
@@ -54,49 +48,51 @@ def _key_current(
     return True
 
 
+def _certificate_current(certificate: Mapping[str, Any]) -> bool:
+    now = datetime.now(timezone.utc)
+    start = certificate.get("valid_from")
+    end = certificate.get("valid_until")
+    return (
+        certificate.get("status") == "ACTIVE"
+        and bool(start)
+        and bool(end)
+        and datetime.fromisoformat(str(start).replace("Z", "+00:00")) <= now
+        and datetime.fromisoformat(str(end).replace("Z", "+00:00")) > now
+    )
+
+
 def verify_certificate_response(response: Mapping[str, Any]) -> dict[str, Any]:
     """Independently verify a Cyclothone public Trust response.
 
-    The remote 'verified' boolean is not trusted.
+    The remote 'verified' boolean is never trusted.
     """
     reasons: list[str] = []
     certificate = response.get("certificate") or {}
     proof = response.get("proof") or {}
     attestation = response.get("attestation")
     ck = response.get("certificate_key")
+    authority_key = response.get("authority_key")
     pk = response.get("proof_key")
     ak = response.get("attestation_key")
-    authority_key = response.get("authority_key")
-    authority_signature = certificate.get("authority_signature", "")
-    authority_payload_hash = certificate.get("authority_signed_payload_hash", "")
 
     cert_ok = (
         _key_current(ck)
         and bool(certificate.get("payload_hash"))
-        and verify_signature(
-            ck["public_key"],
-            certificate.get("signature", ""),
-            certificate["payload_hash"],
-        )
+        and verify_signature(ck["public_key"], certificate.get("signature", ""), certificate["payload_hash"])
     )
     authority_ok = (
-        _key_current(authority_key, allow_retired=True)
-        and authority_key.get("purpose") == "TRUST_CERTIFICATE"
-        and authority_payload_hash == certificate.get("payload_hash")
+        _key_current(authority_key)
+        and certificate.get("authority_signed_payload_hash") == certificate.get("payload_hash")
         and verify_signature(
             authority_key["public_key"],
-            authority_signature,
-            authority_payload_hash,
+            certificate.get("authority_signature", ""),
+            certificate.get("authority_signed_payload_hash", ""),
         )
     )
     proof_ok = (
         _key_current(pk)
         and proof.get("signed_payload_hash") == proof.get("proof_hash")
-        and verify_signature(
-            pk["public_key"],
-            proof.get("signature", ""),
-            proof.get("proof_hash", ""),
-        )
+        and verify_signature(pk["public_key"], proof.get("signature", ""), proof.get("proof_hash", ""))
     )
     att_ok = attestation is None
     if attestation:
@@ -119,12 +115,7 @@ def verify_certificate_response(response: Mapping[str, Any]) -> dict[str, Any]:
     if not att_ok:
         reasons.append("attestation_signature_invalid")
 
-    valid_until = certificate.get("valid_until")
-    current = (
-        certificate.get("status") == "ACTIVE"
-        and bool(valid_until)
-        and datetime.fromisoformat(str(valid_until).replace("Z", "+00:00")) > datetime.now(timezone.utc)
-    )
+    current = _certificate_current(certificate)
     if not current:
         reasons.append("certificate_not_current")
 
@@ -178,11 +169,10 @@ def verify_certificate_response_with_jwks(
     response: Mapping[str, Any],
     jwks: Mapping[str, Any],
 ) -> dict[str, Any]:
-    """Verify a certificate using a separately discovered JWKS key set.
+    """Verify a certificate using separately discovered JWKS keys.
 
-    The certificate response's embedded public keys are deliberately ignored.
-    Key IDs must resolve in the supplied JWKS and the JWKS keys must be valid
-    Ed25519 signing keys.
+    Embedded public keys are ignored. Key IDs must resolve in the supplied
+    JWKS, including retired-but-still-valid keys.
     """
     discovered = verify_jwks(jwks)
     keys = discovered["valid"]
@@ -191,36 +181,40 @@ def verify_certificate_response_with_jwks(
     certificate = response.get("certificate") or {}
     proof = response.get("proof") or {}
     attestation = response.get("attestation")
-    ck = keys.get(str((response.get("certificate_key") or {}).get("key_id", "")))
-    pk = keys.get(str((response.get("proof_key") or {}).get("key_id", "")))
-    ak = keys.get(str((response.get("attestation_key") or {}).get("key_id", ""))) if attestation else None
-    authority_key = keys.get(str((response.get("authority_key") or {}).get("key_id", "")))
 
-    def key_ok(key: Mapping[str, Any] | None, signature: str, payload_hash: str) -> bool:
-        if not key or not signature or not payload_hash:
-            return False
-        try:
-            return verify_signature(_jwks_public_key(key), signature, payload_hash)
-        except (ValueError, TypeError):
-            return False
+    def resolved_public(key_ref: Mapping[str, Any] | None) -> str | None:
+        if not key_ref:
+            return None
+        discovered_key = keys.get(str(key_ref.get("key_id", "")))
+        if not discovered_key:
+            return None
+        return _jwks_public_key(discovered_key)
 
-    cert_ok = key_ok(ck, certificate.get("signature", ""), certificate.get("payload_hash", ""))
+    cert_key = resolved_public(response.get("certificate_key"))
+    authority_key = resolved_public(response.get("authority_key"))
+    proof_key = resolved_public(response.get("proof_key"))
+    attestation_key = resolved_public(response.get("attestation_key"))
+
+    cert_ok = bool(cert_key) and verify_signature(cert_key, certificate.get("signature", ""), certificate.get("payload_hash", ""))
     authority_ok = (
         bool(authority_key)
-        and authority_key.get("alg") == "EdDSA"
-        and key_ok(authority_key, certificate.get("authority_signature", ""), certificate.get("authority_signed_payload_hash", ""))
         and certificate.get("authority_signed_payload_hash") == certificate.get("payload_hash")
+        and verify_signature(authority_key, certificate.get("authority_signature", ""), certificate.get("authority_signed_payload_hash", ""))
     )
     proof_ok = (
-        proof.get("signed_payload_hash") == proof.get("proof_hash")
-        and key_ok(pk, proof.get("signature", ""), proof.get("proof_hash", ""))
+        bool(proof_key)
+        and proof.get("signed_payload_hash") == proof.get("proof_hash")
+        and verify_signature(proof_key, proof.get("signature", ""), proof.get("proof_hash", ""))
     )
     att_ok = attestation is None
     if attestation:
-        att_ok = key_ok(
-            ak,
-            attestation.get("signature", ""),
-            attestation.get("signed_payload_hash", ""),
+        att_ok = (
+            bool(attestation_key)
+            and verify_signature(
+                attestation_key,
+                attestation.get("signature", ""),
+                attestation.get("signed_payload_hash", ""),
+            )
         )
 
     if not cert_ok:
@@ -232,24 +226,12 @@ def verify_certificate_response_with_jwks(
     if not att_ok:
         reasons.append("attestation_jwks_signature_invalid")
 
-    valid_until = certificate.get("valid_until")
-    current = (
-        certificate.get("status") == "ACTIVE"
-        and bool(valid_until)
-        and datetime.fromisoformat(str(valid_until).replace("Z", "+00:00")) > datetime.now(timezone.utc)
-    )
+    current = _certificate_current(certificate)
     if not current:
         reasons.append("certificate_not_current")
 
     return {
-        "verified": bool(
-            cert_ok
-            and authority_ok
-            and proof_ok
-            and att_ok
-            and current
-            and response.get("chain_verified")
-        ),
+        "verified": bool(cert_ok and authority_ok and proof_ok and att_ok and current and response.get("chain_verified")),
         "certificate_signature_verified": cert_ok,
         "authority_signature_verified": authority_ok,
         "proof_signature_verified": proof_ok,
