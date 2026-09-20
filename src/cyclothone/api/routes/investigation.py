@@ -26,6 +26,10 @@ class CompleteBody(BaseModel):
     summary: str | None = Field(default=None, max_length=4000)
 
 
+class CompleteBody(BaseModel):
+    summary: str | None = Field(default=None, max_length=4000)
+
+
 class EvidenceBody(BaseModel):
     evidence_type: str
     sha256: str = Field(min_length=64, max_length=64)
@@ -118,6 +122,26 @@ async def complete_investigation(
     except Exception as exc:
         message = str(exc)
         if "investigation_session_not_running" in message:
+            raise HTTPException(409, {"error": "investigation_session_not_running"}) from exc
+        raise HTTPException(503, {"error": "investigation completion unavailable"}) from exc
+
+
+@router.post("/{session_id}/complete")
+async def complete_investigation(
+    session_id: UUID,
+    body: CompleteBody,
+    principal: DeveloperPrincipal = Depends(authenticate_request),
+) -> dict[str, Any]:
+    _require(principal, "investigation:complete")
+    try:
+        from cyclothone.storage.supabase_client import supabase
+        completed = await supabase.rpc(
+            "complete_investigation_session",
+            {"p_session_id": str(session_id), "p_tenant_id": principal.tenant_id, "p_actor": f"console:{principal.app_id}", "p_summary": body.summary},
+        )
+        return {"session_id": str(completed), "status": "completed"}
+    except Exception as exc:
+        if "investigation_session_not_running" in str(exc):
             raise HTTPException(409, {"error": "investigation_session_not_running"}) from exc
         raise HTTPException(503, {"error": "investigation completion unavailable"}) from exc
 
