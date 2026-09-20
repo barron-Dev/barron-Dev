@@ -111,8 +111,9 @@ async def ingest_event(
                 detail="detection persistence unavailable",
             ) from exc
 
+        case_ids: list[str] = []
         try:
-            await process_persisted_detection(
+            case_ids = await process_persisted_detection(
                 detection_id=UUID(detection_payload["id"]),
                 tenant_id=device.tenant_id,
                 device_id=device.device_id,
@@ -122,9 +123,13 @@ async def ingest_event(
                 reasons=detection_payload["reasons"],
                 evidence=detection_payload["evidence"],
             )
-        except Exception:
-            # Detection remains durable; automation can be retried independently.
-            pass
+        except Exception as exc:
+            # The detection is durable, but the authoritative detection-to-case
+            # boundary must not silently report success when automation failed.
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="detection automation unavailable",
+            ) from exc
 
     federation_detections: list[str] = []
     observations = extract_federation_observations(
@@ -157,4 +162,5 @@ async def ingest_event(
             "model_version": detection.model_version,
         },
         "federation_detections": federation_detections,
+        "cases_created": case_ids,
     }
