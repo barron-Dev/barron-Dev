@@ -43,9 +43,9 @@ class PhysicalCorrelator:
         count = 0
         for row in grants:
             uid, ts = row.get("user_id"), self._parse_ts(row.get("ts"))
-            if not uid or not ts or await self._login_near(uid, ts):
+            if not uid or not ts or await self._login_near(tenant_id, uid, ts):
                 continue
-            if not await self._recent_login(uid):
+            if not await self._recent_login(tenant_id, uid):
                 continue
             if await self._duplicate(tenant_id, "badge_and_remote_login", row["id"], "access_event_id"):
                 continue
@@ -70,7 +70,7 @@ class PhysicalCorrelator:
         cams = await self._rows("camera_events", tenant_id, since, kind="person")
         count = 0
         for row in cams:
-            if await self._badge_near(row.get("site_id"), self._parse_ts(row.get("ts"))):
+            if await self._badge_near(tenant_id, row.get("site_id"), self._parse_ts(row.get("ts"))):
                 continue
             if await self._duplicate(tenant_id, "camera_motion_no_badge", row["id"], "camera_event_id"):
                 continue
@@ -95,17 +95,17 @@ class PhysicalCorrelator:
                 logger.debug("revoked badge check failed: %s", exc)
         return count
 
-    async def _login_near(self, uid: str, ts: datetime) -> bool:
-        return await self._audit_exists(uid, ts - timedelta(minutes=10), ts + timedelta(minutes=10))
+    async def _login_near(self, tenant_id: UUID, uid: str, ts: datetime) -> bool:
+        return await self._audit_exists(tenant_id, uid, ts - timedelta(minutes=10), ts + timedelta(minutes=10))
 
-    async def _recent_login(self, uid: str) -> bool:
+    async def _recent_login(self, tenant_id: UUID, uid: str) -> bool:
         now = datetime.now(timezone.utc)
-        return await self._audit_exists(uid, now - timedelta(minutes=10), now)
+        return await self._audit_exists(tenant_id, uid, now - timedelta(minutes=10), now)
 
-    async def _audit_exists(self, uid: str, lo: datetime, hi: datetime) -> bool:
+    async def _audit_exists(self, tenant_id: UUID, uid: str, lo: datetime, hi: datetime) -> bool:
         async def _do():
             client = await supabase._ensure()
-            return await client.table("audit_log").select("id").eq("actor", str(uid)).in_("action", ["login", "session.start"]).gte("ts", lo.isoformat()).lte("ts", hi.isoformat()).limit(1).execute()
+            return await client.table("audit_log").select("id").eq("tenant_id", str(tenant_id)).eq("actor", str(uid)).in_("action", ["login", "session.start"]).gte("ts", lo.isoformat()).lte("ts", hi.isoformat()).limit(1).execute()
         try:
             return bool((await supabase._retry(_do)).data)
         except Exception:
@@ -121,12 +121,12 @@ class PhysicalCorrelator:
         except Exception:
             return False
 
-    async def _badge_near(self, site_id: str | None, ts: datetime | None) -> bool:
+    async def _badge_near(self, tenant_id: UUID, site_id: str | None, ts: datetime | None) -> bool:
         if not site_id or not ts:
             return True
         async def _do():
             client = await supabase._ensure()
-            return await client.table("access_events").select("id").eq("site_id", site_id).eq("result", "granted").gte("ts", (ts - timedelta(minutes=2)).isoformat()).lte("ts", (ts + timedelta(minutes=2)).isoformat()).limit(1).execute()
+            return await client.table("access_events").select("id").eq("tenant_id", str(tenant_id)).eq("site_id", site_id).eq("result", "granted").gte("ts", (ts - timedelta(minutes=2)).isoformat()).lte("ts", (ts + timedelta(minutes=2)).isoformat()).limit(1).execute()
         try:
             return bool((await supabase._retry(_do)).data)
         except Exception:
