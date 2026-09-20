@@ -1,4 +1,6 @@
--- Cyclothone certificate tenant-binding closure.\n-- Reconciles the live service-role issuer boundary with GitHub.\nCREATE OR REPLACE FUNCTION public.trust_issue_certificate(p_serial_number text, p_profile_id uuid, p_subject_id uuid, p_proof_id uuid, p_state_snapshot_id uuid, p_proof_signature_id uuid, p_issuer_key_id text, p_payload_hash text, p_signature text, p_claims jsonb, p_valid_from timestamp with time zone, p_valid_until timestamp with time zone, p_trust_policy_id uuid DEFAULT NULL::uuid, p_policy_evaluation_id uuid DEFAULT NULL::uuid, p_authority_key_id text DEFAULT NULL::text, p_authority_signature text DEFAULT NULL::text, p_authority_signed_payload_hash text DEFAULT NULL::text)
+-- Cyclothone certificate tenant-binding closure.
+-- Reconciles the live service-role issuer boundary with GitHub.
+CREATE OR REPLACE FUNCTION public.trust_issue_certificate(p_serial_number text, p_profile_id uuid, p_subject_id uuid, p_proof_id uuid, p_state_snapshot_id uuid, p_proof_signature_id uuid, p_issuer_key_id text, p_payload_hash text, p_signature text, p_claims jsonb, p_valid_from timestamp with time zone, p_valid_until timestamp with time zone, p_trust_policy_id uuid DEFAULT NULL::uuid, p_policy_evaluation_id uuid DEFAULT NULL::uuid, p_authority_key_id text DEFAULT NULL::text, p_authority_signature text DEFAULT NULL::text, p_authority_signed_payload_hash text DEFAULT NULL::text)
  RETURNS trust_certificates
  LANGUAGE plpgsql
  SECURITY DEFINER
@@ -148,4 +150,7 @@ begin
   return outrow;
 end
 $function$
-\n\nrevoke all on function public.trust_issue_certificate(text,uuid,uuid,uuid,uuid,uuid,text,text,text,jsonb,timestamptz,timestamptz,uuid,uuid,text,text,text) from public,anon,authenticated;\ngrant execute on function public.trust_issue_certificate(text,uuid,uuid,uuid,uuid,uuid,text,text,text,jsonb,timestamptz,timestamptz,uuid,uuid,text,text,text) to service_role;\n
+
+
+revoke all on function public.trust_issue_certificate(text,uuid,uuid,uuid,uuid,uuid,text,text,text,jsonb,timestamptz,timestamptz,uuid,uuid,text,text,text) from public,anon,authenticated;
+grant execute on function public.trust_issue_certificate(text,uuid,uuid,uuid,uuid,uuid,text,text,text,jsonb,timestamptz,timestamptz,uuid,uuid,text,text,text) to service_role;
