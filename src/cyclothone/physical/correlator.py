@@ -84,7 +84,7 @@ class PhysicalCorrelator:
         for row in grants:
             async def _do():
                 client = await supabase._ensure()
-                return await client.table("badge_holders").select("active").eq("site_id", row["site_id"]).eq("badge_id", row["badge_id"]).limit(1).execute()
+                return await client.table("badge_holders").select("active").eq("tenant_id", str(tenant_id)).eq("site_id", row["site_id"]).eq("badge_id", row["badge_id"]).limit(1).execute()
             try:
                 data = (await supabase._retry(_do)).data or []
                 if not data or data[0].get("active", True) or await self._duplicate(tenant_id, "badge_revoked_use", row["id"], "access_event_id"):
@@ -114,7 +114,7 @@ class PhysicalCorrelator:
     async def _group(self, uid: str, group: str) -> bool:
         async def _do():
             client = await supabase._ensure()
-            return await client.table("badge_holders").select("access_groups").eq("user_id", str(uid)).limit(1).execute()
+            return await client.table("badge_holders").select("access_groups").eq("tenant_id", str(tenant_id)).eq("user_id", str(uid)).limit(1).execute()
         try:
             rows = (await supabase._retry(_do)).data or []
             return bool(rows and group in (rows[0].get("access_groups") or []))
