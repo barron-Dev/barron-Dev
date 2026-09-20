@@ -216,6 +216,130 @@ async def activate_trust_authority(
         raise HTTPException(503, "trust_authority_activation_failed") from exc
 
 
+class MeasurementCryptographicVerificationResponse(BaseModel):
+    measurement_id: str
+    cryptographic_verified: bool
+    measurement_hash: str
+    subject_identity_hash: str | None
+    checks: dict[str, bool]
+    reasons: list[str]
+    verification_hash: str
+    verification_event_id: str
+
+
+@router.get("/measurements/{measurement_id}/cryptographic-verify", response_model=MeasurementCryptographicVerificationResponse)
+async def cryptographic_verify_measurement(
+    measurement_id: str,
+    principal: DeveloperPrincipal = Depends(_read),
+):
+    measurement = await supabase.select_one(
+        "trust_measurements",
+        "id,tenant_id,subject_id,measurement_type,algorithm,measurement_value,source_type,source_id,collected_at,evidence_hash,signature_algorithm,signer_key_id,signature,signed_payload_hash,verification_status,metadata",
+        id=measurement_id,
+        tenant_id=principal.tenant_id,
+    )
+    if not measurement:
+        raise HTTPException(404, "trust_measurement_not_found")
+
+    subject = await supabase.select_one(
+        "trust_subjects",
+        "id,tenant_id,public_key_algorithm,public_key,key_id,lifecycle_state",
+        id=measurement["subject_id"],
+        tenant_id=principal.tenant_id,
+    )
+    if not subject:
+        raise HTTPException(404, "trust_measurement_subject_not_found")
+
+    expected_hash = await supabase.rpc(
+        "trust_measurement_hash",
+        {
+            "p_subject_id": measurement["subject_id"],
+            "p_measurement_type": measurement["measurement_type"],
+            "p_algorithm": measurement["algorithm"],
+            "p_measurement_value": measurement["measurement_value"],
+            "p_source_type": measurement["source_type"],
+            "p_source_id": measurement["source_id"],
+            "p_collected_at": measurement["collected_at"],
+            "p_evidence_hash": measurement["evidence_hash"],
+        },
+    )
+    identity_hash = await supabase.rpc(
+        "trust_subject_identity_hash",
+        {"p_subject_id": measurement["subject_id"]},
+    )
+
+    checks: dict[str, bool] = {
+        "measurement_hash_binding": measurement.get("signed_payload_hash") == expected_hash,
+        "subject_identity_binding": (measurement.get("metadata") or {}).get("subject_identity_hash") == identity_hash,
+        "subject_ed25519_identity": subject.get("public_key_algorithm") == "ED25519" and bool(subject.get("public_key")) and bool(subject.get("key_id")),
+        "signer_key_binding": measurement.get("signature_algorithm") == "ED25519" and measurement.get("signer_key_id") == subject.get("key_id"),
+        "subject_active": subject.get("lifecycle_state") not in ("REVOKED", "EXPIRED"),
+        "signature_valid": False,
+    }
+    reasons: list[str] = []
+
+    if not checks["measurement_hash_binding"]:
+        reasons.append("measurement_hash_binding_failed")
+    if not checks["subject_identity_binding"]:
+        reasons.append("subject_identity_binding_failed")
+    if not checks["subject_ed25519_identity"]:
+        reasons.append("subject_ed25519_identity_unavailable")
+    if not checks["signer_key_binding"]:
+        reasons.append("measurement_signer_identity_mismatch")
+    if not checks["subject_active"]:
+        reasons.append("trust_subject_not_active")
+
+    if all(checks[name] for name in ("measurement_hash_binding", "subject_identity_binding", "subject_ed25519_identity", "signer_key_binding", "subject_active")):
+        checks["signature_valid"] = verify_ed25519_raw_signature(
+            subject["public_key"],
+            measurement.get("signature") or "",
+            expected_hash,
+        )
+        if not checks["signature_valid"]:
+            reasons.append("measurement_signature_invalid")
+    else:
+        reasons.append("measurement_signature_not_verified")
+
+    reasons = sorted(set(reasons))
+    cryptographic_verified = all(checks.values())
+    verification_material = json.dumps(
+        {
+            "measurement_id": measurement_id,
+            "measurement_hash": expected_hash,
+            "subject_identity_hash": identity_hash,
+            "checks": checks,
+            "reasons": reasons,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    verification_hash = hashlib.sha256(verification_material).hexdigest()
+
+    event_id = await supabase.rpc(
+        "trust_record_measurement_verification",
+        {
+            "p_tenant_id": principal.tenant_id,
+            "p_measurement_id": measurement_id,
+            "p_verified": cryptographic_verified,
+            "p_verification_hash": verification_hash,
+            "p_verification_method": "ED25519_SUBJECT_IDENTITY",
+            "p_signed_payload_hash": measurement.get("signed_payload_hash"),
+            "p_signer_key_id": measurement.get("signer_key_id"),
+            "p_failure_reason": ";".join(reasons) if reasons else None,
+        },
+    )
+    return {
+        "measurement_id": measurement_id,
+        "cryptographic_verified": cryptographic_verified,
+        "measurement_hash": expected_hash,
+        "subject_identity_hash": identity_hash,
+        "checks": checks,
+        "reasons": reasons,
+        "verification_hash": verification_hash,
+        "verification_event_id": event_id,
+    }
+
+
 @router.get("/certificates/{certificate_id}/cryptographic-verify")
 async def cryptographic_verify_certificate(
     certificate_id: str,
