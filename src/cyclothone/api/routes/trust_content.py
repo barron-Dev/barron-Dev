@@ -28,15 +28,12 @@ class ContentVerificationRequest(BaseModel):
 
 
 @router.post("/evidence/{evidence_id}/verify-content")
-def verify_content(
+async def verify_content(
     evidence_id: str,
     body: ContentVerificationRequest,
     principal: DeveloperPrincipal = Depends(_write),
 ) -> dict[str, Any]:
-    evidence = supabase.select_one(
-        "trust_evidence",
-        {"id": evidence_id, "tenant_id": principal.tenant_id},
-    )
+    evidence = await supabase.select_one("trust_evidence", "*", id=evidence_id, tenant_id=principal.tenant_id)
     if not evidence:
         raise HTTPException(status_code=404, detail="trust_evidence_not_found")
 
@@ -52,7 +49,7 @@ def verify_content(
     expected_hash = str(evidence.get("content_hash") or "").lower()
     if observed_hash != expected_hash:
         try:
-            supabase.rpc(
+            await supabase.rpc(
                 "trust_commit_evidence_content_verification",
                 {
                     "p_evidence_id": evidence_id,
@@ -71,7 +68,7 @@ def verify_content(
         raise HTTPException(status_code=400, detail="content_hash_mismatch")
 
     try:
-        event = supabase.rpc(
+        event = await supabase.rpc(
             "trust_commit_evidence_content_verification",
             {
                 "p_evidence_id": evidence_id,
@@ -97,7 +94,7 @@ def verify_content(
 
 
 @router.get("/evidence/{evidence_id}/content-verification")
-def get_content_verification(
+async def get_content_verification(
     evidence_id: str,
     principal: DeveloperPrincipal = Depends(authenticate_request),
 ) -> dict[str, Any]:
