@@ -141,3 +141,85 @@ def verify_jwks(jwks: Mapping[str, Any]) -> dict[str, Any]:
         except (ValueError, TypeError):
             reasons.append(f"invalid_key:{key.get('kid','unknown')}")
     return {"valid": valid, "reasons": reasons, "count": len(valid)}
+
+
+def _jwks_public_key(key: Mapping[str, Any]) -> str:
+    padded = str(key["x"]) + "=" * (-len(str(key["x"])) % 4)
+    raw = base64.urlsafe_b64decode(padded)
+    if len(raw) != 32:
+        raise ValueError("invalid_jwks_public_key")
+    return raw.hex()
+
+
+def verify_certificate_response_with_jwks(
+    response: Mapping[str, Any],
+    jwks: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Verify a certificate using a separately discovered JWKS key set.
+
+    The certificate response's embedded public keys are deliberately ignored.
+    Key IDs must resolve in the supplied JWKS and the JWKS keys must be valid
+    Ed25519 signing keys.
+    """
+    discovered = verify_jwks(jwks)
+    keys = discovered["valid"]
+    reasons = list(discovered["reasons"])
+
+    certificate = response.get("certificate") or {}
+    proof = response.get("proof") or {}
+    attestation = response.get("attestation")
+    ck = keys.get(str((response.get("certificate_key") or {}).get("key_id", "")))
+    pk = keys.get(str((response.get("proof_key") or {}).get("key_id", "")))
+    ak = keys.get(str((response.get("attestation_key") or {}).get("key_id", ""))) if attestation else None
+
+    def key_ok(key: Mapping[str, Any] | None, signature: str, payload_hash: str) -> bool:
+        if not key or not signature or not payload_hash:
+            return False
+        try:
+            return verify_signature(_jwks_public_key(key), signature, payload_hash)
+        except (ValueError, TypeError):
+            return False
+
+    cert_ok = key_ok(ck, certificate.get("signature", ""), certificate.get("payload_hash", ""))
+    proof_ok = (
+        proof.get("signed_payload_hash") == proof.get("proof_hash")
+        and key_ok(pk, proof.get("signature", ""), proof.get("proof_hash", ""))
+    )
+    att_ok = attestation is None
+    if attestation:
+        att_ok = key_ok(
+            ak,
+            attestation.get("signature", ""),
+            attestation.get("signed_payload_hash", ""),
+        )
+
+    if not cert_ok:
+        reasons.append("certificate_jwks_signature_invalid")
+    if not proof_ok:
+        reasons.append("proof_jwks_signature_invalid")
+    if not att_ok:
+        reasons.append("attestation_jwks_signature_invalid")
+
+    valid_until = certificate.get("valid_until")
+    current = (
+        certificate.get("status") == "ACTIVE"
+        and bool(valid_until)
+        and datetime.fromisoformat(str(valid_until).replace("Z", "+00:00")) > datetime.now(timezone.utc)
+    )
+    if not current:
+        reasons.append("certificate_not_current")
+
+    return {
+        "verified": bool(
+            cert_ok
+            and proof_ok
+            and att_ok
+            and current
+            and response.get("chain_verified")
+        ),
+        "certificate_signature_verified": cert_ok,
+        "proof_signature_verified": proof_ok,
+        "attestation_signature_verified": att_ok,
+        "chain_verified": bool(response.get("chain_verified")),
+        "reasons": reasons,
+    }
