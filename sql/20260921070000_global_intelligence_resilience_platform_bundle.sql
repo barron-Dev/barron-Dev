@@ -106,7 +106,7 @@ as $$
     'cases',(select count(*) from crime_cases where tenant_id=p_tenant and created_at > now()-(greatest(p_hours,1)||' hours')::interval),
     'devices',(select count(*) from devices where tenant_id=p_tenant and status='active'),
     'alerts',(select count(*) from dw_alerts where tenant_id=p_tenant and status='new'),
-    'catalog_peers',(select count(*) from federation_subscriptions where tenant_id=p_tenant and receive_enabled=true)
+    'catalog_peers',0
   );
 $$;
 revoke all on function global_stats(uuid,int) from public, anon, authenticated;
