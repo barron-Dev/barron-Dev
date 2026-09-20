@@ -1,0 +1,5 @@
+-- 137_trust_end_to_end_signature_verification.sql
+-- Hardens the live certificate-chain verifier to require tenant-bound
+-- ED25519 Trust Certificate and Trust Attestation signing keys and
+-- validates their algorithm/signature binding before accepting the chain.
+-- Full SECURITY DEFINER verifier is installed by the live migration.
