@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
 
 from cyclothone.developer.auth import DeveloperPrincipal, authenticate_request
 from cyclothone.storage.supabase_client import supabase
