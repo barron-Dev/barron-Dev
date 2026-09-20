@@ -1,0 +1,4 @@
+import {NextRequest,NextResponse} from "next/server";
+const HOSTS:Record<string,string>={"cyclothone.online":"/surface","www.cyclothone.online":"/surface","customers.cyclothone.online":"/customer/overview","developers.cyclothone.online":"/developers","kontrol-plane.cyclothone.online":"/kontrol"};
+export function middleware(req:NextRequest){const host=req.headers.get("host")?.split(":")[0]?.toLowerCase()??"";const base=HOSTS[host];if(!base)return NextResponse.next();const p=req.nextUrl.pathname;if(p.startsWith("/_next")||p.startsWith("/api")||p.startsWith("/surface")||p.startsWith("/customer")||p.startsWith("/developers")||p.startsWith("/kontrol"))return NextResponse.next();const u=req.nextUrl.clone();u.pathname=base+(p==="/"?"":p);return NextResponse.rewrite(u)}
+export const config={matcher:["/((?!_next/static|_next/image|favicon.ico).*)"]};
