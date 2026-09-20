@@ -1696,7 +1696,7 @@ as $$
             coalesce(n.summary,'') || ' ' ||
             coalesce(array_to_string(n.tags,' '),'')
           ) @@ q.tsq
-    order by score desc, n.priority asc, n.id asc
+    order by 7 desc, n.priority asc, n.id asc
     limit least(greatest(coalesce(p_limit, 30), 1), 100);
 $$;
 
