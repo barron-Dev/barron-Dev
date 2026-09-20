@@ -5,9 +5,8 @@
 create index if not exists indicators_tenant_type_value_idx
   on public.indicators(tenant_id, ioc_type, value);
 
-create index if not exists indicators_active_expiry_idx
-  on public.indicators(tenant_id, expires_at)
-  where expires_at is null or expires_at > now();
+create index if not exists indicators_expiry_idx
+  on public.indicators(tenant_id, expires_at);
 
 create index if not exists intel_feeds_enabled_idx
   on public.intel_feeds(tenant_id, enabled, last_pull_at);
