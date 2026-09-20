@@ -115,3 +115,29 @@ def verify_certificate_response(response: Mapping[str, Any]) -> dict[str, Any]:
         "verification_hash": response.get("verification_hash"),
         "reasons": reasons,
     }
+
+
+def verify_jwks(jwks: Mapping[str, Any]) -> dict[str, Any]:
+    """Validate a Cyclothone JWKS response without trusting remote status fields."""
+    keys = jwks.get("keys") or []
+    valid: dict[str, Mapping[str, Any]] = {}
+    reasons: list[str] = []
+    for key in keys:
+        try:
+            if (
+                key.get("kty") != "OKP"
+                or key.get("crv") != "Ed25519"
+                or key.get("alg") != "EdDSA"
+                or key.get("use") != "sig"
+                or not key.get("kid")
+            ):
+                reasons.append(f"invalid_key:{key.get('kid','unknown')}")
+                continue
+            padded = str(key["x"]) + "=" * (-len(str(key["x"])) % 4)
+            raw = base64.urlsafe_b64decode(padded)
+            if len(raw) != 32:
+                raise ValueError("invalid_key_length")
+            valid[str(key["kid"])] = key
+        except (ValueError, TypeError):
+            reasons.append(f"invalid_key:{key.get('kid','unknown')}")
+    return {"valid": valid, "reasons": reasons, "count": len(valid)}
