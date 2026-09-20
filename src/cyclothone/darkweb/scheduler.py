@@ -76,14 +76,14 @@ class DarkWebScheduler:
         hibp_key = os.getenv("SENTINEL_HIBP_KEY", "").strip()
         github_token = os.getenv("SENTINEL_GITHUB_TOKEN", "").strip()
         enabled = await self._enabled_sources()
-        for tenant_id, domains in domains_by_tenant.items():
+        for domains in domains_by_tenant.values():
             for domain in domains:
-            if hibp_key and "hibp" in enabled:
-                puller = HIBPPuller(hibp_key)
-                await self._run_pull(puller.SOURCE, lambda p=puller, d=domain: p.pull_domain(d))
-            if github_token and "github_code" in enabled:
-                monitor = GitHubCodeMonitor(github_token)
-                await self._run_pull(monitor.SOURCE, lambda m=monitor, d=domain: m.pull_domain(d))
+                if hibp_key and "hibp" in enabled:
+                    puller = HIBPPuller(hibp_key)
+                    await self._run_pull(puller.SOURCE, lambda p=puller, d=domain: p.pull_domain(d))
+                if github_token and "github_code" in enabled:
+                    monitor = GitHubCodeMonitor(github_token)
+                    await self._run_pull(monitor.SOURCE, lambda m=monitor, d=domain: m.pull_domain(d))
 
     async def _run_pull(self, source_id: str, pull) -> None:
         started = time.monotonic()
