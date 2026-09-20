@@ -11,6 +11,15 @@ create index if not exists indicators_expiry_idx
 create index if not exists intel_feeds_enabled_idx
   on public.intel_feeds(tenant_id, enabled, last_pull_at);
 
+create index if not exists dw_sources_health_idx
+  on public.dw_sources(enabled, last_status, last_pull_at);
+
+create index if not exists physical_correlations_tenant_status_idx
+  on public.physical_digital_correlations(tenant_id, status, last_seen desc);
+
+create index if not exists investigation_events_session_time_idx
+  on public.investigation_events(session_id, event_at desc);
+
 create index if not exists investigation_sessions_active_idx
   on public.investigation_sessions(tenant_id, status, updated_at)
   where status in ('requested','approved','running');
