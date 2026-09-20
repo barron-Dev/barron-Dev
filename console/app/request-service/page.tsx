@@ -27,3 +27,4 @@ export default function RequestService(){
  {ok&&<div className="border border-[#00e07a]/30 p-3 text-sm text-[#7df0ad]">Service request submitted.</div>}
  <button disabled={!org||current?.admission_status!=="approved"} className="w-full border border-[#00d9ff] p-3 text-[#00d9ff] disabled:opacity-40">Submit service request</button>
  </form>}</div></main>
+}
