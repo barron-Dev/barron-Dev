@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime
+
 from fastapi import APIRouter, Depends
 
 from cyclothone.developer.auth import DeveloperPrincipal, authenticate_request
@@ -62,7 +64,6 @@ async def certificate_issuance_preflight(_: DeveloperPrincipal = Depends(_read))
 
 
 class CertificateIssuancePreflightRequest(BaseModel):
-    tenant_id: str
     subject_id: str
     profile_id: str
     state_snapshot_id: str
@@ -71,8 +72,8 @@ class CertificateIssuancePreflightRequest(BaseModel):
     issuer_key_id: str = Field(min_length=1, max_length=256)
     trust_policy_id: str
     policy_evaluation_id: str
-    valid_from: str
-    valid_until: str
+    valid_from: datetime
+    valid_until: datetime
     serial_number: str | None = Field(default=None, min_length=16, max_length=128)
     payload_hash: str | None = Field(default=None, min_length=64, max_length=64)
     signature: str | None = Field(default=None, min_length=32)
@@ -86,14 +87,11 @@ async def subject_certificate_issuance_preflight(
     request: CertificateIssuancePreflightRequest,
     principal: DeveloperPrincipal = Depends(_read),
 ):
-    if request.tenant_id != principal.tenant_id:
-        raise HTTPException(403, "tenant_scope_violation")
-
     try:
         result = await supabase.rpc(
             "trust_certificate_issuance_preflight",
             {
-                "p_tenant_id": request.tenant_id,
+                "p_tenant_id": principal.tenant_id,
                 "p_subject_id": request.subject_id,
                 "p_profile_id": request.profile_id,
                 "p_state_snapshot_id": request.state_snapshot_id,
