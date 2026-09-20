@@ -222,4 +222,15 @@ class ThreatIntelScheduler:
                         "detector": "threat_intel", "score": score, "verdict": verdict,
                         "reasons": ["threat_intelligence_match"], "evidence": evidence,
                     }).execute()
-                await supabase._retry(_insert, attempts=2)
+                result = await supabase._retry(_insert, attempts=2)
+                created_rows = result.data or []
+                if created_rows and event.get("device_id"):
+                    try:
+                        from cyclothone.automation.auto_case import process_persisted_detection
+                        await process_persisted_detection(
+                            detection_id=created_rows[0]["id"], tenant_id=event["tenant_id"], device_id=event["device_id"],
+                            detector="threat_intel", score=score, verdict=verdict,
+                            reasons=["threat_intelligence_match"], evidence=evidence,
+                        )
+                    except Exception:
+                        logger.exception("threat-intel autocase processing failed for detection=%s", created_rows[0].get("id"))
