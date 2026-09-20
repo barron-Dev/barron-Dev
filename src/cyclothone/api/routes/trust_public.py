@@ -39,6 +39,19 @@ def _verify(key, signature, payload_hash):
         return False
 
 
+def _public_key_view(key):
+    if not key:
+        return None
+    return {
+        "key_id": key.get("key_id"),
+        "algorithm": key.get("algorithm"),
+        "public_key": key.get("public_key"),
+        "status": key.get("status"),
+        "not_before": key.get("not_before"),
+        "not_after": key.get("not_after"),
+    }
+
+
 @router.get("/certificates/{serial_number}")
 async def verify_public_certificate(serial_number: str):
     material = await supabase.rpc(
@@ -60,35 +73,21 @@ async def verify_public_certificate(serial_number: str):
 
     certificate_signature_verified = (
         certificate.get("algorithm") == "ED25519"
-        and _verify(
-            certificate_key,
-            certificate.get("signature"),
-            certificate.get("payload_hash"),
-        )
+        and _verify(certificate_key, certificate.get("signature"), certificate.get("payload_hash"))
     )
-
     proof_signature_verified = (
         bool(proof)
         and bool(proof_signature)
         and proof_signature.get("algorithm") == "ED25519"
         and proof_signature.get("signed_payload_hash") == proof.get("proof_hash")
-        and _verify(
-            proof_key,
-            proof_signature.get("signature"),
-            proof.get("proof_hash"),
-        )
+        and _verify(proof_key, proof_signature.get("signature"), proof.get("proof_hash"))
     )
-
     attestation_signature_verified = not proof.get("attestation_id")
     if attestation:
         attestation_signature_verified = (
             attestation.get("signature_algorithm") == "ED25519"
-            and attestation.get("signed_payload_hash")
-            and _verify(
-                attestation_key,
-                attestation.get("signature"),
-                attestation.get("signed_payload_hash"),
-            )
+            and bool(attestation.get("signed_payload_hash"))
+            and _verify(attestation_key, attestation.get("signature"), attestation.get("signed_payload_hash"))
         )
 
     if not certificate_signature_verified:
@@ -107,30 +106,16 @@ async def verify_public_certificate(serial_number: str):
     if not current:
         reasons.append("certificate_not_current")
 
-    crypto_verified = (
-        certificate_signature_verified
-        and proof_signature_verified
-        and attestation_signature_verified
-        and current
+    crypto_verified = certificate_signature_verified and proof_signature_verified and attestation_signature_verified and current
+
+    chain = (
+        await supabase.rpc("trust_verify_certificate_chain", {"p_certificate_id": certificate["id"]})
+        if crypto_verified
+        else {"verified": False, "reasons": reasons}
     )
-
-    # Only the backend verifier can commit a final public verification result.
-    # The database chain verifier independently checks policy, proof, state,
-    # attestation, and hash bindings before the result is considered verified.
-    chain = await supabase.rpc(
-        "trust_verify_certificate_chain",
-        {"p_certificate_id": certificate["id"]},
-    ) if crypto_verified else {
-        "verified": False,
-        "reasons": reasons,
-    }
-
     chain_verified = bool(chain and chain.get("verified"))
     if crypto_verified and not chain_verified:
-        reasons.extend(
-            reason for reason in (chain.get("reasons") or [])
-            if reason not in reasons
-        )
+        reasons.extend(reason for reason in (chain.get("reasons") or []) if reason not in reasons)
 
     verified = crypto_verified and chain_verified
 
@@ -152,9 +137,6 @@ async def verify_public_certificate(serial_number: str):
         ).encode()
     ).hexdigest()
 
-    # The chain verifier records its own authoritative event. For crypto failure
-    # we additionally record the public verification failure through the dedicated
-    # service-role RPC; clients never receive signing-key material.
     if not crypto_verified:
         await supabase.rpc(
             "trust_commit_public_certificate_verification",
@@ -167,8 +149,8 @@ async def verify_public_certificate(serial_number: str):
         )
 
     return {
+        "verification_protocol": "cyclothone-trust-v1",
         "verified": verified,
-        "verification_version": "1",
         "serial_number": serial_number,
         "certificate_id": certificate["id"],
         "algorithm": "ED25519",
@@ -176,6 +158,31 @@ async def verify_public_certificate(serial_number: str):
         "proof_signature_verified": proof_signature_verified,
         "attestation_signature_verified": attestation_signature_verified,
         "chain_verified": chain_verified,
+        "certificate_key": _public_key_view(certificate_key),
+        "proof_key": _public_key_view(proof_key),
+        "attestation_key": _public_key_view(attestation_key),
+        "certificate": {
+            "payload_hash": certificate.get("payload_hash"),
+            "signature": certificate.get("signature"),
+            "valid_from": certificate.get("valid_from"),
+            "valid_until": certificate.get("valid_until"),
+            "status": certificate.get("status"),
+        },
+        "proof": {
+            "proof_hash": proof.get("proof_hash"),
+            "signature": proof_signature.get("signature"),
+            "signed_payload_hash": proof_signature.get("signed_payload_hash"),
+        },
+        "attestation": (
+            {
+                "attestation_hash": attestation.get("attestation_hash"),
+                "signature": attestation.get("signature"),
+                "signed_payload_hash": attestation.get("signed_payload_hash"),
+                "signature_algorithm": attestation.get("signature_algorithm"),
+            }
+            if attestation
+            else None
+        ),
         "valid_from": certificate.get("valid_from"),
         "valid_until": certificate.get("valid_until"),
         "verification_hash": verification_hash,
