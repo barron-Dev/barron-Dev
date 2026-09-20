@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { acceptOrganizationInvitation, setApiToken } from "../../lib/api";
+import { acceptOrganizationInvitation, setApiToken } from "../../../lib/api";
 
 export default function AcceptInvitation() {
   const [token,setToken]=useState("");

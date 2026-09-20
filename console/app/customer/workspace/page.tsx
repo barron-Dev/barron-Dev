@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { getCustomerOrganizations, getCustomerServiceRequests, getCustomerVerification, getOrganizationMembers, getOrganizationInvitations, createOrganizationInvitation, revokeOrganizationInvitation, setApiToken, type CustomerOrganization, type CustomerServiceRequest, type OrganizationMember, type OrganizationInvitation } from "../../lib/api";
+import { getCustomerOrganizations, getCustomerServiceRequests, getCustomerVerification, getOrganizationMembers, getOrganizationInvitations, createOrganizationInvitation, revokeOrganizationInvitation, setApiToken, type CustomerOrganization, type CustomerServiceRequest, type OrganizationMember, type OrganizationInvitation } from "../../../lib/api";
 
 const labels: Record<string,string> = {
   cybersecurity_assessment:"Cybersecurity Assessment", incident_response:"Incident Response", threat_intelligence:"Threat Intelligence",

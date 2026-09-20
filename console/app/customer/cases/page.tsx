@@ -1,6 +1,6 @@
 "use client";
 import {useEffect,useState} from "react";
-import {getCustomerCases,getCustomerCaseActivity,getCustomerCaseActions,addCustomerCaseActivity,setApiToken,type CustomerCase} from "../../lib/api";
+import {getCustomerCases,getCustomerCaseActivity,getCustomerCaseActions,addCustomerCaseActivity,setApiToken,type CustomerCase} from "../../../lib/api";
 
 export default function CustomerCases(){
  const [cases,setCases]=useState<CustomerCase[]>([]); const [selected,setSelected]=useState<CustomerCase|null>(null);
