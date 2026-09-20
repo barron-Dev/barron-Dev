@@ -30,7 +30,7 @@ async def certificate_issuance_preflight(_: DeveloperPrincipal = Depends(_read))
         keys = await supabase.select(
             "trust_public_key_directory",
             "key_id,status,not_before,not_after",
-            purpose="TRUST_CERTIFICATE",
+            purpose="TRUST_AUTHORITY",
             status="ACTIVE",
         )
         authority["active_key_count"] = len(keys)
