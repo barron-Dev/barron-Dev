@@ -99,10 +99,7 @@ async def get_content_verification(
     principal: DeveloperPrincipal = Depends(authenticate_request),
 ) -> dict[str, Any]:
     principal.require(("console:read",))
-    evidence = supabase.select_one(
-        "trust_evidence",
-        {"id": evidence_id, "tenant_id": principal.tenant_id},
-    )
+    evidence = await supabase.select_one("trust_evidence", "*", id=evidence_id, tenant_id=principal.tenant_id)
     if not evidence:
         raise HTTPException(status_code=404, detail="trust_evidence_not_found")
 
