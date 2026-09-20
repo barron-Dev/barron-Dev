@@ -149,6 +149,9 @@ $function$;
 drop function if exists public.trust_issue_certificate(
  text,uuid,uuid,uuid,uuid,uuid,text,text,text,jsonb,timestamptz,timestamptz
 );
+drop function if exists public.trust_issue_certificate(
+ text,uuid,uuid,uuid,uuid,uuid,text,text,text,jsonb,timestamptz,timestamptz,uuid,uuid
+);
 
 -- Publish ACTIVE and still-valid RETIRED keys so historical certificates
 -- remain independently verifiable during a signing-key rotation.
