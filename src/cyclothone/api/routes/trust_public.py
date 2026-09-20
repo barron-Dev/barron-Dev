@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import hashlib
 import json
+import base64
 
 from fastapi import APIRouter, HTTPException
 
@@ -21,7 +22,7 @@ def _dt(value):
 
 
 def _valid_key(key):
-    if not key or key.get("algorithm") != "ED25519" or key.get("status") != "ACTIVE" or not key.get("public_key"):
+    if not key or key.get("algorithm") != "ED25519" or key.get("status") not in {"ACTIVE", "RETIRED"} or not key.get("public_key"):
         return False
     return (
         (not key.get("not_before") or _dt(key["not_before"]) <= _now())
@@ -45,59 +46,13 @@ def _public_key_view(key):
     return {
         "key_id": key.get("key_id"),
         "algorithm": key.get("algorithm"),
+        "purpose": key.get("purpose"),
         "public_key": key.get("public_key"),
         "status": key.get("status"),
         "not_before": key.get("not_before"),
         "not_after": key.get("not_after"),
     }
 
-
-
-
-def _valid_authority_key(key):
-    if not key or key.get("algorithm") != "ED25519" or key.get("purpose") != "TRUST_CERTIFICATE":
-        return False
-    if key.get("status") not in {"ACTIVE", "RETIRED"} or not key.get("public_key"):
-        return False
-    now = _now()
-    return (
-        (not key.get("not_before") or _dt(key["not_before"]) <= now)
-        and (not key.get("not_after") or _dt(key["not_after"]) > now)
-    )
-
-
-def _verify_authority(key, signature, payload_hash):
-    if not _valid_authority_key(key) or not signature or not payload_hash or len(payload_hash) != 64:
-        return False
-    try:
-        _verify_ed25519(key["public_key"], signature, bytes.fromhex(payload_hash))
-        return True
-    except (ValueError, TypeError):
-        return False
-
-
-def _public_key_view(key):
-    if not key:
-        return None
-    return {
-        "key_id": key.get("key_id"),
-        "algorithm": key.get("algorithm"),
-        "public_key": key.get("public_key"),
-        "status": key.get("status"),
-        "not_before": key.get("not_before"),
-        "not_after": key.get("not_after"),
-    }
-
-
-def _b64url_from_public_key(value: str) -> str:
-    import base64
-    try:
-        raw = bytes.fromhex(value)
-    except ValueError:
-        raw = base64.b64decode(value, validate=True)
-    if len(raw) != 32:
-        raise ValueError("invalid_ed25519_public_key")
-    return base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii")
 
 @router.get("/certificates/{serial_number}")
 async def verify_public_certificate(serial_number: str):
@@ -111,12 +66,10 @@ async def verify_public_certificate(serial_number: str):
     certificate = material.get("certificate") or {}
     proof = material.get("proof") or {}
     proof_signature = material.get("proof_signature") or {}
+    attestation = material.get("attestation")
     certificate_key = material.get("certificate_key")
     authority_key = material.get("authority_key")
-    authority_signature = certificate.get("authority_signature")
-    authority_payload_hash = certificate.get("authority_signed_payload_hash")
     proof_key = material.get("proof_key")
-    attestation = material.get("attestation")
     attestation_key = material.get("attestation_key")
 
     reasons: list[str] = []
@@ -126,12 +79,9 @@ async def verify_public_certificate(serial_number: str):
         and _verify(certificate_key, certificate.get("signature"), certificate.get("payload_hash"))
     )
     authority_signature_verified = (
-        bool(authority_key)
-        and authority_key.get("algorithm") == "ED25519"
-        and authority_key.get("purpose") == "TRUST_CERTIFICATE"
-        and authority_key.get("status") in {"ACTIVE", "RETIRED"}
-        and authority_payload_hash == certificate.get("payload_hash")
-        and _verify_authority(authority_key, authority_signature, authority_payload_hash)
+        certificate.get("authority_signature") is not None
+        and certificate.get("authority_signed_payload_hash") == certificate.get("payload_hash")
+        and _verify(authority_key, certificate.get("authority_signature"), certificate.get("authority_signed_payload_hash"))
     )
     proof_signature_verified = (
         bool(proof)
@@ -140,7 +90,8 @@ async def verify_public_certificate(serial_number: str):
         and proof_signature.get("signed_payload_hash") == proof.get("proof_hash")
         and _verify(proof_key, proof_signature.get("signature"), proof.get("proof_hash"))
     )
-    attestation_signature_verified = not proof.get("attestation_id")
+
+    attestation_signature_verified = attestation is None
     if attestation:
         attestation_signature_verified = (
             attestation.get("signature_algorithm") == "ED25519"
@@ -174,49 +125,27 @@ async def verify_public_certificate(serial_number: str):
         and current
     )
 
-    authority_chain = (
-        await supabase.rpc(
-            "trust_verify_certificate_authority_binding",
-            {"p_certificate_id": certificate["id"]},
-        )
+    chain = (
+        await supabase.rpc("trust_verify_certificate_chain", {"p_certificate_id": certificate["id"]})
         if crypto_verified
         else {"verified": False, "reasons": reasons}
     )
-    authority_chain_verified = bool(authority_chain and authority_chain.get("verified"))
-    if crypto_verified and not authority_chain_verified:
-        reasons.extend(
-            reason for reason in (authority_chain.get("reasons") or [])
-            if reason not in reasons
-        )
-
-    chain = (
-        await supabase.rpc(
-            "trust_verify_certificate_chain",
-            {"p_certificate_id": certificate["id"]},
-        )
-        if crypto_verified and authority_chain_verified
-        else {"verified": False, "reasons": reasons}
-    )
     chain_verified = bool(chain and chain.get("verified"))
-    if crypto_verified and authority_chain_verified and not chain_verified:
-        reasons.extend(
-            reason for reason in (chain.get("reasons") or [])
-            if reason not in reasons
-        )
+    if crypto_verified and not chain_verified:
+        reasons.extend(reason for reason in (chain.get("reasons") or []) if reason not in reasons)
 
-    verified = crypto_verified and authority_chain_verified and chain_verified
+    verified = crypto_verified and chain_verified
 
     verification_hash = hashlib.sha256(
         json.dumps(
             {
                 "certificate_id": certificate.get("id"),
                 "certificate_payload_hash": certificate.get("payload_hash"),
-                "authority_key_id": authority_key.get("key_id") if authority_key else None,
-                "authority_payload_hash": authority_payload_hash,
+                "authority_key_id": certificate.get("authority_key_id"),
+                "authority_signed_payload_hash": certificate.get("authority_signed_payload_hash"),
                 "proof_hash": proof.get("proof_hash"),
                 "attestation_hash": attestation.get("attestation_hash") if attestation else None,
                 "crypto_verified": crypto_verified,
-                "authority_chain_verified": authority_chain_verified,
                 "chain_verified": chain_verified,
                 "verified": verified,
                 "reasons": reasons,
@@ -227,7 +156,7 @@ async def verify_public_certificate(serial_number: str):
         ).encode()
     ).hexdigest()
 
-    if not crypto_verified or not authority_chain_verified:
+    if not crypto_verified:
         await supabase.rpc(
             "trust_commit_public_certificate_verification",
             {
@@ -246,7 +175,6 @@ async def verify_public_certificate(serial_number: str):
         "algorithm": "ED25519",
         "certificate_signature_verified": certificate_signature_verified,
         "authority_signature_verified": authority_signature_verified,
-        "authority_chain_verified": authority_chain_verified,
         "proof_signature_verified": proof_signature_verified,
         "attestation_signature_verified": attestation_signature_verified,
         "chain_verified": chain_verified,
@@ -257,11 +185,12 @@ async def verify_public_certificate(serial_number: str):
         "certificate": {
             "payload_hash": certificate.get("payload_hash"),
             "signature": certificate.get("signature"),
-            "authority_signature": authority_signature,
-            "authority_signed_payload_hash": authority_payload_hash,
             "valid_from": certificate.get("valid_from"),
             "valid_until": certificate.get("valid_until"),
             "status": certificate.get("status"),
+            "authority_key_id": certificate.get("authority_key_id"),
+            "authority_signature": certificate.get("authority_signature"),
+            "authority_signed_payload_hash": certificate.get("authority_signed_payload_hash"),
         },
         "proof": {
             "proof_hash": proof.get("proof_hash"),
@@ -288,7 +217,27 @@ async def verify_public_certificate(serial_number: str):
 @router.get("/keys")
 async def public_trust_keys():
     directory = await supabase.rpc("trust_public_key_directory_json")
-    return directory or {"keys": []}
+    keys = []
+    for key in (directory or {}).get("keys", []):
+        if key.get("algorithm") != "ED25519":
+            continue
+        try:
+            raw = bytes.fromhex(str(key.get("public_key", "")))
+            if len(raw) != 32:
+                continue
+            x = base64.urlsafe_b64encode(raw).decode().rstrip("=")
+        except ValueError:
+            continue
+        keys.append({
+            "key_id": key.get("key_id"),
+            "algorithm": key.get("algorithm"),
+            "purpose": key.get("purpose"),
+            "public_key": key.get("public_key"),
+            "status": key.get("status"),
+            "not_before": key.get("not_before"),
+            "not_after": key.get("not_after"),
+        })
+    return {"protocol": "cyclothone-trust-v1", "keys": keys}
 
 
 @router.get("/jwks.json")
@@ -299,8 +248,11 @@ async def public_trust_jwks():
         if key.get("algorithm") != "ED25519":
             continue
         try:
-            x = _b64url_from_public_key(str(key.get("public_key", "")))
-        except (TypeError, ValueError):
+            raw = bytes.fromhex(str(key.get("public_key", "")))
+            if len(raw) != 32:
+                continue
+            x = base64.urlsafe_b64encode(raw).decode().rstrip("=")
+        except ValueError:
             continue
         keys.append({
             "kty": "OKP",
