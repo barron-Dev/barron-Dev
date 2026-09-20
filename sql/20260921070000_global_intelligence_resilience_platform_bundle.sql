@@ -1596,7 +1596,7 @@ create table tickets (
         check (severity in ('low','normal','high','critical')),
     status text not null default 'open'
         check (status in ('open','pending','escalated','resolved','closed')),
-    assigned_to uuid references admin_users(user_id) on delete set null,
+    assigned_to uuid,
     related_service text,
     created_at timestamptz not null default now(),
     updated_at timestamptz not null default now()
