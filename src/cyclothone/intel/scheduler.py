@@ -10,7 +10,7 @@ import ssl
 import time
 import urllib.error
 import urllib.request
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from urllib.parse import urlparse
 
 from cyclothone.storage.supabase_client import supabase
@@ -193,7 +193,7 @@ class ThreatIntelScheduler:
         now = datetime.now(UTC)
         async def _events2():
             return await (await supabase._ensure()).table("events").select("id,tenant_id,device_id,event_type,ts,payload").gte(
-                "ts", (now.replace(microsecond=0) - __import__("datetime").timedelta(minutes=15)).isoformat()
+                "ts", (now.replace(microsecond=0) - timedelta(minutes=15)).isoformat()
             ).limit(1000).execute()
         events = (await supabase._retry(_events2, attempts=2)).data or []
         for event in events:
