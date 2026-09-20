@@ -59,3 +59,65 @@ async def certificate_issuance_preflight(_: DeveloperPrincipal = Depends(_read))
             + errors
         ),
     }
+
+
+class CertificateIssuancePreflightRequest(BaseModel):
+    tenant_id: str
+    subject_id: str
+    profile_id: str
+    state_snapshot_id: str
+    proof_id: str
+    proof_signature_id: str
+    issuer_key_id: str = Field(min_length=1, max_length=256)
+    trust_policy_id: str
+    policy_evaluation_id: str
+    valid_from: str
+    valid_until: str
+    serial_number: str | None = Field(default=None, min_length=16, max_length=128)
+    payload_hash: str | None = Field(default=None, min_length=64, max_length=64)
+    signature: str | None = Field(default=None, min_length=32)
+    authority_key_id: str | None = Field(default=None, min_length=1, max_length=256)
+    authority_signature: str | None = None
+    authority_signed_payload_hash: str | None = Field(default=None, min_length=64, max_length=64)
+
+
+@router.post("/certificates/issuance-preflight")
+async def subject_certificate_issuance_preflight(
+    request: CertificateIssuancePreflightRequest,
+    principal: DeveloperPrincipal = Depends(_read),
+):
+    if request.tenant_id != principal.tenant_id:
+        raise HTTPException(403, "tenant_scope_violation")
+
+    try:
+        result = await supabase.rpc(
+            "trust_certificate_issuance_preflight",
+            {
+                "p_tenant_id": request.tenant_id,
+                "p_subject_id": request.subject_id,
+                "p_profile_id": request.profile_id,
+                "p_state_snapshot_id": request.state_snapshot_id,
+                "p_proof_id": request.proof_id,
+                "p_proof_signature_id": request.proof_signature_id,
+                "p_issuer_key_id": request.issuer_key_id,
+                "p_trust_policy_id": request.trust_policy_id,
+                "p_policy_evaluation_id": request.policy_evaluation_id,
+                "p_valid_from": request.valid_from,
+                "p_valid_until": request.valid_until,
+                "p_serial_number": request.serial_number,
+                "p_payload_hash": request.payload_hash,
+                "p_signature": request.signature,
+                "p_authority_key_id": request.authority_key_id,
+                "p_authority_signature": request.authority_signature,
+                "p_authority_signed_payload_hash": request.authority_signed_payload_hash,
+            },
+        )
+    except Exception as exc:
+        message = str(exc)
+        if "service_role_required" in message:
+            raise HTTPException(500, "trust_preflight_configuration_error") from exc
+        raise HTTPException(503, "trust_preflight_unavailable") from exc
+
+    if not isinstance(result, dict):
+        raise HTTPException(500, "invalid_trust_preflight_response")
+    return result
