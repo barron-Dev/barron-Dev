@@ -52,7 +52,7 @@ REVOKE EXECUTE ON FUNCTION public.reject_customer_workspace(uuid, uuid, text) FR
 REVOKE EXECUTE ON FUNCTION public.transition_customer_case(uuid, uuid, text, text) FROM PUBLIC, anon, authenticated;
 REVOKE EXECUTE ON FUNCTION public.trust_enqueue_re_evaluation(uuid, text, uuid, text, text) FROM PUBLIC, anon, authenticated;
 REVOKE EXECUTE ON FUNCTION public.trust_issue_public_key_ceremony(text, text, integer) FROM PUBLIC, anon, authenticated;
-REVOKE EXECUTE ON FUNCTION public.trust_register_public_key(text, text, text, timestamptz, timestamptz, jsonb) FROM PUBLIC, anon, authenticated;
+REVOKE EXECUTE ON FUNCTION public.trust_register_public_key(text, text, text, text, timestamptz, timestamptz, jsonb) FROM PUBLIC, anon, authenticated;
 REVOKE EXECUTE ON FUNCTION public.trust_register_public_key(text, text, text, timestamptz, timestamptz, jsonb) FROM PUBLIC, anon, authenticated;
 REVOKE EXECUTE ON FUNCTION public.trust_revoke_public_key(text) FROM PUBLIC, anon, authenticated;
 REVOKE EXECUTE ON FUNCTION public.trust_update_certificate_status(uuid, text, text) FROM PUBLIC, anon, authenticated;
