@@ -313,7 +313,6 @@ create policy honey_mesh_templates_read on honey_mesh_templates for select to au
 create policy honey_mesh_assets_read on honey_mesh_assets for select to authenticated
   using (tenant_id=(select (auth.jwt()->>'tenant_id')::uuid));
 revoke insert,update,delete on honey_mesh_assets from anon,authenticated;
-revoke all on function honey_mesh_coverage(uuid) from public,anon,authenticated;
 
 create or replace function honey_mesh_coverage(p_tenant uuid)
 returns jsonb language sql stable security definer set search_path=public as $$
