@@ -135,7 +135,7 @@ class AIEnvelopeIssuer:
             raise EnvelopeIssuanceDenied("provider binding has no valid binding hash")
 
         digest = _canonical_hash(envelope)
-        signature = await sign_digest(digest)
+        signature = await sign_digest(digest, purpose="AI_ENVELOPE")
         return AgentEnvelope(
             envelope_id=envelope.envelope_id,
             tenant_id=envelope.tenant_id,
