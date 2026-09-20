@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from datetime import datetime
+import hashlib
+import json
 import hmac
 import os
 
@@ -149,7 +151,6 @@ async def activate_trust_authority(
     try:
         private_key = Ed25519PrivateKey.from_private_bytes(bytes.fromhex(private_hex))
         public_key = private_key.public_key().public_bytes_raw().hex()
-        verification_hash = hashlib.sha256(bytes.fromhex(public_key)).hexdigest()
     except (ValueError, TypeError):
         raise HTTPException(503, "trust_authority_key_invalid")
 
@@ -165,7 +166,7 @@ async def activate_trust_authority(
 
         ceremonies = await supabase.select(
             "trust_public_key_ceremonies",
-            "id,key_id,purpose,status,expires_at",
+            "id,key_id,purpose,status,expires_at,challenge_hash",
             key_id=key_id,
             purpose="TRUST_AUTHORITY",
             status="ISSUED",
@@ -184,15 +185,23 @@ async def activate_trust_authority(
             )
 
         ceremony_id = ceremony.get("id") if isinstance(ceremony, dict) else ceremony.get("ceremony_id")
-        if not ceremony_id:
+        challenge_hash = ceremony.get("challenge_hash") if isinstance(ceremony, dict) else None
+        if not ceremony_id or not challenge_hash:
             raise HTTPException(503, "trust_ceremony_issue_failed")
+
+        try:
+            challenge = bytes.fromhex(challenge_hash)
+            possession_signature = private_key.sign(challenge)
+            private_key.public_key().verify(possession_signature, challenge)
+        except (ValueError, TypeError):
+            raise HTTPException(503, "trust_authority_possession_proof_failed")
 
         activated = await supabase.rpc(
             "trust_activate_public_key_ceremony",
             {
                 "p_ceremony_id": ceremony_id,
                 "p_public_key": public_key,
-                "p_verification_hash": verification_hash,
+                "p_verification_hash": challenge_hash,
             },
         )
         if activated != key_id:
@@ -341,9 +350,35 @@ async def cryptographic_verify_certificate(
     if not cryptographic_verified:
         reasons.extend(name + "_verification_failed" for name, passed in checks.items() if not passed)
 
+    reasons = sorted(set(reasons))
+    verification_material = json.dumps(
+        {
+            "certificate_id": certificate_id,
+            "checks": checks,
+            "reasons": reasons,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    verification_hash = hashlib.sha256(verification_material).hexdigest()
+    try:
+        await supabase.rpc(
+            "trust_record_certificate_cryptographic_verification",
+            {
+                "p_tenant_id": principal.tenant_id,
+                "p_certificate_id": certificate_id,
+                "p_verified": cryptographic_verified,
+                "p_verification_hash": verification_hash,
+                "p_reason": ";".join(reasons) if reasons else None,
+            },
+        )
+    except Exception as exc:
+        raise HTTPException(503, "trust_verification_recording_failed") from exc
+
     return {
         "certificate_id": certificate_id,
         "cryptographic_verified": cryptographic_verified,
         "checks": checks,
-        "reasons": sorted(set(reasons)),
+        "reasons": reasons,
+        "verification_hash": verification_hash,
     }
