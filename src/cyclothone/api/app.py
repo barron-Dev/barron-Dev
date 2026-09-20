@@ -51,6 +51,7 @@ from cyclothone.darkweb.scheduler import DarkWebScheduler
 from cyclothone.brand.scheduler import BrandScheduler
 from cyclothone.federation.scheduler import FederationScheduler
 from cyclothone.physical.scheduler import PhysicalScheduler
+from cyclothone.intel.scheduler import ThreatIntelScheduler
 from cyclothone.routing.region_router import current_region_code,enforce_device_region,region_cache
 from cyclothone.web.scheduler import WebIntelligenceScheduler
 from cyclothone.trust.scheduler import TrustReevaluationScheduler
@@ -59,12 +60,12 @@ from cyclothone.trust.scheduler import TrustReevaluationScheduler
 async def lifespan(application:FastAPI):
     region=current_region_code();await region_cache.load(force=True)
     if region_cache.get(region) is None:raise RuntimeError(f'CYCLOTHONE_REGION {region!r} is not present in the active region registry')
-    compliance_scheduler=ComplianceScheduler();darkweb_scheduler=DarkWebScheduler();web_intelligence_scheduler=WebIntelligenceScheduler();brand_scheduler=BrandScheduler();federation_scheduler=FederationScheduler();physical_scheduler=PhysicalScheduler();trust_scheduler=TrustReevaluationScheduler()
-    compliance_scheduler.start();darkweb_scheduler.start();web_intelligence_scheduler.start();brand_scheduler.start();federation_scheduler.start();physical_scheduler.start();trust_scheduler.start()
-    application.state.compliance_scheduler=compliance_scheduler;application.state.darkweb_scheduler=darkweb_scheduler;application.state.web_intelligence_scheduler=web_intelligence_scheduler;application.state.brand_scheduler=brand_scheduler;application.state.federation_scheduler=federation_scheduler;application.state.physical_scheduler=physical_scheduler;application.state.trust_scheduler=trust_scheduler
+    compliance_scheduler=ComplianceScheduler();darkweb_scheduler=DarkWebScheduler();web_intelligence_scheduler=WebIntelligenceScheduler();brand_scheduler=BrandScheduler();federation_scheduler=FederationScheduler();physical_scheduler=PhysicalScheduler();intel_scheduler=ThreatIntelScheduler();trust_scheduler=TrustReevaluationScheduler()
+    compliance_scheduler.start();darkweb_scheduler.start();web_intelligence_scheduler.start();brand_scheduler.start();federation_scheduler.start();physical_scheduler.start();intel_scheduler.start();trust_scheduler.start()
+    application.state.compliance_scheduler=compliance_scheduler;application.state.darkweb_scheduler=darkweb_scheduler;application.state.web_intelligence_scheduler=web_intelligence_scheduler;application.state.brand_scheduler=brand_scheduler;application.state.federation_scheduler=federation_scheduler;application.state.physical_scheduler=physical_scheduler;application.state.intel_scheduler=intel_scheduler;application.state.trust_scheduler=trust_scheduler
     try:yield
     finally:
-        await trust_scheduler.stop();await physical_scheduler.stop();await federation_scheduler.stop();await brand_scheduler.stop();await web_intelligence_scheduler.stop();await darkweb_scheduler.stop();await compliance_scheduler.stop()
+        await trust_scheduler.stop();await physical_scheduler.stop();await intel_scheduler.stop();await federation_scheduler.stop();await brand_scheduler.stop();await web_intelligence_scheduler.stop();await darkweb_scheduler.stop();await compliance_scheduler.stop()
 
 def create_app()->FastAPI:
     application=FastAPI(title='Cyclothone API',version='0.1.0',lifespan=lifespan)
