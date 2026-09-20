@@ -1,7 +1,7 @@
 """Cyclothone Trust v1 verification SDK.
 
 Performs independent Ed25519 verification of public Trust certificates and
-supports separately discovered Cyclothone JWKS keys.
+uses the public Cyclothone authority JWKS for authority endorsement.
 """
 
 from __future__ import annotations
@@ -75,10 +75,8 @@ def verify_certificate_response(response: Mapping[str, Any]) -> dict[str, Any]:
     pk = response.get("proof_key")
     ak = response.get("attestation_key")
 
-    cert_ok = (
-        _key_current(ck)
-        and bool(certificate.get("payload_hash"))
-        and verify_signature(ck["public_key"], certificate.get("signature", ""), certificate["payload_hash"])
+    cert_ok = _key_current(ck) and verify_signature(
+        ck["public_key"], certificate.get("signature", ""), certificate.get("payload_hash", "")
     )
     authority_ok = (
         _key_current(authority_key)
@@ -99,11 +97,7 @@ def verify_certificate_response(response: Mapping[str, Any]) -> dict[str, Any]:
         att_ok = (
             _key_current(ak)
             and attestation.get("signature_algorithm") == "ED25519"
-            and verify_signature(
-                ak["public_key"],
-                attestation.get("signature", ""),
-                attestation.get("signed_payload_hash", ""),
-            )
+            and verify_signature(ak["public_key"], attestation.get("signature", ""), attestation.get("signed_payload_hash", ""))
         )
 
     if not cert_ok:
@@ -121,10 +115,10 @@ def verify_certificate_response(response: Mapping[str, Any]) -> dict[str, Any]:
 
     return {
         "verified": bool(cert_ok and authority_ok and proof_ok and att_ok and current and response.get("chain_verified")),
-        "certificate_signature_verified": bool(cert_ok),
-        "authority_signature_verified": bool(authority_ok),
-        "proof_signature_verified": bool(proof_ok),
-        "attestation_signature_verified": bool(att_ok),
+        "certificate_signature_verified": cert_ok,
+        "authority_signature_verified": authority_ok,
+        "proof_signature_verified": proof_ok,
+        "attestation_signature_verified": att_ok,
         "chain_verified": bool(response.get("chain_verified")),
         "verification_hash": response.get("verification_hash"),
         "reasons": reasons,
@@ -132,7 +126,7 @@ def verify_certificate_response(response: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def verify_jwks(jwks: Mapping[str, Any]) -> dict[str, Any]:
-    """Validate a Cyclothone JWKS response without trusting remote status fields."""
+    """Validate a Cyclothone authority JWKS response."""
     keys = jwks.get("keys") or []
     valid: dict[str, Mapping[str, Any]] = {}
     reasons: list[str] = []
@@ -169,10 +163,12 @@ def verify_certificate_response_with_jwks(
     response: Mapping[str, Any],
     jwks: Mapping[str, Any],
 ) -> dict[str, Any]:
-    """Verify a certificate using separately discovered JWKS keys.
+    """Verify a Trust certificate with separately discovered Cyclothone authority keys.
 
-    Embedded public keys are ignored. Key IDs must resolve in the supplied
-    JWKS, including retired-but-still-valid keys.
+    The authority endorsement MUST resolve by key ID in the supplied JWKS.
+    Tenant-bound certificate/proof/attestation keys are verified from the
+    certificate response because they are scoped signing material rather than
+    globally published Cyclothone authority keys.
     """
     discovered = verify_jwks(jwks)
     keys = discovered["valid"]
@@ -181,50 +177,49 @@ def verify_certificate_response_with_jwks(
     certificate = response.get("certificate") or {}
     proof = response.get("proof") or {}
     attestation = response.get("attestation")
+    ck = response.get("certificate_key")
+    authority_ref = response.get("authority_key") or {}
+    pk = response.get("proof_key")
+    ak = response.get("attestation_key")
 
-    def resolved_public(key_ref: Mapping[str, Any] | None) -> str | None:
-        if not key_ref:
-            return None
-        discovered_key = keys.get(str(key_ref.get("key_id", "")))
-        if not discovered_key:
-            return None
-        return _jwks_public_key(discovered_key)
+    authority_discovered = keys.get(str(authority_ref.get("key_id", "")))
+    authority_public_key = _jwks_public_key(authority_discovered) if authority_discovered else None
 
-    cert_key = resolved_public(response.get("certificate_key"))
-    authority_key = resolved_public(response.get("authority_key"))
-    proof_key = resolved_public(response.get("proof_key"))
-    attestation_key = resolved_public(response.get("attestation_key"))
-
-    cert_ok = bool(cert_key) and verify_signature(cert_key, certificate.get("signature", ""), certificate.get("payload_hash", ""))
+    cert_ok = _key_current(ck) and verify_signature(
+        ck["public_key"], certificate.get("signature", ""), certificate.get("payload_hash", "")
+    )
     authority_ok = (
-        bool(authority_key)
+        bool(authority_public_key)
         and certificate.get("authority_signed_payload_hash") == certificate.get("payload_hash")
-        and verify_signature(authority_key, certificate.get("authority_signature", ""), certificate.get("authority_signed_payload_hash", ""))
+        and verify_signature(
+            authority_public_key,
+            certificate.get("authority_signature", ""),
+            certificate.get("authority_signed_payload_hash", ""),
+        )
     )
     proof_ok = (
-        bool(proof_key)
+        _key_current(pk)
         and proof.get("signed_payload_hash") == proof.get("proof_hash")
-        and verify_signature(proof_key, proof.get("signature", ""), proof.get("proof_hash", ""))
+        and verify_signature(pk["public_key"], proof.get("signature", ""), proof.get("proof_hash", ""))
     )
     att_ok = attestation is None
     if attestation:
         att_ok = (
-            bool(attestation_key)
+            _key_current(ak)
+            and attestation.get("signature_algorithm") == "ED25519"
             and verify_signature(
-                attestation_key,
-                attestation.get("signature", ""),
-                attestation.get("signed_payload_hash", ""),
+                ak["public_key"], attestation.get("signature", ""), attestation.get("signed_payload_hash", "")
             )
         )
 
     if not cert_ok:
-        reasons.append("certificate_jwks_signature_invalid")
+        reasons.append("certificate_signature_invalid")
     if not authority_ok:
         reasons.append("authority_jwks_signature_invalid")
     if not proof_ok:
-        reasons.append("proof_jwks_signature_invalid")
+        reasons.append("proof_signature_invalid")
     if not att_ok:
-        reasons.append("attestation_jwks_signature_invalid")
+        reasons.append("attestation_signature_invalid")
 
     current = _certificate_current(certificate)
     if not current:
