@@ -109,7 +109,7 @@ async def complete_public_key_ceremony(
         "trust_activate_public_key_ceremony",
         {
             "p_ceremony_id": request.ceremony_id,
-            "p_public_key": request.public_key,
+            "p_public_key": public_key_bytes.hex(),
             "p_verification_hash": verification_hash,
         },
     )
