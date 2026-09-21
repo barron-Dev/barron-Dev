@@ -3,14 +3,10 @@ import { C } from "@/lib/design/tokens";
 import { Panel } from "@/components/design/Panel";
 
 const authority = [
-  ["Agents", "/kontrol/agents", "AI workload identities"],
-  ["Models", "/kontrol/models", "Model registry"],
-  ["Providers", "/kontrol/providers", "Provider bindings"],
-  ["Missions", "/kontrol/missions", "Hash-bound plans"],
-  ["Tools", "/kontrol/tools", "Tool authority"],
-  ["Runs", "/kontrol/runs", "Execution records"],
-  ["Budgets", "/kontrol/budgets", "Reservations and settlement"],
-  ["Audit", "/kontrol/audit", "Authority audit"],
+  ["AI Security", "/convergence/ai", "Canonical AI execution runtime"],
+  ["Response", "/response", "Controlled execution and approvals"],
+  ["Developer", "/platform/developer", "Applications and credentials"],
+  ["Compliance", "/assurance/compliance", "Assurance evidence"],
 ];
 
 const operations = [
@@ -80,7 +76,7 @@ export default function Kontrol() {
               <Panel>
                 <div className="type-h2">AI authority</div>
                 <div className="mt-4 space-y-2">
-                  {authority.slice(0, 6).map(([name, href, description]) => (
+                  {authority.map(([name, href, description]) => (
                     <Link key={name} href={href} className="flex items-center justify-between border-b border-[#1a2330] py-2 text-xs">
                       <span>{name}</span><span className="text-[10px] text-[#5a6675]">{description} →</span>
                     </Link>
