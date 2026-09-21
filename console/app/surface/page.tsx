@@ -1,13 +1,16 @@
-import Link from "next/link";
 import { ParticleField } from "@/components/surface/ParticleField";
 import { Panel } from "@/components/design/Panel";
 import { C } from "@/lib/design/tokens";
 
+const CUSTOMER = "https://customers.cyclothone.online";
+const DEVELOPERS = "https://developers.cyclothone.online";
+const KONTROL = "https://kontrol-plane.cyclothone.online";
+
 const layers = [
-  ["Surface", "cyclothone.online", "Marketing", C.surfaceAccent, "/"],
-  ["Twilight", "Customer workspace", "Tenant operations", C.customerAccent, "/customer/overview"],
-  ["Midnight", "Developer platform", "APIs and AI execution", C.developerAccent, "/developers"],
-  ["Abyss", "Control plane", "Execution authority", C.kontrolAccent, "/kontrol"],
+  ["Surface", "cyclothone.online", "Public platform", C.surfaceAccent, "/"],
+  ["Customer", "customers.cyclothone.online", "Tenant operations", C.customerAccent, CUSTOMER + "/customer/overview"],
+  ["Developer", "developers.cyclothone.online", "APIs and integration", C.developerAccent, DEVELOPERS],
+  ["Kontrol", "kontrol-plane.cyclothone.online", "Execution authority", C.kontrolAccent, KONTROL],
 ] as const;
 
 const caps = [
@@ -30,18 +33,18 @@ export default function Surface() {
   return (
     <main className="min-h-screen bg-[#05070a]">
       <nav className="flex h-14 items-center justify-between border-b border-[#1a2330] px-8">
-        <Link href="/" className="type-h2">Cyclothone</Link>
+        <a href="/" className="type-h2">Cyclothone</a>
         <div className="hidden gap-6 md:flex type-code text-[#8a97a8]">
           <a href="#platform">Platform</a>
           <a href="#architecture">Architecture</a>
           <a href="#security">Security</a>
-          <a href="#pricing">Pricing</a>
-          <Link href="/developers">Docs</Link>
-          <Link href="/login">Sign in</Link>
+          <a href="#pricing">Access</a>
+          <a href={DEVELOPERS}>Docs</a>
+          <a href={CUSTOMER + "/login"}>Sign in</a>
         </div>
-        <Link href="/kontrol" className="border border-[#00d9ff] px-4 py-2 type-code text-[#00d9ff]">
-          Open Console →
-        </Link>
+        <a href={CUSTOMER} className="border border-[#00d9ff] px-4 py-2 type-code text-[#00d9ff]">
+          Customer workspace →
+        </a>
       </nav>
 
       <section className="relative flex min-h-[78vh] items-center overflow-hidden border-b border-[#1a2330] px-8 md:px-24">
@@ -55,27 +58,33 @@ export default function Surface() {
           <p className="type-body mt-6 max-w-xl text-[#8a97a8]">
             Signed envelopes. Durable runs. Fail-closed governance. One substrate.
           </p>
-          <div className="mt-10 flex gap-3">
+          <div className="mt-10 flex flex-wrap gap-3">
             <a href="#architecture" className="border border-[#00d9ff] px-5 py-2.5 type-code text-[#00d9ff]">
               Read the architecture
             </a>
-            <Link href="/kontrol" className="border border-[#2a3646] px-5 py-2.5 type-code">
-              See the console →
-            </Link>
+            <a href={CUSTOMER} className="border border-[#2a3646] px-5 py-2.5 type-code">
+              Customer workspace →
+            </a>
+            <a href={DEVELOPERS} className="border border-[#2a3646] px-5 py-2.5 type-code">
+              Developer platform →
+            </a>
+            <a href={KONTROL} className="border border-[#2a3646] px-5 py-2.5 type-code">
+              Control plane →
+            </a>
           </div>
         </div>
       </section>
 
       <section id="architecture" className="px-8 py-16 md:px-24">
-        <div className="type-label mb-6">── Depth ─────────────────────────</div>
+        <div className="type-label mb-6">── Platform surfaces ─────────────────</div>
         <div className="grid gap-px bg-[#1a2330] md:grid-cols-4">
           {layers.map(([name, title, description, accent, href]) => (
-            <Link key={name} href={href} className="bg-[#0a0e14] p-6 transition hover:bg-[#0f1620]">
+            <a key={name} href={href} className="bg-[#0a0e14] p-6 transition hover:bg-[#0f1620]">
               <div className="type-label" style={{ color: accent }}>{name}</div>
               <div className="type-h2 mt-3">{title}</div>
               <div className="type-body mt-1 text-[#5a6675]">{description}</div>
-              <div className="mt-5 type-code" style={{ color: accent }}>Open layer →</div>
-            </Link>
+              <div className="mt-5 type-code" style={{ color: accent }}>Open surface →</div>
+            </a>
           ))}
         </div>
       </section>
@@ -112,26 +121,29 @@ export default function Surface() {
 
       <section id="pricing" className="border-t border-[#1a2330] px-8 py-20 md:px-24">
         <div className="type-label text-[#ffb347]">── Access ───────────────────────</div>
-        <h2 className="type-display mt-3 text-4xl">Start with the control surface.</h2>
+        <h2 className="type-display mt-3 text-4xl">Start with the right surface.</h2>
         <p className="type-body mt-5 max-w-2xl text-[#8a97a8]">
-          Production access is provisioned according to the service, organization, and trust requirements of the deployment.
+          Customer, developer, and control-plane access remain separate. Production access is provisioned according to the service, organization, and trust requirements of the deployment.
         </p>
         <div className="mt-8 flex flex-wrap gap-3">
-          <Link href="/register" className="border border-[#00d9ff] px-5 py-2.5 type-code text-[#00d9ff]">
-            Create account
-          </Link>
-          <Link href="/request-service" className="border border-[#2a3646] px-5 py-2.5 type-code">
+          <a href={CUSTOMER + "/register"} className="border border-[#00d9ff] px-5 py-2.5 type-code text-[#00d9ff]">
+            Create customer account
+          </a>
+          <a href={CUSTOMER + "/request-service"} className="border border-[#2a3646] px-5 py-2.5 type-code">
             Request a service
-          </Link>
+          </a>
+          <a href={DEVELOPERS} className="border border-[#2a3646] px-5 py-2.5 type-code">
+            Developer access
+          </a>
         </div>
       </section>
 
       <footer className="border-t border-[#1a2330] px-8 py-8 md:px-24">
         <div className="flex flex-wrap gap-6 type-code text-[#5a6675]">
-          <Link href="/customer/overview">Customer workspace</Link>
-          <Link href="/developers">Developer docs</Link>
-          <Link href="/kontrol">Control plane</Link>
-          <Link href="/login">Sign in</Link>
+          <a href={CUSTOMER}>Customer workspace</a>
+          <a href={DEVELOPERS}>Developer platform</a>
+          <a href={KONTROL}>Control plane</a>
+          <a href={CUSTOMER + "/login"}>Sign in</a>
         </div>
       </footer>
     </main>
