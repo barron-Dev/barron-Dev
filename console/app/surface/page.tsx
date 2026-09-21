@@ -4,13 +4,11 @@ import { C } from "@/lib/design/tokens";
 
 const CUSTOMER = "https://customers.cyclothone.online";
 const DEVELOPERS = "https://developers.cyclothone.online";
-const KONTROL = "https://kontrol-plane.cyclothone.online";
 
 const layers = [
   ["Surface", "cyclothone.online", "Public platform", C.surfaceAccent, "/"],
   ["Customer", "customers.cyclothone.online", "Tenant operations", C.customerAccent, CUSTOMER],
   ["Developer", "developers.cyclothone.online", "APIs and integration", C.developerAccent, DEVELOPERS],
-  ["Kontrol", "kontrol-plane.cyclothone.online", "Execution authority", C.kontrolAccent, KONTROL],
 ] as const;
 
 const caps = [
@@ -68,16 +66,13 @@ export default function Surface() {
             <a href={DEVELOPERS} className="border border-[#2a3646] px-5 py-2.5 type-code">
               Developer platform →
             </a>
-            <a href={KONTROL} className="border border-[#2a3646] px-5 py-2.5 type-code">
-              Control plane →
-            </a>
           </div>
         </div>
       </section>
 
       <section id="architecture" className="px-8 py-16 md:px-24">
         <div className="type-label mb-6">── Platform surfaces ─────────────────</div>
-        <div className="grid gap-px bg-[#1a2330] md:grid-cols-4">
+        <div className="grid gap-px bg-[#1a2330] md:grid-cols-3">
           {layers.map(([name, title, description, accent, href]) => (
             <a key={name} href={href} className="bg-[#0a0e14] p-6 transition hover:bg-[#0f1620]">
               <div className="type-label" style={{ color: accent }}>{name}</div>
@@ -123,7 +118,7 @@ export default function Surface() {
         <div className="type-label text-[#ffb347]">── Access ───────────────────────</div>
         <h2 className="type-display mt-3 text-4xl">Start with the right surface.</h2>
         <p className="type-body mt-5 max-w-2xl text-[#8a97a8]">
-          Customer, developer, and control-plane access remain separate. Production access is provisioned according to the service, organization, and trust requirements of the deployment.
+          Customer and developer access remain separate. Production access is provisioned according to the service, organization, and trust requirements of the deployment.
         </p>
         <div className="mt-8 flex flex-wrap gap-3">
           <a href={CUSTOMER + "/register"} className="border border-[#00d9ff] px-5 py-2.5 type-code text-[#00d9ff]">
@@ -142,7 +137,6 @@ export default function Surface() {
         <div className="flex flex-wrap gap-6 type-code text-[#5a6675]">
           <a href={CUSTOMER}>Customer workspace</a>
           <a href={DEVELOPERS}>Developer platform</a>
-          <a href={KONTROL}>Control plane</a>
           <a href={CUSTOMER + "/login"}>Sign in</a>
         </div>
       </footer>
