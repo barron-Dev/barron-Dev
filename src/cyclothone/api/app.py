@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+import os
 from fastapi import Depends, FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from cyclothone.api.routes.agent_events import router as agent_events_router
 from cyclothone.api.routes.agent_commands import router as agent_commands_router
 from cyclothone.api.routes.agent_enrollment import router as agent_enrollment_router
@@ -67,6 +69,15 @@ async def lifespan(application:FastAPI):
 
 def create_app()->FastAPI:
     application=FastAPI(title='Cyclothone API',version='0.1.0',lifespan=lifespan)
+    configured_origins = os.getenv('CORS_ALLOWED_ORIGINS', 'https://cyclothone.online,https://www.cyclothone.online,http://localhost:3000').split(',')
+    allow_origins = [origin.strip() for origin in configured_origins if origin.strip()]
+    application.add_middleware(
+        CORSMiddleware,
+        allow_origins=allow_origins,
+        allow_credentials=True,
+        allow_methods=['GET','POST','PUT','PATCH','DELETE','OPTIONS'],
+        allow_headers=['Authorization','Content-Type','Accept','Origin','X-Requested-With'],
+    )
     @application.get('/health',include_in_schema=False)
     async def health():
         return {'status':'ok'}
