@@ -69,7 +69,7 @@ async def lifespan(application:FastAPI):
 
 def create_app()->FastAPI:
     application=FastAPI(title='Cyclothone API',version='0.1.0',lifespan=lifespan)
-    configured_origins = os.getenv('CORS_ALLOWED_ORIGINS', 'https://cyclothone.online,https://www.cyclothone.online,http://localhost:3000').split(',')
+    configured_origins = os.getenv('CORS_ALLOWED_ORIGINS', 'https://cyclothone.online,https://www.cyclothone.online,https://customers.cyclothone.online,https://developers.cyclothone.online,http://localhost:3000').split(',')
     allow_origins = [origin.strip() for origin in configured_origins if origin.strip()]
     application.add_middleware(
         CORSMiddleware,
