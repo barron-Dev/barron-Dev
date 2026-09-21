@@ -8,7 +8,7 @@ const KONTROL = "https://kontrol-plane.cyclothone.online";
 
 const layers = [
   ["Surface", "cyclothone.online", "Public platform", C.surfaceAccent, "/"],
-  ["Customer", "customers.cyclothone.online", "Tenant operations", C.customerAccent, CUSTOMER + "/customer/overview"],
+  ["Customer", "customers.cyclothone.online", "Tenant operations", C.customerAccent, CUSTOMER],
   ["Developer", "developers.cyclothone.online", "APIs and integration", C.developerAccent, DEVELOPERS],
   ["Kontrol", "kontrol-plane.cyclothone.online", "Execution authority", C.kontrolAccent, KONTROL],
 ] as const;
