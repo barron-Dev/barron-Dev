@@ -1,5 +1,5 @@
 from __future__ import annotations
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, Field
 from datetime import UTC, datetime, timedelta
 import hashlib
@@ -10,8 +10,37 @@ from cyclothone.storage.supabase_client import supabase
 
 router=APIRouter(tags=["customer-identity"])
 
-def principal(p: DeveloperPrincipal=Depends(authenticate_request))->DeveloperPrincipal:
-    p.require(("console:read",)); return p
+async def principal(authorization: str | None = Header(None)) -> DeveloperPrincipal:
+    """Authenticate developer credentials or a Supabase customer session."""
+    if not authorization:
+        raise HTTPException(401, detail="authentication_required", headers={"WWW-Authenticate": "Bearer"})
+    scheme, _, token = authorization.partition(" ")
+    if scheme.lower() != "bearer" or not token.strip():
+        raise HTTPException(401, detail="invalid_bearer_token", headers={"WWW-Authenticate": "Bearer"})
+    raw = token.strip()
+    try:
+        developer = await authenticate_request(authorization=authorization, x_api_key=None)
+        developer.require(("console:read",))
+        return developer
+    except HTTPException as exc:
+        if exc.status_code not in {401, 403}: raise
+    try:
+        auth_result = await (await supabase._ensure()).auth.get_user(raw)
+        user = getattr(auth_result, "user", None)
+        user_id = str(getattr(user, "id", "") or "")
+    except Exception as exc:
+        raise HTTPException(401, detail="invalid_customer_session", headers={"WWW-Authenticate": "Bearer"}) from exc
+    if not user_id:
+        raise HTTPException(401, detail="invalid_customer_session", headers={"WWW-Authenticate": "Bearer"})
+    orgs = await supabase.select("customer_organizations", "id,tenant_id", owner_user_id=user_id)
+    if not orgs:
+        memberships = await supabase.select("organization_members", "organization_id", user_id=user_id, status="active")
+        orgs = []
+        for membership in memberships:
+            org = await supabase.select_one("customer_organizations", "id,tenant_id", id=str(membership["organization_id"]))
+            if org: orgs.append(org)
+    tenant_id = next((str(row["tenant_id"]) for row in orgs if row.get("tenant_id")), "")
+    return DeveloperPrincipal(tenant_id, f"customer:{user_id}", user_id, frozenset({"console:read"}), "customer")
 
 def operator_principal(p: DeveloperPrincipal=Depends(authenticate_request))->DeveloperPrincipal:
     p.require(("console:read",))
@@ -321,7 +350,7 @@ async def organizations(p:DeveloperPrincipal=Depends(principal)):
 async def create_organization(body:OrgRequest,p:DeveloperPrincipal=Depends(principal)):
     if body.organization_type not in {"company","government","security_provider","developer","client","partner","individual"}: raise HTTPException(400,detail="invalid organization type")
     if not p.user_id: raise HTTPException(403,detail="user_identity_required")
-    row=await supabase.insert_one("customer_organizations",{"owner_user_id":p.user_id,"tenant_id":p.tenant_id,"organization_type":body.organization_type,"legal_name":body.legal_name.strip(),"country_code":body.country_code,"website_domain":body.website_domain,"registration_number":body.registration_number,"verification_status":"pending"})
+    row=await supabase.insert_one("customer_organizations",{"owner_user_id":p.user_id,"tenant_id":p.tenant_id or None,"organization_type":body.organization_type,"legal_name":body.legal_name.strip(),"country_code":body.country_code,"website_domain":body.website_domain,"registration_number":body.registration_number,"verification_status":"pending"})
     return row
 
 
@@ -348,7 +377,7 @@ async def submit_verification(organization_id: str, body: VerificationRequest, p
 
 @router.get("/customer/service-requests")
 async def service_requests(p:DeveloperPrincipal=Depends(principal)):
-    orgs=await supabase.select("customer_organizations","id",owner_user_id=p.user_id,tenant_id=p.tenant_id)
+    orgs=await supabase.select("customer_organizations","id",owner_user_id=p.user_id)
     org_ids=[r["id"] for r in orgs]
     rows=[]
     for org_id in org_ids:
