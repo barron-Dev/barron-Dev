@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { KnowledgeAssistantShell } from "../lib/knowledge/KnowledgeAssistantShell";
+import { ApiAuthPrompt } from "../components/ApiAuthPrompt";
 
 export const metadata: Metadata = {
   title: "Cyclothone",
@@ -13,6 +14,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
       <body>
         {children}
         <KnowledgeAssistantShell />
+        <ApiAuthPrompt />
       </body>
     </html>
   );
