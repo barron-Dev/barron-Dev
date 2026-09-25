@@ -51,7 +51,7 @@ function DataView({ data }: { data: unknown }) {
       const rows = items.filter((x): x is Row => !!x && typeof x === "object" && !Array.isArray(x));
       return (
         <div className="space-y-4">
-          {"pagination" in object && object.pagination && <PaginationSummary value={object.pagination} />}
+          {"pagination" in object && object.pagination ? <PaginationSummary value={object.pagination} /> : null}
           {rows.length ? <RowTable rows={rows} /> : <EmptyState />}
         </div>
       );
