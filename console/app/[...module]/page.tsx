@@ -11,6 +11,7 @@ type Row = Record<string, unknown>;
 const modules: Record<string, ModuleDef> = {
   detection: { title: "Detection", section: "OPERATIONS", endpoint: "/api/v1/console/threats?limit=50&offset=0&sort=created_at&direction=desc" },
   response: { title: "Response", section: "OPERATIONS", endpoint: "/api/v1/console/response/runs" },
+  "intelligence/threat-intel": { title: "Threat Intelligence", section: "INTELLIGENCE", endpoint: "/api/v1/intelligence/indicators?limit=50&offset=0" },
   "intelligence/web": { title: "Web Intel", section: "INTELLIGENCE", endpoint: "/api/v1/web-intel/targets" },
   "intelligence/scam": { title: "Scam", section: "INTELLIGENCE", endpoint: "/api/v1/intelligence/scam" },
   "intelligence/dark-web": { title: "Dark Web", section: "INTELLIGENCE", endpoint: "/api/v1/darkweb/stats" },
