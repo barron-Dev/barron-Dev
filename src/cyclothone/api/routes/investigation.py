@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from datetime import datetime
 from typing import Any
 from uuid import UUID
@@ -23,10 +22,13 @@ class InvestigationRequestBody(BaseModel):
 
 
 class EvidenceBody(BaseModel):
+    operation_id: UUID
     evidence_type: str
     sha256: str = Field(min_length=64, max_length=64)
     object_ref: str = Field(min_length=1)
+    observed_at: datetime
     collected_at: datetime
+    collector: str = Field(min_length=1, max_length=160)
     metadata: dict[str, object] = Field(default_factory=dict)
 
 
@@ -43,6 +45,27 @@ def _principal_uuid(principal: DeveloperPrincipal) -> UUID | None:
         return UUID(principal.app_id)
     except ValueError:
         return None
+
+
+@router.get("")
+async def list_investigations(
+    principal: DeveloperPrincipal = Depends(authenticate_request),
+) -> dict[str, Any]:
+    _require(principal, "investigation:read")
+    rows = await _control_plane.list_sessions(UUID(principal.tenant_id))
+    return {"items": rows, "total": len(rows)}
+
+
+@router.get("/{session_id}")
+async def get_investigation(
+    session_id: UUID,
+    principal: DeveloperPrincipal = Depends(authenticate_request),
+) -> dict[str, Any]:
+    _require(principal, "investigation:read")
+    result = await _control_plane.get_session_detail(session_id, UUID(principal.tenant_id))
+    if result is None:
+        raise HTTPException(404, {"error": "investigation session not found"})
+    return result
 
 
 @router.post("")
@@ -107,10 +130,15 @@ async def record_evidence(
         sha256=body.sha256.lower(),
         object_ref=body.object_ref,
         collected_at=body.collected_at,
-        metadata=body.metadata,
+        metadata={**body.metadata, "operation_id": str(body.operation_id), "collector": body.collector, "observed_at": body.observed_at.isoformat()},
     )
     try:
-        return await _control_plane.record_evidence(evidence)
+        return await _control_plane.record_evidence(
+            evidence,
+            operation_id=body.operation_id,
+            collector=body.collector,
+            observed_at=body.observed_at,
+        )
     except LookupError as exc:
         raise HTTPException(404, {"error": str(exc)}) from exc
     except ValueError as exc:
