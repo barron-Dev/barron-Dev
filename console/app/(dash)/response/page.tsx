@@ -41,7 +41,33 @@ export default function Response() {
 
   useEffect(() => { void load(); }, []);
 
-  async function approve(actionId: string) {\n    setBusy(true); setError(""); setMessage("");\n    try { await apiFetch(`/api/v1/console/response/actions/${encodeURIComponent(actionId)}/approve`, { method: "POST" }); setMessage("Action approved and dispatched to the execution path."); await load(); }\n    catch (e) { setError(e instanceof Error ? e.message : "Approval failed"); } finally { setBusy(false); }\n  }\n\n  async function reject(actionId: string) {\n    setBusy(true); setError(""); setMessage("");\n    try { await apiFetch(`/api/v1/console/response/actions/${encodeURIComponent(actionId)}/reject`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reason: "Rejected from response control" }) }); setMessage("Action rejected."); await load(); }\n    catch (e) { setError(e instanceof Error ? e.message : "Rejection failed"); } finally { setBusy(false); }\n  }\n\n  async function run() {
+  async function approve(actionId: string) {
+    setBusy(true); setError(""); setMessage("");
+    try {
+      await apiFetch(`/api/v1/console/response/actions/${encodeURIComponent(actionId)}/approve`, { method: "POST" });
+      setMessage("Action approved and dispatched to the execution path.");
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Approval failed");
+    } finally { setBusy(false); }
+  }
+
+  async function reject(actionId: string) {
+    setBusy(true); setError(""); setMessage("");
+    try {
+      await apiFetch(`/api/v1/console/response/actions/${encodeURIComponent(actionId)}/reject`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason: "Rejected from response control" }),
+      });
+      setMessage("Action rejected.");
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Rejection failed");
+    } finally { setBusy(false); }
+  }
+
+  async function run() {
     setBusy(true);
     setMessage("");
     setError("");
