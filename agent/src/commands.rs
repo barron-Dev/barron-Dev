@@ -22,8 +22,6 @@ pub struct Command {
     pub expires_at: String,
     #[serde(default)]
     pub case_action_id: Option<String>,
-    #[serde(default)]
-    pub execution_context: Value,
 }
 
 #[derive(Debug, Deserialize)]
@@ -158,7 +156,6 @@ fn canonical_payload(c: &Command) -> BTreeMap<String, Value> {
     m.insert("issued_by".into(), c.issued_by.clone().into());
     m.insert("tenant_id".into(), c.tenant_id.clone().into());
     m.insert("case_action_id".into(), c.case_action_id.clone().map(Value::String).unwrap_or(Value::Null));
-    m.insert("execution_context".into(), canonical_value(&c.execution_context));
     m
 }
 
