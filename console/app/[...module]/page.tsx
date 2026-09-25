@@ -124,11 +124,13 @@ export default function ModulePage({ params }: { params: Promise<{ module?: stri
     async function load() {
       setStatus("Loading");
       setError(null);
+      let authenticationRequired = false;
       try {
         const response = await fetch(API + module.endpoint, { headers: authHeaders(), cache: "no-store" });
         const body = await response.text();
         if (!response.ok) {
           if (response.status === 401 || response.status === 403) {
+            authenticationRequired = true;
             if (!cancelled) setStatus("Authentication required");
             throw new Error(response.status === 401 ? "Authentication required" : "Required API scope is missing");
           }
@@ -142,7 +144,7 @@ export default function ModulePage({ params }: { params: Promise<{ module?: stri
       } catch (err) {
         if (!cancelled) {
           setError(err instanceof Error ? err.message : "Unable to load module");
-          if (status !== "Authentication required") setStatus("API error");
+          if (!authenticationRequired) setStatus("API error");
         }
       }
     }
