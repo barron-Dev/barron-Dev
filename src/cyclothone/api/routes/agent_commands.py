@@ -32,7 +32,7 @@ async def poll_commands(limit: int = 10, device: DeviceIdentity = Depends(get_de
     return {"commands": [
         {k: row[k] for k in ("id","tenant_id","device_id","action","args","signature",
                              "signer_kid","issued_by","issued_at","expires_at",
-                             "case_action_id","execution_context")}
+                             "case_action_id")}
         for row in (rows or [])
     ]}
 
