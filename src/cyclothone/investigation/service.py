@@ -108,17 +108,55 @@ class InvestigationControlPlane:
         await self._event(session_id, tenant_id, "completed", {})
         return result
 
-    async def record_evidence(self, evidence: InvestigationEvidence) -> dict[str, Any]:
+    async def list_sessions(self, tenant_id: UUID) -> list[dict[str, Any]]:
+        return await supabase.select(
+            "investigation_sessions",
+            "id,tenant_id,case_id,purpose,authorization_ref,status,provider,provider_session_id,started_at,completed_at,created_at,updated_at",
+            tenant_id=str(tenant_id),
+        )
+
+    async def get_session_detail(self, session_id: UUID, tenant_id: UUID) -> dict[str, Any] | None:
+        session = await self._get(session_id, tenant_id)
+        if session is None:
+            return None
+        evidence = await supabase.select(
+            "investigation_evidence",
+            "id,session_id,operation_id,lab_id,evidence_type,object_path,object_ref,sha256,observed_at,collected_at,collector,metadata,created_at",
+            session_id=str(session_id),
+            tenant_id=str(tenant_id),
+        )
+        events = await supabase.select(
+            "investigation_events",
+            "id,session_id,event_type,event_at,actor,payload",
+            session_id=str(session_id),
+            tenant_id=str(tenant_id),
+        )
+        return {"session": session, "evidence": evidence, "events": events}
+
+    async def record_evidence(self, evidence: InvestigationEvidence, *, operation_id: UUID, collector: str, observed_at: datetime) -> dict[str, Any]:
         session = await self._get(evidence.session_id, evidence.tenant_id)
         if session is None:
             raise LookupError("investigation session not found")
         if session["status"] not in {"running", "completed"}:
             raise ValueError("evidence can only be recorded for an active or completed session")
+        operation = await supabase.select_one(
+            "investigation_operations",
+            "id,tenant_id,case_id,status",
+            id=str(operation_id),
+            tenant_id=str(evidence.tenant_id),
+        )
+        if operation is None:
+            raise LookupError("investigation operation not found")
+        if operation["status"] not in {"running", "completed"}:
+            raise ValueError("evidence can only be attached to a running or completed operation")
         return await supabase.insert_one(
             "investigation_evidence",
             {
                 "tenant_id": str(evidence.tenant_id),
                 "session_id": str(evidence.session_id),
+                "operation_id": str(operation_id),
+                "collector": collector,
+                "observed_at": observed_at.isoformat(),
                 "evidence_type": evidence.evidence_type,
                 "sha256": evidence.sha256.lower(),
                 "object_ref": evidence.object_ref,
