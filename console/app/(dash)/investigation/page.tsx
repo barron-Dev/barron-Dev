@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { apiFetch } from "../../../../lib/api";
-import { ServiceEmpty, ServiceError, ServiceLoading, ServiceSection, ServiceTable } from "../../../../components/ServiceData";
+import { apiFetch } from "../../../lib/api";
+import { ServiceEmpty, ServiceError, ServiceLoading, ServiceSection, ServiceTable } from "../../../components/ServiceData";
 
 type Investigation = {
   id: string;
