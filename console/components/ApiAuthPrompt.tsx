@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { setApiToken } from "../lib/api";
 
 export function ApiAuthPrompt() {
@@ -8,14 +8,21 @@ export function ApiAuthPrompt() {
   const [token, setToken] = useState("");
 
   useEffect(() => {
-    const onRequired = () => setOpen(true);
+    const onRequired = () => {
+      const host = window.location.hostname;
+      if (host === "customers.cyclothone.online" || host === "developers.cyclothone.online") {
+        window.location.assign("/login");
+        return;
+      }
+      setOpen(true);
+    };
     window.addEventListener("cyclothone-auth-required", onRequired);
     return () => window.removeEventListener("cyclothone-auth-required", onRequired);
   }, []);
 
   if (!open) return null;
 
-  function submit(event: FormEvent) {
+  function submit(event: React.FormEvent) {
     event.preventDefault();
     const value = token.trim();
     if (!value) return;
@@ -30,18 +37,8 @@ export function ApiAuthPrompt() {
         <div className="text-[10px] uppercase tracking-[.16em] text-[#00d9ff]">Cyclothone API</div>
         <h2 className="mt-2 text-lg font-semibold">Authentication required</h2>
         <p className="mt-2 text-xs leading-5 text-[#8a97a8]">This internal service requires an access token. The token is kept in this browser session only.</p>
-        <input
-          autoFocus
-          type="password"
-          value={token}
-          onChange={e => setToken(e.target.value)}
-          placeholder="Access token"
-          className="mt-4 h-10 w-full border border-[#2a3646] bg-[#030508] px-3 font-mono text-xs"
-        />
-        <div className="mt-4 flex justify-end gap-2">
-          <button type="button" onClick={() => setOpen(false)} className="h-9 px-4 text-xs text-[#8a97a8]">Cancel</button>
-          <button type="submit" disabled={!token.trim()} className="h-9 border border-[#00d9ff] px-4 text-xs text-[#00d9ff] disabled:opacity-40">Connect</button>
-        </div>
+        <input autoFocus type="password" value={token} onChange={e => setToken(e.target.value)} placeholder="Access token" className="mt-4 h-10 w-full border border-[#2a3646] bg-[#030508] px-3 font-mono text-xs" />
+        <div className="mt-4 flex justify-end gap-2"><button type="button" onClick={() => setOpen(false)} className="h-9 px-4 text-xs text-[#8a97a8]">Cancel</button><button type="submit" disabled={!token.trim()} className="h-9 border border-[#00d9ff] px-4 text-xs text-[#00d9ff] disabled:opacity-40">Connect</button></div>
       </form>
     </div>
   );
