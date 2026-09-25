@@ -20,7 +20,7 @@ impl AgentConfig {
             .context("CYCLOTHONE_API_URL must identify the Cyclothone API")?;
         let state_dir = std::env::var("CYCLOTHONE_STATE_DIR")
             .map(PathBuf::from)
-            .unwrap_or_else(|_| PathBuf::from("./state"));
+            .unwrap_or_else(|_| PathBuf::from(r"C:\ProgramData\Cyclothone"));
         let model_sync_secs = std::env::var("CYCLOTHONE_MODEL_SYNC_SECS")
             .ok().and_then(|value| value.parse::<u64>().ok()).unwrap_or(3600);
         let device_id = std::env::var("CYCLOTHONE_DEVICE_ID").context("CYCLOTHONE_DEVICE_ID must identify the device UUID")?;
