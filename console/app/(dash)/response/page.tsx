@@ -9,6 +9,7 @@ type Row = Record<string, unknown>;
 export default function Response() {
   const [playbooks, setPlaybooks] = useState<Row[]>([]);
   const [runs, setRuns] = useState<Row[]>([]);
+  const [actions, setActions] = useState<Row[]>([]);
   const [caseId, setCaseId] = useState("");
   const [playbook, setPlaybook] = useState("");
   const [dryRun, setDryRun] = useState(true);
@@ -27,6 +28,10 @@ export default function Response() {
       ]);
       setPlaybooks(Array.isArray(p.items) ? p.items : []);
       setRuns(Array.isArray(r.items) ? r.items : []);
+      if (caseId.trim()) {
+        const a = await apiFetch<{ items: Row[] }>(`/api/v1/console/response/cases/${encodeURIComponent(caseId.trim())}/actions`);
+        setActions(Array.isArray(a.items) ? a.items : []);
+      } else setActions([]);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not load response service");
     } finally {
@@ -36,7 +41,7 @@ export default function Response() {
 
   useEffect(() => { void load(); }, []);
 
-  async function run() {
+  async function approve(actionId: string) {\n    setBusy(true); setError(""); setMessage("");\n    try { await apiFetch(`/api/v1/console/response/actions/${encodeURIComponent(actionId)}/approve`, { method: "POST" }); setMessage("Action approved and dispatched to the execution path."); await load(); }\n    catch (e) { setError(e instanceof Error ? e.message : "Approval failed"); } finally { setBusy(false); }\n  }\n\n  async function reject(actionId: string) {\n    setBusy(true); setError(""); setMessage("");\n    try { await apiFetch(`/api/v1/console/response/actions/${encodeURIComponent(actionId)}/reject`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reason: "Rejected from response control" }) }); setMessage("Action rejected."); await load(); }\n    catch (e) { setError(e instanceof Error ? e.message : "Rejection failed"); } finally { setBusy(false); }\n  }\n\n  async function run() {
     setBusy(true);
     setMessage("");
     setError("");
@@ -98,6 +103,17 @@ export default function Response() {
                   { key: "updated_at", label: "Updated" },
                 ]} />
               ) : <ServiceEmpty title="No playbooks" detail="Create or provision a real tenant playbook before running response." />}
+            </ServiceSection>
+            <ServiceSection title="Case actions" count={actions.length}>
+              {actions.length ? <div className="overflow-auto border border-[#1a2330]">
+                <table className="w-full text-left text-[11px]">
+                  <thead className="bg-[#111823] text-[9px] uppercase tracking-[.12em] text-[#5a6675]"><tr><th className="px-3 py-2">Action</th><th className="px-3 py-2">Status</th><th className="px-3 py-2">Device</th><th className="px-3 py-2">Created</th><th className="px-3 py-2">Control</th></tr></thead>
+                  <tbody>{actions.map(x => <tr key={String(x.id)} className="border-t border-[#1a2330]">
+                    <td className="px-3 py-2 font-mono">{String(x.action ?? "—")}</td><td className="px-3 py-2">{String(x.status ?? "—")}</td><td className="px-3 py-2 font-mono">{String(x.device_id ?? "—")}</td><td className="px-3 py-2">{String(x.created_at ?? "—")}</td>
+                    <td className="px-3 py-2">{x.status === "pending_approval" ? <div className="flex gap-2"><button disabled={busy} onClick={() => void approve(String(x.id))} className="border border-[#00e07a] px-2 py-1 text-[#7df0ad] disabled:opacity-40">Approve</button><button disabled={busy} onClick={() => void reject(String(x.id))} className="border border-[#ff2d55] px-2 py-1 text-[#ff6b83] disabled:opacity-40">Reject</button></div> : <span className="text-[#5a6675]">No action</span>}</td>
+                  </tr>)}</tbody>
+                </table>
+              </div> : <ServiceEmpty title="No case actions" detail="Enter a case UUID to inspect its persisted response actions." />}
             </ServiceSection>
             <ServiceSection title="Runs" count={runs.length}>
               <ServiceTable rows={runs} columns={[
