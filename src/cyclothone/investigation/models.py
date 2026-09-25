@@ -6,7 +6,7 @@ from uuid import UUID
 
 
 STATUSES = {"requested", "approved", "running", "completed", "cancelled", "failed"}
-EVIDENCE_TYPES = {"network", "dns", "process", "file", "browser", "screenshot", "indicator", "provider_record", "other"}
+EVIDENCE_TYPES = {"network_capture", "dns_record", "http_transaction", "process_event", "file_artifact", "screenshot", "ioc", "report"}
 
 
 @dataclass(frozen=True, slots=True)
