@@ -181,6 +181,38 @@ async def open_case(alert_id: UUID, principal: DeveloperPrincipal = Depends(auth
     return created[0]
 
 
+
+
+@router.get("/findings")
+async def findings(
+    source_id: str | None = None,
+    severity: str | None = None,
+    limit: int = Query(default=200, ge=1, le=1000),
+    principal: DeveloperPrincipal = Depends(authenticate_request),
+) -> list[dict]:
+    tenant_id = _require(principal, "darkweb:read")
+    async def _do():
+        q = (await supabase._ensure()).table("dw_findings").select(
+            "id,source_id,content_hash,kind,matched_value,context,source_url,source_metadata,severity,first_seen,tenant_id,watchlist_id,web_layer,access_mode,collected_at"
+        ).or_(f"tenant_id.eq.{tenant_id},tenant_id.is.null")
+        if source_id:
+            q = q.eq("source_id", source_id)
+        if severity:
+            q = q.eq("severity", severity)
+        return await q.order("first_seen", desc=True).limit(limit).execute()
+    return list((await supabase._retry(_do, attempts=2)).data or [])
+
+
+@router.get("/sources")
+async def sources(principal: DeveloperPrincipal = Depends(authenticate_request)) -> list[dict]:
+    _require(principal, "darkweb:read")
+    async def _do():
+        return await (await supabase._ensure()).table("dw_sources").select(
+            "id,name,kind,endpoint,enabled,last_pull_at,last_status,poll_interval_seconds,web_layer,access_mode,created_at"
+        ).order("name").execute()
+    return list((await supabase._retry(_do, attempts=2)).data or [])
+
+
 @router.get("/stats")
 async def stats(principal: DeveloperPrincipal = Depends(authenticate_request)) -> dict:
     tenant_id = _require(principal, "darkweb:read")
