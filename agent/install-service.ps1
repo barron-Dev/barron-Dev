@@ -1,16 +1,16 @@
 #Requires -RunAsAdministrator
 [CmdletBinding()]
 param(
-    [string]$BinaryPath = "$env:ProgramFiles\Sentinel\sentinel-agent.exe"
+    [string]$BinaryPath = "$env:ProgramFiles\Cyclothone\cyclothone-agent.exe"
 )
 
 $ErrorActionPreference = 'Stop'
-$serviceName = 'SentinelAgent'
-$displayName = 'Sentinel Agent'
-$description = 'Sentinel endpoint telemetry and local detection agent'
+$serviceName = 'CyclothoneAgent'
+$displayName = 'Cyclothone Agent'
+$description = 'Cyclothone endpoint telemetry and local detection agent'
 
 if (-not (Test-Path -LiteralPath $BinaryPath -PathType Leaf)) {
-    throw "Sentinel agent binary not found: $BinaryPath"
+    throw "Cyclothone agent binary not found: $BinaryPath"
 }
 
 $service = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
@@ -25,11 +25,7 @@ if ($service) {
     Start-Sleep -Milliseconds 500
 }
 
-& sc.exe create $serviceName `
-    binPath= "`"$BinaryPath`" --service" `
-    start= auto `
-    type= own `
-    DisplayName= $displayName | Out-Null
+& sc.exe create $serviceName binPath= "`"$BinaryPath`" --service" start= auto type= own DisplayName= $displayName | Out-Null
 
 if ($LASTEXITCODE -ne 0) {
     throw "Failed to create $serviceName service"
