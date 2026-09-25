@@ -10,6 +10,8 @@ export default function DarkWeb() {
   const [watchlist, setWatchlist] = useState<Row[]>([]);
   const [alerts, setAlerts] = useState<Row[]>([]);
   const [stats, setStats] = useState<Row | null>(null);
+  const [findings, setFindings] = useState<Row[]>([]);
+  const [sources, setSources] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -18,14 +20,18 @@ export default function DarkWeb() {
       setLoading(true);
       setError("");
       try {
-        const [w, a, s] = await Promise.all([
+        const [w, a, s, f, src] = await Promise.all([
           apiFetch<Row[]>("/api/v1/darkweb/watchlist"),
           apiFetch<Row[]>("/api/v1/darkweb/alerts"),
           apiFetch<Row>("/api/v1/darkweb/stats"),
+          apiFetch<Row[]>("/api/v1/darkweb/findings"),
+          apiFetch<Row[]>("/api/v1/darkweb/sources"),
         ]);
         setWatchlist(Array.isArray(w) ? w : []);
         setAlerts(Array.isArray(a) ? a : []);
         setStats(s ?? null);
+        setFindings(Array.isArray(f) ? f : []);
+        setSources(Array.isArray(src) ? src : []);
       } catch (e) {
         setError(e instanceof Error ? e.message : "Could not load dark web intelligence");
       } finally {
@@ -65,6 +71,26 @@ export default function DarkWeb() {
                 { key: "severity", label: "Severity" },
                 { key: "created_at", label: "Created" },
               ]} empty={<ServiceEmpty title="No watchlist entries" detail="No tenant watch targets are configured." />} />
+            </ServiceSection>
+
+            <ServiceSection title="Sources" count={sources.length}>
+              <ServiceTable rows={sources} columns={[
+                { key: "name", label: "Source" },
+                { key: "kind", label: "Kind" },
+                { key: "enabled", label: "Enabled" },
+                { key: "last_status", label: "Last status" },
+                { key: "last_pull_at", label: "Last pull" },
+              ]} empty={<ServiceEmpty title="No sources" detail="No dark-web sources are configured." />} />
+            </ServiceSection>
+
+            <ServiceSection title="Findings" count={findings.length}>
+              <ServiceTable rows={findings} columns={[
+                { key: "kind", label: "Kind" },
+                { key: "matched_value", label: "Match" },
+                { key: "severity", label: "Severity" },
+                { key: "source_id", label: "Source" },
+                { key: "first_seen", label: "First seen" },
+              ]} empty={<ServiceEmpty title="No findings" detail="No findings are returned for this tenant." />} />
             </ServiceSection>
 
             <ServiceSection title="Alerts" count={alerts.length}>
