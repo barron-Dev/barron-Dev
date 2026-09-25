@@ -22,12 +22,9 @@ pub async fn bootstrap_if_needed(api_url: &str, state_dir: &Path) -> Result<()> 
 
     let token = std::env::var("CYCLOTHONE_ENROLLMENT_TOKEN")
         .context("CYCLOTHONE_ENROLLMENT_TOKEN is required for first-time device enrollment")?;
-    let name = std::env::var("CYCLOTHONE_DEVICE_NAME")
-        .unwrap_or_else(|_| hostname::get().ok().and_then(|v| v.into_string().ok()).unwrap_or_else(|| "cyclothone-device".to_string()));
-    let hostname = hostname::get()
-        .ok()
-        .and_then(|v| v.into_string().ok())
-        .unwrap_or_else(|| name.clone());
+    let detected_hostname = std::env::var("COMPUTERNAME").unwrap_or_else(|_| "cyclothone-device".to_string());
+    let name = std::env::var("CYCLOTHONE_DEVICE_NAME").unwrap_or_else(|_| detected_hostname.clone());
+    let hostname = detected_hostname;
     let os = std::env::consts::OS.to_string();
     let arch = std::env::consts::ARCH.to_string();
     let platform = "windows".to_string();
