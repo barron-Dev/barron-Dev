@@ -14,23 +14,23 @@ pub struct AgentConfig {
 
 impl AgentConfig {
     pub fn from_env() -> Result<Self> {
-        let host_id = std::env::var("SENTINEL_HOST_ID")
-            .context("SENTINEL_HOST_ID must identify this endpoint")?;
-        let api_url = std::env::var("SENTINEL_API_URL")
-            .context("SENTINEL_API_URL must identify the Sentinel API")?;
-        let state_dir = std::env::var("SENTINEL_STATE_DIR")
+        let host_id = std::env::var("CYCLOTHONE_HOST_ID")
+            .context("CYCLOTHONE_HOST_ID must identify this endpoint")?;
+        let api_url = std::env::var("CYCLOTHONE_API_URL")
+            .context("CYCLOTHONE_API_URL must identify the Cyclothone API")?;
+        let state_dir = std::env::var("CYCLOTHONE_STATE_DIR")
             .map(PathBuf::from)
             .unwrap_or_else(|_| PathBuf::from("./state"));
-        let model_sync_secs = std::env::var("SENTINEL_MODEL_SYNC_SECS")
+        let model_sync_secs = std::env::var("CYCLOTHONE_MODEL_SYNC_SECS")
             .ok().and_then(|value| value.parse::<u64>().ok()).unwrap_or(3600);
         let device_id = std::env::var("CYCLOTHONE_DEVICE_ID").context("CYCLOTHONE_DEVICE_ID must identify the device UUID")?;
         let tenant_id = std::env::var("CYCLOTHONE_TENANT_ID").context("CYCLOTHONE_TENANT_ID must identify the tenant UUID")?;
         let command_poll_secs = std::env::var("CYCLOTHONE_COMMAND_POLL_SECS")
             .ok().and_then(|value| value.parse::<u64>().ok()).unwrap_or(5).clamp(1, 60);
 
-        anyhow::ensure!(!host_id.trim().is_empty(), "SENTINEL_HOST_ID cannot be empty");
-        anyhow::ensure!(!api_url.trim().is_empty(), "SENTINEL_API_URL cannot be empty");
-        anyhow::ensure!(model_sync_secs > 0, "SENTINEL_MODEL_SYNC_SECS must be > 0");
+        anyhow::ensure!(!host_id.trim().is_empty(), "CYCLOTHONE_HOST_ID cannot be empty");
+        anyhow::ensure!(!api_url.trim().is_empty(), "CYCLOTHONE_API_URL cannot be empty");
+        anyhow::ensure!(model_sync_secs > 0, "CYCLOTHONE_MODEL_SYNC_SECS must be > 0");
         anyhow::ensure!(!device_id.trim().is_empty(), "CYCLOTHONE_DEVICE_ID cannot be empty");
         anyhow::ensure!(!tenant_id.trim().is_empty(), "CYCLOTHONE_TENANT_ID cannot be empty");
         Ok(Self { host_id, api_url, state_dir, model_sync_secs, device_id, tenant_id, command_poll_secs })
