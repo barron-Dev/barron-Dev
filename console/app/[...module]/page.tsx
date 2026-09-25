@@ -20,6 +20,7 @@ const modules: Record<string, ModuleDef> = {
   "assurance/compliance": { title: "Compliance", section: "ASSURANCE", endpoint: "/api/v1/compliance/frameworks" },
   "assurance/recovery": { title: "Recovery", section: "ASSURANCE", endpoint: "/api/v1/assurance/recovery" },
   "assurance/hunting": { title: "Hunting", section: "ASSURANCE", endpoint: "/api/v1/hunts/" },
+  "assurance/investigation": { title: "Investigation", section: "ASSURANCE", endpoint: "/api/v1/investigations" },
   "platform/federation": { title: "Federation", section: "PLATFORM", endpoint: "/api/v1/federation/peers" },
   "platform/developer": { title: "Developer", section: "PLATFORM", endpoint: "/api/v1/developer/apps" },
   "platform/settings": { title: "Settings", section: "PLATFORM", endpoint: "/api/v1/platform/settings" },
