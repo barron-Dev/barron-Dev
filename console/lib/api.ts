@@ -325,3 +325,23 @@ export function getOperatorCustomerCases(){ return apiFetch<any>("/api/v1/custom
 export function assignCustomerCase(id:string,operator_user_id:string){ return apiFetch<any>(`/api/v1/customer/operator/cases/${encodeURIComponent(id)}/assign`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({operator_user_id})}); }
 
 export function getCustomerCaseActions(id:string){ return apiFetch<{actions:any[]}>(`/api/v1/customer/cases/${encodeURIComponent(id)}/actions`); }
+
+
+export async function apiDownload(path: string): Promise<Blob> {
+  const headers = new Headers();
+  if (accessToken) headers.set("Authorization", `Bearer ${accessToken}`);
+  const response = await fetch(`${API_BASE}${path}`, { headers, cache: "no-store" });
+  if (!response.ok) {
+    if (response.status === 401 && typeof window !== "undefined") {
+      window.dispatchEvent(new Event("cyclothone-auth-required"));
+    }
+    const raw = await response.text();
+    let detail = "";
+    try {
+      const payload = JSON.parse(raw) as Record<string, unknown>;
+      detail = typeof payload.detail === "string" ? payload.detail : typeof payload.message === "string" ? payload.message : "";
+    } catch {}
+    throw new Error(response.status === 401 ? "Authentication required" : detail || `Backend request failed (HTTP ${response.status})`);
+  }
+  return response.blob();
+}
