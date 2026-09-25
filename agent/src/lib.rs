@@ -1,4 +1,5 @@
 pub mod config;
+pub mod enrollment;
 pub mod data_trust;
 pub mod events;
 pub mod commands;
@@ -22,6 +23,12 @@ pub async fn run_agent() -> anyhow::Result<()> {
     use tokio::sync::{mpsc, RwLock};
     use tracing::warn;
 
+    let api_url = std::env::var("CYCLOTHONE_API_URL")
+        .map_err(|_| anyhow::anyhow!("CYCLOTHONE_API_URL must identify the Cyclothone API"))?;
+    let state_dir = std::env::var("CYCLOTHONE_STATE_DIR")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| std::path::PathBuf::from(r"C:\\ProgramData\\Cyclothone"));
+    enrollment::bootstrap_if_needed(&api_url, &state_dir).await?;
     let config = config::AgentConfig::from_env()?;
     let model_dir = config.state_dir.join("models");
     std::fs::create_dir_all(&model_dir)?;
