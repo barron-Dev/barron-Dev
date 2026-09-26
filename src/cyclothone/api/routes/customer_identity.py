@@ -397,10 +397,65 @@ async def verification_status(organization_id: str, p:DeveloperPrincipal=Depends
 async def submit_verification(organization_id: str, body: VerificationRequest, p:DeveloperPrincipal=Depends(principal)):
     allowed={"email","domain","identity","business","government","authorization"}
     if body.verification_type not in allowed: raise HTTPException(400,detail="invalid_verification_type")
-    org=await supabase.select_one("customer_organizations","id,verification_status",id=organization_id,tenant_id=p.tenant_id,owner_user_id=p.user_id)
+    org=await supabase.select_one(
+        "customer_organizations",
+        "id,tenant_id,verification_status,admission_status",
+        id=organization_id,
+        owner_user_id=p.user_id,
+    )
     if not org: raise HTTPException(404,detail="organization_not_found")
-    row=await supabase.insert_one("identity_verifications",{"organization_id":organization_id,"subject_user_id":p.user_id,"verification_type":body.verification_type,"status":"submitted","provider":body.provider,"reference":body.reference})
+    if org.get("admission_status") == "approved":
+        raise HTTPException(409,detail="workspace_already_admitted")
+    row=await supabase.insert_one(
+        "identity_verifications",
+        {
+            "organization_id":organization_id,
+            "subject_user_id":p.user_id,
+            "verification_type":body.verification_type,
+            "status":"submitted",
+            "provider":body.provider,
+            "reference":body.reference,
+            "submitted_at":datetime.now(UTC).isoformat(),
+        },
+    )
     return row
+
+@router.post("/customer/admissions/verifications/{verification_id}/review")
+async def review_verification(
+    verification_id: str,
+    body: AdmissionDecisionRequest,
+    status: str,
+    p: DeveloperPrincipal=Depends(operator_principal),
+):
+    if not p.user_id: raise HTTPException(403,detail="operator_identity_required")
+    review_status=status.strip().lower()
+    if review_status not in {"verified","rejected"}:
+        raise HTTPException(422,detail="invalid_verification_review_status")
+    try:
+        organization_id=await supabase.rpc(
+            "review_customer_verification",
+            {
+                "p_verification_id":verification_id,
+                "p_reviewer":p.user_id,
+                "p_status":review_status,
+                "p_reason":body.reason,
+            },
+        )
+    except Exception as exc:
+        detail=str(exc)
+        mapping={
+            "verification_not_found":(404,"verification_not_found"),
+            "organization_not_found":(404,"organization_not_found"),
+            "verification_not_actionable":(409,"verification_not_actionable"),
+            "unsupported_admission_verification_type":(422,"unsupported_admission_verification_type"),
+            "reviewer_identity_mismatch":(403,"reviewer_identity_mismatch"),
+            "invalid_verification_review_status":(422,"invalid_verification_review_status"),
+        }
+        for key,(code,msg) in mapping.items():
+            if key in detail: raise HTTPException(code,detail=msg)
+        raise
+    return {"status":review_status,"organization_id":organization_id}
+
 
 @router.get("/customer/service-requests")
 async def service_requests(p:DeveloperPrincipal=Depends(principal)):
