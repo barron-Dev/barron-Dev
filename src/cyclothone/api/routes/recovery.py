@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 
 from cyclothone.developer.auth import DeveloperPrincipal, authenticate_request
+from cyclothone.recovery.storage import recovery_storage
 from cyclothone.storage.supabase_client import supabase
 
 router = APIRouter(prefix="/assurance", tags=["recovery"])
@@ -77,3 +78,11 @@ async def recovery_status(principal: DeveloperPrincipal = Depends(_principal)) -
         "external_worm_storage": "configured_by_policy" if policy_count else "not_configured",
         "operational_data_present": bool(snapshot_count or object_count or restore_job_count),
     }
+
+
+@router.get("/recovery/storage")
+async def recovery_storage_status(principal: DeveloperPrincipal = Depends(_principal)) -> dict:
+    try:
+        return await recovery_storage.verify_access()
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Recovery object storage is unavailable") from exc
