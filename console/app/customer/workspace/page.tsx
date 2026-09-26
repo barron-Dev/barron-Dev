@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { getCustomerOrganizations, getCustomerServiceRequests, getCustomerVerification, getOrganizationMembers, getOrganizationInvitations, createOrganizationInvitation, revokeOrganizationInvitation, setApiToken, type CustomerOrganization, type CustomerServiceRequest, type OrganizationMember, type OrganizationInvitation } from "../../../lib/api";
+import { getCustomerOrganizations, getCustomerServiceRequests, getCustomerVerification, submitCustomerVerification, requestCustomerAdmission, getOrganizationMembers, getOrganizationInvitations, createOrganizationInvitation, revokeOrganizationInvitation, setApiToken, type CustomerOrganization, type CustomerServiceRequest, type OrganizationMember, type OrganizationInvitation } from "../../../lib/api";
 
 const labels: Record<string,string> = {
   cybersecurity_assessment:"Cybersecurity Assessment", incident_response:"Incident Response", threat_intelligence:"Threat Intelligence",
@@ -22,6 +22,10 @@ export default function CustomerWorkspace() {
   const [requests,setRequests]=useState<CustomerServiceRequest[]>([]);
   const [selected,setSelected]=useState("");
   const [verification,setVerification]=useState<any[]>([]);
+  const [verificationType,setVerificationType]=useState("business");
+  const [provider,setProvider]=useState("");
+  const [reference,setReference]=useState("");
+  const [verificationBusy,setVerificationBusy]=useState(false);
   const [members,setMembers]=useState<OrganizationMember[]>([]);
   const [invitations,setInvitations]=useState<OrganizationInvitation[]>([]);
   const [inviteEmail,setInviteEmail]=useState("");
@@ -58,6 +62,25 @@ export default function CustomerWorkspace() {
       const [v,m,i]=await Promise.all([getCustomerVerification(id),getOrganizationMembers(id),getOrganizationInvitations(id)]);
       setVerification(v.verifications); setMembers(m.members); setInvitations(i.invitations);
     } catch(e) { setError(e instanceof Error ? e.message : "Unable to load organization membership"); }
+  }
+  async function submitVerification() {
+    if(!selected) return;
+    setVerificationBusy(true); setError(null);
+    try {
+      await submitCustomerVerification(selected,verificationType,provider,reference);
+      const v=await getCustomerVerification(selected); setVerification(v.verifications);
+      setProvider(""); setReference("");
+    } catch(e) { setError(e instanceof Error ? e.message : "Unable to submit verification"); }
+    finally { setVerificationBusy(false); }
+  }
+  async function requestAdmission() {
+    if(!selected) return;
+    setVerificationBusy(true); setError(null);
+    try {
+      await requestCustomerAdmission(selected);
+      await load();
+    } catch(e) { setError(e instanceof Error ? e.message : "Unable to request admission"); }
+    finally { setVerificationBusy(false); }
   }
   async function inviteMember() {
     if(!selected || !inviteEmail.trim()) return;
@@ -134,6 +157,17 @@ export default function CustomerWorkspace() {
               <div className="mt-3 flex items-center justify-between border-b border-[#1a2330] py-2"><span className="text-xs">Organization</span><span className={"rounded border px-1.5 py-0.5 font-mono text-[9px] "+tone(org?.verification_status||"")}>{org?.verification_status}</span></div>
               {verification.map(v=><div key={v.id} className="flex items-center justify-between border-b border-[#1a2330] py-2"><span className="text-xs">{v.verification_type}</span><span className={"rounded border px-1.5 py-0.5 font-mono text-[9px] "+tone(v.status)}>{v.status}</span></div>)}
               {!verification.length && <div className="mt-3 text-[11px] text-[#5a6675]">No verification evidence has been submitted.</div>}
+              {org?.admission_status !== "approved" && <div className="mt-4 border-t border-[#1a2330] pt-4">
+                <div className="text-[10px] uppercase tracking-[.12em] text-[#5a6675]">Submit verification</div>
+                <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                  <select value={verificationType} onChange={e=>setVerificationType(e.target.value)} className="border border-[#2a3646] bg-[#030508] p-2 text-xs">
+                    <option value="business">Business</option><option value="government">Government</option><option value="domain">Domain</option>
+                  </select>
+                  <input value={provider} onChange={e=>setProvider(e.target.value)} placeholder="Verification provider" className="border border-[#2a3646] bg-[#030508] p-2 text-xs"/>
+                  <input value={reference} onChange={e=>setReference(e.target.value)} placeholder="Evidence/reference" className="border border-[#2a3646] bg-[#030508] p-2 text-xs"/>
+                </div>
+                <button disabled={verificationBusy} onClick={()=>void submitVerification()} className="mt-3 border border-[#00d9ff] px-3 py-2 text-[10px] text-[#00d9ff] disabled:opacity-40">Submit real verification</button>
+              </div>}
             </div>
 
             <div className="border border-[#1a2330] bg-[#0a0e14] p-4">
@@ -143,6 +177,7 @@ export default function CustomerWorkspace() {
                 <div className="flex justify-between border-b border-[#1a2330] py-2"><span className="text-[#5a6675]">Tenant</span><span>{org?.tenant_id ? "Provisioned" : "Pending"}</span></div>
                 <div className="flex justify-between border-b border-[#1a2330] py-2"><span className="text-[#5a6675]">Security services</span><span>{counts.total}</span></div>
               </div>
+              {org?.verification_status && ["business_verified","government_verified"].includes(org.verification_status) && org.admission_status !== "approved" && <button disabled={verificationBusy} onClick={()=>void requestAdmission()} className="mt-4 w-full border border-[#ffb347] px-3 py-2 text-[10px] text-[#ffb347] disabled:opacity-40">Request workspace admission</button>}
             </div>
           </div>
 
