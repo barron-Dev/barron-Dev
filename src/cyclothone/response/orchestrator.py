@@ -296,30 +296,38 @@ class ResponseOrchestrator:
             envelope_data = row.get("agent_envelope")
             if not envelope_data:
                 raise RuntimeError("approved destructive action is missing its signed agent envelope")
-            if isinstance(envelope_data, dict):
-                envelope = AgentEnvelope(
-                    envelope_id=str(envelope_data["envelope_id"]), tenant_id=UUID(str(envelope_data["tenant_id"])),
-                    agent_id=UUID(str(envelope_data["agent_id"])), model_id=str(envelope_data["model_id"]),
-                    provider_id=str(envelope_data["provider_id"]), tool_name=str(envelope_data["tool_name"]),
-                    action=str(envelope_data["action"]), args=envelope_data.get("args") or {}, target=str(envelope_data["target"]),
-                    issued_at=datetime.fromisoformat(str(envelope_data["issued_at"])),
-                    expires_at=datetime.fromisoformat(str(envelope_data["expires_at"])),
-                    signer_kid=str(envelope_data["signer_kid"]), signature_b64=str(envelope_data["signature_b64"]),
-                    version=str(envelope_data.get("version") or "1"), binding_hash=str(envelope_data.get("binding_hash") or ""),
-                )
-            else:
-                envelope = None
-            if envelope is None:
-                raise RuntimeError("invalid persisted agent envelope")
-            if self.execution_gate is None:
-                raise RuntimeError("AI execution gate is required for destructive approval")
             action_class = ACTION_CLASS.get(row["action"], ActionClass.MEDIUM)
+            envelope = None
+            envelope_data = row.get("agent_envelope")
             if action_class in (ActionClass.MEDIUM, ActionClass.HIGH, ActionClass.CRITICAL):
+                if not envelope_data or not isinstance(envelope_data, dict):
+                    raise RuntimeError("approved destructive action is missing its signed agent envelope")
+                try:
+                    envelope = AgentEnvelope(
+                        envelope_id=str(envelope_data["envelope_id"]), tenant_id=UUID(str(envelope_data["tenant_id"])),
+                        agent_id=UUID(str(envelope_data["agent_id"])), model_id=str(envelope_data["model_id"]),
+                        provider_id=str(envelope_data["provider_id"]), tool_name=str(envelope_data["tool_name"]),
+                        action=str(envelope_data["action"]), args=envelope_data.get("args") or {}, target=str(envelope_data["target"]),
+                        issued_at=datetime.fromisoformat(str(envelope_data["issued_at"])),
+                        expires_at=datetime.fromisoformat(str(envelope_data["expires_at"])),
+                        signer_kid=str(envelope_data["signer_kid"]), signature_b64=str(envelope_data["signature_b64"]),
+                        version=str(envelope_data.get("version") or "1"), binding_hash=str(envelope_data.get("binding_hash") or ""),
+                        mission_id=str(envelope_data.get("mission_id")) if envelope_data.get("mission_id") else None,
+                        mission_version=int(envelope_data["mission_version"]) if envelope_data.get("mission_version") is not None else None,
+                        mission_hash=str(envelope_data.get("mission_hash")) if envelope_data.get("mission_hash") else None,
+                    )
+                except (KeyError, TypeError, ValueError) as exc:
+                    raise RuntimeError("invalid persisted agent envelope") from exc
+                if self.execution_gate is None:
+                    raise RuntimeError("AI execution gate is required for destructive approval")
                 await self.execution_gate.validate(
                     envelope=envelope,
                     tenant_id=UUID(str(row["tenant_id"])),
                     expected_model_id=str(row.get("model_id") or ""),
                     expected_provider_id=str(row.get("provider_id") or ""),
+                    expected_mission_id=envelope.mission_id,
+                    expected_mission_version=envelope.mission_version,
+                    expected_mission_hash=envelope.mission_hash,
                     twin=__import__("cyclothone.twin.service", fromlist=["DigitalTwinService"]).DigitalTwinService(UUID(str(row["tenant_id"]))),
                 )
                 run_id_raw = row.get("ai_run_id")
@@ -364,14 +372,17 @@ class ResponseOrchestrator:
                 )
             execution_context = {
                 "case_action_id": str(case_action_id),
-                "agent_id": str(envelope.agent_id),
-                "model_id": envelope.model_id,
-                "provider_id": envelope.provider_id,
-                "tool_name": envelope.tool_name,
-                "target": envelope.target,
-                "envelope_id": envelope.envelope_id,
+                "agent_id": str(envelope.agent_id) if envelope else None,
+                "model_id": envelope.model_id if envelope else row.get("model_id"),
+                "provider_id": envelope.provider_id if envelope else row.get("provider_id"),
+                "tool_name": envelope.tool_name if envelope else row["action"],
+                "target": envelope.target if envelope else row.get("target"),
+                "envelope_id": envelope.envelope_id if envelope else None,
                 "envelope_hash": self._envelope_hash(envelope),
                 "args_hash": hashlib.sha256(json.dumps(row.get("args") or {}, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("utf-8")).hexdigest(),
+                "mission_id": envelope.mission_id if envelope else row.get("ai_mission_id"),
+                "mission_version": envelope.mission_version if envelope else row.get("ai_mission_version"),
+                "mission_hash": envelope.mission_hash if envelope else row.get("ai_mission_hash"),
             }
             try:
                 command = await self.dispatcher.issue(
