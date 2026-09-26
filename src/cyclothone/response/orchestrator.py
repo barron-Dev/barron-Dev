@@ -216,6 +216,10 @@ class ResponseOrchestrator:
                             envelope_expires_at=step_envelope.expires_at.isoformat(),
                             action_hash=action_hash,
                         )
+                        await self.execution_gate.consume(
+                            envelope=step_envelope,
+                            tenant_id=tenant_id,
+                        )
 
                 if blast_rule_id and device_id and not await self.store.blast_allowed(blast_rule_id, blast_limit, tenant_id=tenant_id, device_id=device_id):
                     row_id = await self.store.create(
@@ -369,6 +373,10 @@ class ResponseOrchestrator:
                     envelope_id=envelope.envelope_id,
                     envelope_hash=self._envelope_hash(envelope),
                     envelope_expires_at=envelope.expires_at.isoformat(),
+                )
+                await self.execution_gate.consume(
+                    envelope=envelope,
+                    tenant_id=UUID(str(row["tenant_id"])),
                 )
             execution_context = {
                 "case_action_id": str(case_action_id),
