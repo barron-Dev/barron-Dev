@@ -5,6 +5,10 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from cyclothone.ai.envelope_issuer import AIEnvelopeIssuer
+from cyclothone.ai.execution_gate import AgentExecutionGate, SupabaseReplayStore
+from cyclothone.ai.mission_authority import SupabaseMissionAuthority
+from cyclothone.ai.provider_binding import SupabaseProviderBinding
 from cyclothone.developer.auth import DeveloperPrincipal, authenticate_request
 from cyclothone.response.dispatcher import SupabaseCommandDispatcher
 from cyclothone.response.orchestrator import ResponseOrchestrator
@@ -37,7 +41,17 @@ class RejectRequest(BaseModel):
 
 def _runner() -> PlaybookRunner:
     dispatcher = SupabaseCommandDispatcher()
-    orchestrator = ResponseOrchestrator(dispatcher, SupabaseActionStore())
+    envelope_issuer = AIEnvelopeIssuer(
+        SupabaseProviderBinding(),
+        SupabaseMissionAuthority(),
+    )
+    execution_gate = AgentExecutionGate(SupabaseReplayStore())
+    orchestrator = ResponseOrchestrator(
+        dispatcher,
+        SupabaseActionStore(),
+        execution_gate=execution_gate,
+        envelope_issuer=envelope_issuer,
+    )
     return PlaybookRunner(orchestrator)
 
 
@@ -132,7 +146,17 @@ async def approve(case_action_id: UUID, principal: DeveloperPrincipal = Depends(
         raise HTTPException(404, {"error": "case_action_not_found"})
     try:
         dispatcher = SupabaseCommandDispatcher()
-        orchestrator = ResponseOrchestrator(dispatcher, SupabaseActionStore())
+        envelope_issuer = AIEnvelopeIssuer(
+            SupabaseProviderBinding(),
+            SupabaseMissionAuthority(),
+        )
+        execution_gate = AgentExecutionGate(SupabaseReplayStore())
+        orchestrator = ResponseOrchestrator(
+            dispatcher,
+            SupabaseActionStore(),
+            execution_gate=execution_gate,
+            envelope_issuer=envelope_issuer,
+        )
         return await orchestrator.approve(case_action_id, UUID(principal.app_id))
     except RuntimeError as exc:
         raise HTTPException(409, {"error": str(exc)}) from exc
@@ -150,9 +174,7 @@ async def reject(case_action_id: UUID, body: RejectRequest, principal: Developer
         raise HTTPException(404, {"error": "case_action_not_found"})
     try:
         dispatcher = SupabaseCommandDispatcher()
-        orchestrator = ResponseOrchestrator(dispatcher, __import__(
-            "cyclothone.response.playbook_runtime", fromlist=["SupabaseActionStore"]
-        ).SupabaseActionStore())
+        orchestrator = ResponseOrchestrator(dispatcher, SupabaseActionStore())
         return await orchestrator.reject(case_action_id, UUID(principal.app_id), body.reason)
     except RuntimeError as exc:
         raise HTTPException(409, {"error": str(exc)}) from exc
