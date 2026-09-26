@@ -289,6 +289,9 @@ export function getCustomerVerification(organizationId: string) {
 }
 
 
+export function submitCustomerVerification(organizationId:string,verificationType:string,provider?:string,reference?:string){ return apiFetch<any>(`/api/v1/customer/organizations/${encodeURIComponent(organizationId)}/verification`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({verification_type:verificationType,provider:provider||null,reference:reference||null})}); }
+export function requestCustomerAdmission(organizationId:string){ return apiFetch<{admission_id:string;status:string}>(`/api/v1/customer/organizations/${encodeURIComponent(organizationId)}/admission`,{method:"POST"}); }
+
 export type OrganizationMember = { organization_id:string; user_id:string; role:string; status:string; created_at:string };
 export type OrganizationInvitation = { id:string; organization_id:string; invited_by:string; email:string; role:string; expires_at:string; accepted_at:string|null; accepted_user_id:string|null; created_at:string };
 
