@@ -93,7 +93,7 @@ class PlaybookValidationError(ValueError):
     pass
 
 
-def compile_playbook_steps(raw_steps: Any) -> list[ActionPlan]:
+def compile_playbook_steps(raw_steps: Any, *, tenant_id: UUID | None = None) -> list[ActionPlan]:
     if not isinstance(raw_steps, list):
         raise PlaybookValidationError("playbook steps must be an array")
     if not raw_steps:
@@ -127,6 +127,8 @@ def compile_playbook_steps(raw_steps: Any) -> list[ActionPlan]:
         run_id = raw.get("ai_run_id")
 
         if cls.value in ("medium", "high", "critical"):
+            if tenant_id is None:
+                raise PlaybookValidationError(f"step {index} requires tenant-bound execution context")
             required = {
                 "model_id": model_id,
                 "provider_id": provider_id,
@@ -153,7 +155,7 @@ def compile_playbook_steps(raw_steps: Any) -> list[ActionPlan]:
             if len(str(mission_hash)) != 64:
                 raise PlaybookValidationError(f"step {index} mission_hash must be SHA-256")
             envelope_request = EnvelopeIssueRequest(
-                tenant_id=UUID("00000000-0000-0000-0000-000000000000"),
+                tenant_id=tenant_id,
                 agent_id=agent_uuid,
                 model_id=str(model_id),
                 provider_id=str(provider_id),
@@ -210,7 +212,7 @@ class PlaybookRunner:
         if not playbook.get("enabled"):
             raise PlaybookValidationError("playbook is disabled")
 
-        steps = compile_playbook_steps(playbook.get("steps"))
+        steps = compile_playbook_steps(playbook.get("steps"), tenant_id=tenant_id)
         run = await supabase.insert_one("playbook_runs", {
             "tenant_id": str(tenant_id),
             "playbook_id": str(playbook_id),
