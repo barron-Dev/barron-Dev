@@ -4,6 +4,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
+from cyclothone.ai.envelope_issuer import EnvelopeIssueRequest
 from cyclothone.response.orchestrator import ACTION_CLASS, ActionPlan, ActionStore, ResponseOrchestrator
 from cyclothone.storage.supabase_client import supabase
 
@@ -115,11 +116,72 @@ def compile_playbook_steps(raw_steps: Any) -> list[ActionPlan]:
             raise PlaybookValidationError(f"step {index} rollback must be an object")
         cls = ACTION_CLASS[action]
         requires = bool(raw.get("requires_approval")) or cls.value in ("high", "critical")
+
+        model_id = raw.get("model_id")
+        provider_id = raw.get("provider_id")
+        target = raw.get("target")
+        agent_id = raw.get("agent_id")
+        mission_id = raw.get("mission_id")
+        mission_version = raw.get("mission_version")
+        mission_hash = raw.get("mission_hash")
+        run_id = raw.get("ai_run_id")
+
+        if cls.value in ("medium", "high", "critical"):
+            required = {
+                "model_id": model_id,
+                "provider_id": provider_id,
+                "target": target,
+                "agent_id": agent_id,
+                "mission_id": mission_id,
+                "mission_version": mission_version,
+                "mission_hash": mission_hash,
+                "ai_run_id": run_id,
+            }
+            missing = [key for key, value in required.items() if value in (None, "")]
+            if missing:
+                raise PlaybookValidationError(
+                    f"step {index} destructive response is missing canonical execution binding: {', '.join(missing)}"
+                )
+            try:
+                agent_uuid = UUID(str(agent_id))
+                run_uuid = UUID(str(run_id))
+                mission_ver = int(mission_version)
+            except (TypeError, ValueError) as exc:
+                raise PlaybookValidationError(
+                    f"step {index} has invalid canonical execution binding"
+                ) from exc
+            if len(str(mission_hash)) != 64:
+                raise PlaybookValidationError(f"step {index} mission_hash must be SHA-256")
+            envelope_request = EnvelopeIssueRequest(
+                tenant_id=UUID("00000000-0000-0000-0000-000000000000"),
+                agent_id=agent_uuid,
+                model_id=str(model_id),
+                provider_id=str(provider_id),
+                tool_name=action,
+                action=action,
+                args=args,
+                target=str(target),
+                mission_id=str(mission_id),
+                mission_version=mission_ver,
+                mission_hash=str(mission_hash),
+            )
+        else:
+            run_uuid = None
+            envelope_request = None
+
         compiled.append(ActionPlan(
             action=action,
             args=args,
             requires_approval=requires,
             rollback=rollback,
+            envelope_request=envelope_request,
+            model_id=str(model_id) if model_id is not None else None,
+            provider_id=str(provider_id) if provider_id is not None else None,
+            target=str(target) if target is not None else None,
+            mission_id=str(mission_id) if mission_id is not None else None,
+            mission_version=int(mission_version) if mission_version is not None else None,
+            mission_hash=str(mission_hash) if mission_hash is not None else None,
+            run_id=run_uuid,
         ))
     return compiled
 
