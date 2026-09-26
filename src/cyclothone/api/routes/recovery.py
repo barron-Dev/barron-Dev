@@ -62,7 +62,13 @@ async def recovery_status(principal: DeveloperPrincipal = Depends(_principal)) -
         "id,snapshot_id,status,clean_host_required,restored_object_count,restored_byte_count,error_code,requested_at,completed_at",
     )
 
-    ready = (\n        policy_count > 0\n        and snapshot_count > 0\n        and object_count > 0\n        and verification_count > 0\n        and bool(latest_verification and latest_verification.get("passed"))\n    )
+    ready = (
+        policy_count > 0
+        and snapshot_count > 0
+        and object_count > 0
+        and verification_count > 0
+        and bool(latest_verification and latest_verification.get("passed"))
+    )
     status = "ready" if ready else "not_ready"
 
     return {
