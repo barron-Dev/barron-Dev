@@ -66,6 +66,10 @@ class ServiceRequest(BaseModel):
 class AdmissionDecisionRequest(BaseModel):
     reason: str|None=None
 
+class RecoveryPolicyRequest(BaseModel):
+    retention_days: int = Field(default=30, ge=1, le=3650)
+    rpo_minutes: int = Field(default=15, ge=1, le=1440)
+
 class InvitationAcceptRequest(BaseModel):
     token: str = Field(min_length=20,max_length=512)
 
@@ -419,6 +423,47 @@ async def submit_verification(organization_id: str, body: VerificationRequest, p
         },
     )
     return row
+
+@router.post("/customer/tenants/{tenant_id}/recovery-policy")
+async def provision_recovery_policy(
+    tenant_id: str,
+    body: RecoveryPolicyRequest,
+    p: DeveloperPrincipal=Depends(operator_principal),
+):
+    region=os.getenv("CYCLOTHONE_RECOVERY_REGION","").strip()
+    bucket=os.getenv("CYCLOTHONE_RECOVERY_BUCKET","").strip()
+    kms_ref=os.getenv("CYCLOTHONE_RECOVERY_KMS_KEY_REF","").strip() or None
+    if not region or not bucket:
+        raise HTTPException(503,detail="recovery_storage_configuration_missing")
+    prefix=f"{tenant_id}/"
+    try:
+        policy_id=await supabase.rpc(
+            "provision_recovery_policy",
+            {
+                "p_tenant_id":tenant_id,
+                "p_reviewer":p.user_id,
+                "p_region":region,
+                "p_bucket":bucket,
+                "p_prefix":prefix,
+                "p_retention_days":body.retention_days,
+                "p_rpo_minutes":body.rpo_minutes,
+                "p_object_lock_mode":"NONE",
+                "p_kms_key_ref":kms_ref,
+            },
+        )
+    except Exception as exc:
+        detail=str(exc)
+        mapping={
+            "tenant_not_found":(404,"tenant_not_found"),
+            "recovery_storage_required":(422,"recovery_storage_required"),
+            "invalid_recovery_policy":(422,"invalid_recovery_policy"),
+            "reviewer_identity_mismatch":(403,"reviewer_identity_mismatch"),
+        }
+        for key,(code,msg) in mapping.items():
+            if key in detail: raise HTTPException(code,detail=msg)
+        raise
+    return {"status":"enabled","policy_id":policy_id,"tenant_id":tenant_id,"object_lock_mode":"NONE"}
+
 
 @router.post("/customer/admissions/verifications/{verification_id}/review")
 async def review_verification(
