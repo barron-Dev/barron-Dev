@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 from fastapi import APIRouter, Depends, HTTPException
 
 from cyclothone.developer.auth import DeveloperPrincipal, authenticate_request
+from cyclothone.recovery.service import create_full_snapshot
 from cyclothone.recovery.storage import recovery_storage
 from cyclothone.storage.supabase_client import supabase
 
@@ -86,3 +87,19 @@ async def recovery_storage_status(principal: DeveloperPrincipal = Depends(_princ
         return await recovery_storage.verify_access()
     except Exception as exc:
         raise HTTPException(status_code=503, detail="Recovery object storage is unavailable") from exc
+
+
+@router.post("/recovery/snapshots")
+async def create_recovery_snapshot(principal: DeveloperPrincipal = Depends(authenticate_request)) -> dict:
+    principal.require(("console:write",))
+    policy = await _latest(
+        "recovery_vault_policies",
+        principal.tenant_id,
+        "region,enabled",
+    )
+    if not policy or not policy.get("enabled"):
+        raise HTTPException(status_code=409, detail="Recovery vault policy is not enabled")
+    try:
+        return await create_full_snapshot(principal.tenant_id, str(policy["region"]))
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Recovery snapshot failed") from exc
