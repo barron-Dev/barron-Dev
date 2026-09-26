@@ -348,9 +348,36 @@ async def organizations(p:DeveloperPrincipal=Depends(principal)):
 
 @router.post("/customer/organizations")
 async def create_organization(body:OrgRequest,p:DeveloperPrincipal=Depends(principal)):
-    if body.organization_type not in {"company","government","security_provider","developer","client","partner","individual"}: raise HTTPException(400,detail="invalid organization type")
-    if not p.user_id: raise HTTPException(403,detail="user_identity_required")
-    row=await supabase.insert_one("customer_organizations",{"owner_user_id":p.user_id,"tenant_id":p.tenant_id or None,"organization_type":body.organization_type,"legal_name":body.legal_name.strip(),"country_code":body.country_code,"website_domain":body.website_domain,"registration_number":body.registration_number,"verification_status":"pending"})
+    if body.organization_type not in {"company","government","security_provider","developer","client","partner","individual"}:
+        raise HTTPException(400,detail="invalid organization type")
+    if not p.user_id:
+        raise HTTPException(403,detail="user_identity_required")
+    try:
+        organization_id=await supabase.rpc(
+            "create_customer_organization",
+            {
+                "p_type":body.organization_type,
+                "p_legal_name":body.legal_name.strip(),
+                "p_country_code":body.country_code,
+                "p_domain":body.website_domain,
+                "p_registration_number":body.registration_number,
+            },
+        )
+    except Exception as exc:
+        detail=str(exc)
+        if "authentication required" in detail:
+            raise HTTPException(401,detail="authentication_required")
+        if "invalid organization type" in detail:
+            raise HTTPException(400,detail="invalid organization type")
+        raise
+    row=await supabase.select_one(
+        "customer_organizations",
+        "id,tenant_id,organization_type,legal_name,country_code,website_domain,registration_number,verification_status,admission_status,created_at,updated_at",
+        id=str(organization_id),
+        owner_user_id=p.user_id,
+    )
+    if not row:
+        raise HTTPException(500,detail="organization_creation_not_confirmed")
     return row
 
 
