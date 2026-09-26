@@ -95,7 +95,10 @@ create policy recovery_snapshots_tenant on public.recovery_snapshots for select 
 drop policy if exists recovery_objects_tenant on public.recovery_objects;
 create policy recovery_objects_tenant on public.recovery_objects for select to authenticated using (tenant_id = (auth.jwt() ->> 'tenant_id')::uuid);
 drop policy if exists recovery_restore_tenant on public.recovery_restore_jobs;
-create policy recovery_restore_tenant on public.recovery_restore_jobs for select, insert to authenticated using (tenant_id = (auth.jwt() ->> 'tenant_id')::uuid) with check (tenant_id = (auth.jwt() ->> 'tenant_id')::uuid);
+drop policy if exists recovery_restore_select_tenant on public.recovery_restore_jobs;
+drop policy if exists recovery_restore_insert_tenant on public.recovery_restore_jobs;
+create policy recovery_restore_select_tenant on public.recovery_restore_jobs for select to authenticated using (tenant_id = (auth.jwt() ->> 'tenant_id')::uuid);
+create policy recovery_restore_insert_tenant on public.recovery_restore_jobs for insert to authenticated with check (tenant_id = (auth.jwt() ->> 'tenant_id')::uuid);
 drop policy if exists recovery_verifications_tenant on public.recovery_verifications;
 create policy recovery_verifications_tenant on public.recovery_verifications for select to authenticated using (tenant_id = (auth.jwt() ->> 'tenant_id')::uuid);
 
