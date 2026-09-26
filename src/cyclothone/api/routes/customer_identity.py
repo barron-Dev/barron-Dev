@@ -280,7 +280,7 @@ async def request_admission(organization_id: str, p: DeveloperPrincipal=Depends(
     except Exception as exc:
         detail=str(exc)
         if "organization_not_found" in detail: raise HTTPException(404,detail="organization_not_found")
-        if "already_actionable" in detail: raise HTTPException(409,detail="admission_already_actionable")
+        if "admission_already_pending" in detail: raise HTTPException(409,detail="admission_already_pending")
         raise
     return {"admission_id":admission_id,"status":"pending"}
 
