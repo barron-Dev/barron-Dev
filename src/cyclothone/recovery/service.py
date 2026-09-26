@@ -90,7 +90,7 @@ def _json_bytes(payload: Any) -> bytes:
 async def create_full_snapshot(tenant_id: str, region: str) -> dict[str, Any]:
     if not tenant_id:
         raise ValueError("tenant_id is required")
-    if not recovery_storage.configured()
+    if not recovery_storage.configured():
         raise RuntimeError("Recovery object storage is not configured")
 
     started_at = datetime.now(UTC).isoformat()
