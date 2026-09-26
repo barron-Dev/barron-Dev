@@ -217,7 +217,7 @@ async def create_full_snapshot(tenant_id: str, region: str) -> dict[str, Any]:
             {
                 "status": "failed",
                 "completed_at": datetime.now(UTC).isoformat(),
-                "error": str(exc)[:2000],
+                "error_code": "snapshot_failed",
             },
             id=snapshot_id,
             tenant_id=tenant_id,
