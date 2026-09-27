@@ -204,7 +204,7 @@ returns table(entity_id uuid,name text,similarity numeric)
 language sql stable set search_path=public as $$
 select id,name,extensions.similarity(name_norm,public.mdi_norm_name(p_name))::numeric
 from public.mdi_sanctions_entities
-where similarity(name_norm,public.mdi_norm_name(p_name)) >= p_threshold
+where extensions.similarity(name_norm,public.mdi_norm_name(p_name)) >= p_threshold
 order by extensions.similarity(name_norm,public.mdi_norm_name(p_name)) desc limit 25
 $$;
 
