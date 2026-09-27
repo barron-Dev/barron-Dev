@@ -62,7 +62,7 @@ export default function CustomerOverview() {
 
           <div className="mt-8 grid gap-4 md:grid-cols-3">
             <a href="/customer/workspace" className="border border-[#2a3646] bg-[#0a0e14] p-5 hover:border-[#ffb347]"><h2 className="font-medium">Organization</h2><p className="mt-2 text-xs leading-5 text-[#8a97a8]">Verification, members, invitations and workspace status.</p><div className="mt-4 text-[10px] text-[#ffb347]">Open workspace →</div></a>
-            <a href="/request-service" className="border border-[#2a3646] bg-[#0a0e14] p-5 hover:border-[#00d9ff]"><h2 className="font-medium">Request a service</h2><p className="mt-2 text-xs leading-5 text-[#8a97a8]">Submit a real request for an available Cyclothone security service.</p><div className="mt-4 text-[10px] text-[#00d9ff]">New request →</div></a>
+            <a href="/customer/services" className="border border-[#2a3646] bg-[#0a0e14] p-5 hover:border-[#00d9ff]"><h2 className="font-medium">Security services</h2><p className="mt-2 text-xs leading-5 text-[#8a97a8]">Browse the complete customer service catalog and request an authorized service.</p><div className="mt-4 text-[10px] text-[#00d9ff]">View services →</div></a>
             <a href="/customer/cases" className="border border-[#2a3646] bg-[#0a0e14] p-5 hover:border-[#7df0ad]"><h2 className="font-medium">Security cases</h2><p className="mt-2 text-xs leading-5 text-[#8a97a8]">Track service cases, activity and customer-visible outcomes.</p><div className="mt-4 text-[10px] text-[#7df0ad]">View cases →</div></a>
           </div>
 
