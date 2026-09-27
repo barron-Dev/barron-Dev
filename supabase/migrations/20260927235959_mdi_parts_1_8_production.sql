@@ -248,7 +248,7 @@ begin
   'mdi_sanctions_entities','mdi_sanctions_hits','mdi_sar_reports','mdi_legal_requests','mdi_legal_playbooks','mdi_notices','mdi_freeze_orders',
   'mdi_evidence_packs','mdi_response_actions','mdi_compliance_rules','mdi_compliance_findings','mdi_lawful_basis_log','mdi_dsar_requests',
   'mdi_embeddings','mdi_copilot_threads','mdi_copilot_messages'
- ]) t(name)
+ ]) as name
  loop execute format('alter table public.%I enable row level security',r.name); end loop;
 end $$;
 
