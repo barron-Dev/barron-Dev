@@ -1,7 +1,7 @@
 "use client";
 import {useEffect,useState} from "react";
 import {useParams} from "next/navigation";
-import {apiFetch,setApiToken} from "../../../../../../lib/api";
+import {apiFetch,setApiToken} from "../../../../../lib/api";
 export default function CompliancePage(){
  const {service}=useParams<{service:string}>(); const [findings,setFindings]=useState<any[]>([]); const [loading,setLoading]=useState(true); const [error,setError]=useState("");
  async function load(){setLoading(true);setError("");try{setApiToken(sessionStorage.getItem("cyclothone_access_token")||"");const r=await apiFetch<any[]>("/api/v1/mobile-intelligence/compliance/findings?limit=200");setFindings(r)}catch(e){setError(e instanceof Error?e.message:"Unable to load compliance findings")}finally{setLoading(false)}}
