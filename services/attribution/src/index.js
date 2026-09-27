@@ -35,7 +35,7 @@ async function attributeCase(caseId){
   await sb("mdi_attribution",{
     method:"POST",
     headers:{"Content-Type":"application/json",Prefer:"return=minimal"},
-    body:JSON.stringify({case_id:caseId,actor_id:map.get(top.actorId)?.id??null,confidence:Math.max(0,Math.min(1,top.combined)),method:"ttp_jaccard+naive_bayes",evidence:{caseTtps,sharedTtps:top.sharedTtps,jaccard:top.jaccard,bayes:top.bayesProb},alternative_actors:candidates.slice(1,5),computed_at:new Date().toISOString()})
+    body:JSON.stringify({case_id:caseId,actor_id:top.actorUuid??null,confidence:Math.max(0,Math.min(1,top.combined)),method:"ttp_jaccard+naive_bayes",evidence:{caseTtps,sharedTtps:top.sharedTtps,jaccard:top.jaccard,bayes:top.bayesProb},alternative_actors:candidates.slice(1,5),computed_at:new Date().toISOString()})
   });
   return {caseId,candidates:candidates.slice(0,10),caseTtps};
 }
