@@ -27,8 +27,17 @@ async function listTenants(){
   if(error) throw error;
   return [...new Set((data||[]).map(x=>x.tenant_id).filter(Boolean))];
 }
+async function autoRemediateTenant(tenantId){
+  if(process.env.MDI_COMPLIANCE_AUTO_REMEDIATE!=="true") return;
+  const {data,error}=await sb.rpc("mdi_audit_retention",{p_tenant_id:tenantId}); if(error)throw error;
+  for(const v of data||[]){if(v.severity!=="critical")continue;
+    await sb.from("mdi_subjects").update({display:null,attributes:{anonymized_at:new Date().toISOString()},pii_grade:0}).eq("id",v.subject_id).throwOnError();
+    await sb.from("mdi_number_intel").update({e164:"redacted",national_number:null,raw:{},carrier_name:null}).eq("subject_id",v.subject_id).throwOnError();
+    await sb.from("mdi_compliance_findings").insert({tenant_id:tenantId,jurisdiction:v.jurisdiction,subject_id:v.subject_id,severity:"info",finding:"auto_anonymized_after_retention",evidence:v}).throwOnError();
+  }
+}
 async function cycle(){
-  for(const tenantId of await listTenants()) await auditTenant(tenantId);
+  for(const tenantId of await listTenants()){await auditTenant(tenantId);await autoRemediateTenant(tenantId);}
 }
 console.log("MDI compliance worker ready; interval="+intervalMs);
 await cycle().catch(console.error);
