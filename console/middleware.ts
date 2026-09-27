@@ -21,6 +21,14 @@ export function middleware(req: NextRequest) {
     return NextResponse.next();
   }
 
+  // These are real shared entry routes used by the customer surface.
+  // They must not be rewritten to /customer/<route>, because their
+  // implementations live at the app root and the catch-all module route
+  // would otherwise render "Module not found".
+  if (p === "/login" || p === "/register" || p === "/request-service" || p.startsWith("/invitations/")) {
+    return NextResponse.next();
+  }
+
   const u = req.nextUrl.clone();
 
   if (surface === "surface") {
