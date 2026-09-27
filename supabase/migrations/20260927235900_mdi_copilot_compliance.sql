@@ -2,6 +2,14 @@ begin;
 
 create extension if not exists vector;
 
+create table if not exists public.mdi_subject_tenants (tenant_id uuid not null references public.tenants(id) on delete cascade, subject_id uuid not null references public.mdi_subjects(id) on delete cascade, created_at timestamptz not null default now(), primary key(tenant_id,subject_id));
+alter table public.mdi_subject_tenants enable row level security;
+create index if not exists mdi_subject_tenants_subject on public.mdi_subject_tenants(subject_id);
+revoke all on public.mdi_subject_tenants from anon,authenticated;
+
+drop policy if exists mdi_subject_tenants_service_role on public.mdi_subject_tenants;
+create policy mdi_subject_tenants_service_role on public.mdi_subject_tenants for all to service_role using(true) with check(true);
+
 create table if not exists public.mdi_embeddings (
   id uuid primary key default gen_random_uuid(),
   tenant_id uuid not null,
@@ -143,6 +151,8 @@ with vec as (
          1-(e.embedding <=> p_query_embedding) as sim
   from public.mdi_embeddings e
   where e.tenant_id=p_tenant_id
+    and e.entity_kind='subject'
+    and exists (select 1 from public.mdi_subject_tenants st where st.tenant_id=p_tenant_id and st.subject_id=e.entity_id)
     and e.embedding is not null
     and (p_kinds is null or e.entity_kind=any(p_kinds))
   order by e.embedding <=> p_query_embedding
@@ -167,8 +177,8 @@ returns table(jurisdiction text,subject_id uuid,age_days int,rule_statute text,s
 language sql stable security invoker set search_path=public,extensions as $$
 select r.jurisdiction,s.id,extract(day from now()-s.first_seen)::int,r.statute,
 case when extract(day from now()-s.first_seen)>r.retention_days*1.5 then 'critical' else 'violation' end
-from public.mdi_subjects s join public.mdi_compliance_rules r on s.kind::text=any(r.applies_to)
-where s.tenant_id=p_tenant_id and r.retention_days is not null
+from public.mdi_subjects s join public.mdi_subject_tenants st on st.subject_id=s.id and st.tenant_id=p_tenant_id join public.mdi_compliance_rules r on s.kind::text=any(r.applies_to)
+where s.id=st.subject_id and r.retention_days is not null
 and extract(day from now()-s.first_seen)>r.retention_days
 and not exists(select 1 from public.mdi_lawful_basis_log l where l.tenant_id=p_tenant_id and l.subject_id=s.id and (l.expires_at is null or l.expires_at>now()));
 $$;
@@ -179,8 +189,8 @@ create or replace function public.mdi_audit_lawful_basis(p_tenant_id uuid)
 returns table(subject_id uuid,action text,days_since int,severity text)
 language sql stable security invoker set search_path=public,extensions as $$
 select o.subject_id,o.capability::text,extract(day from now()-o.called_at)::int,'violation'
-from public.mdi_provider_calls o
-where o.tenant_id=p_tenant_id and o.subject_id is not null and o.ok
+from public.mdi_provider_calls o join public.mdi_subject_tenants st on st.subject_id=o.subject_id and st.tenant_id=p_tenant_id
+where o.subject_id=st.subject_id and o.subject_id is not null and o.ok
 and not exists(select 1 from public.mdi_lawful_basis_log l where l.tenant_id=p_tenant_id and l.subject_id=o.subject_id and l.action like '%'||o.capability::text||'%' and l.occurred_at<=o.called_at)
 and o.called_at>now()-interval '30 days';
 $$;
@@ -193,10 +203,10 @@ language sql stable security invoker set search_path=public,extensions as $$
 select o.subject_id,coalesce(s.country_iso2,'XX'),coalesce(p.coverage->>'countries','UNKNOWN'),
 case when r.cross_border='prohibited' then 'critical' else 'warning' end,r.statute
 from public.mdi_provider_calls o
-join public.mdi_subjects s on s.id=o.subject_id and s.tenant_id=p_tenant_id
+join public.mdi_subjects s on s.id=o.subject_id join public.mdi_subject_tenants st on st.subject_id=s.id and st.tenant_id=p_tenant_id
 join public.mdi_providers p on p.id=o.provider_id
 join public.mdi_compliance_rules r on r.jurisdiction=case s.country_iso2 when 'SA' then 'SAUDI_PDPL' when 'AE' then 'UAE_PDPL' else r.jurisdiction end
-where o.tenant_id=p_tenant_id and r.cross_border='prohibited' and o.called_at>now()-interval '30 days';
+where st.tenant_id=p_tenant_id and r.cross_border='prohibited' and o.called_at>now()-interval '30 days';
 $$;
 revoke all on function public.mdi_audit_cross_border(uuid) from public,anon,authenticated;
 grant execute on function public.mdi_audit_cross_border(uuid) to service_role;
