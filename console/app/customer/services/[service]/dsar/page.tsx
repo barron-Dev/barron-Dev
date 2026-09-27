@@ -1,7 +1,7 @@
 "use client";
 import {useState} from "react";
 import {useParams} from "next/navigation";
-import {apiFetch,setApiToken} from "../../../../../../lib/api";
+import {apiFetch,setApiToken} from "../../../../../lib/api";
 export default function DsarPage(){
  const {service}=useParams<{service:string}>(); const [jurisdiction,setJurisdiction]=useState("UAE_PDPL"); const [type,setType]=useState("access"); const [subjectHash,setSubjectHash]=useState(""); const [status,setStatus]=useState("");
  async function submit(){setStatus("");try{setApiToken(sessionStorage.getItem("cyclothone_access_token")||"");const r=await apiFetch<any>("/api/v1/mobile-intelligence/compliance/dsar",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({jurisdiction,request_type:type,subject_hash:subjectHash})});setStatus(r.id?"Request received":"Request submitted")}catch(e){setStatus(e instanceof Error?e.message:"Unable to submit request")}}
