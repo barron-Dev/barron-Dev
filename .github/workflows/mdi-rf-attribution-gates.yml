@@ -1,0 +1,46 @@
+name: MDI RF and Attribution Gates
+
+on:
+  pull_request:
+    paths:
+      - "supabase/migrations/*mdi_*"
+      - "services/sat-sigint/**"
+      - "services/attribution/**"
+      - "console/app/customer/cases/**/attribution/**"
+      - "src/cyclothone/api/routes/mobile_intelligence_attribution.py"
+      - "src/cyclothone/api/app.py"
+
+jobs:
+  static-gates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: No mock or synthetic data in MDI expansion
+        shell: bash
+        run: |
+          if grep -RniE "mock|synthetic|fake|placeholder|fixture"             services/sat-sigint services/attribution             supabase/migrations/*mdi_rf_catalog_attribution.sql; then
+            echo "Forbidden mock/synthetic implementation marker found."
+            exit 1
+          fi
+
+      - name: External source provenance required
+        shell: bash
+        run: |
+          grep -q "celestrak.org" services/sat-sigint/src/index.js
+          grep -q "incidentbuddy.ai/api/v1" services/attribution/src/cti.js
+          grep -q "ransomware.live" services/attribution/src/cti.js
+          grep -q "attack.mitre.org" supabase/migrations/20260927233000_mdi_rf_catalog_attribution.sql
+
+      - name: Attribution cannot write unbounded confidence
+        shell: bash
+        run: |
+          ! grep -RniE "confidence[[:space:]]*[:=][[:space:]]*0\.(8|9|99)" services/attribution
+
+      - name: Node syntax
+        shell: bash
+        run: |
+          node --check services/sat-sigint/src/index.js
+          node --check services/attribution/src/cti.js
+          node --check services/attribution/src/engine.js
+          node --check services/attribution/src/index.js
