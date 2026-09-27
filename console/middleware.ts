@@ -20,6 +20,9 @@ export function middleware(req: NextRequest) {
     return NextResponse.next();
   }
 
+  // Public platform map is a real root route on the public surface.
+  if (p === "/platform") return NextResponse.next();
+
   if (p === "/login" || p === "/register" || p === "/request-service" || p.startsWith("/invitations/")) {
     return NextResponse.next();
   }
@@ -32,8 +35,6 @@ export function middleware(req: NextRequest) {
   }
 
   if (surface === "customer") {
-    // The customer domain is a protected destination. Its root enters real authentication;
-    // public product discovery stays on cyclothone.online/platform.
     if (p === "/") {
       u.pathname = "/login";
       return NextResponse.rewrite(u);
