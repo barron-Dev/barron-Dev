@@ -7,7 +7,7 @@ export type MdiCapability =
   | 'tle_catalog' | 'orbit_propagate' | 'imagery' | 'gnss_interference' | 'sat_comms';
 
 export interface ProviderCallCtx { capability:MdiCapability; subjectId?:string; caseId?:string; actorId?:string; correlationId?:string; }
-export interface ProviderAdapter { slug:string; capabilities:MdiCapability[]; countries:string[]|['*']; invoke<T=unknown>(capability:MdiCapability,params:Record<string,unknown>,ctx:ProviderCallCtx):Promise<T>; }
+export interface ProviderAdapter { slug:string; capabilities:MdiCapability[]; countries:string[]; invoke<T=unknown>(capability:MdiCapability,params:Record<string,unknown>,ctx:ProviderCallCtx):Promise<T>; }
 type Health={id?:string;status:string;weight:number;cost:number};
 
 export function selectProviders(registry:ProviderAdapter[],capability:MdiCapability,countryIso2:string|undefined,health:Record<string,Health>):ProviderAdapter[]{
