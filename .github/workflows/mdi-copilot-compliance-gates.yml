@@ -1,5 +1,13 @@
 name: MDI Copilot + Compliance Gates
 on:
+  push:
+    branches: [main]
+    paths:
+      - "supabase/migrations/*mdi*"
+      - "services/copilot/**"
+      - "services/compliance/**"
+      - "src/cyclothone/api/routes/mobile_intelligence_*.py"
+      - "console/app/customer/services/**"
   pull_request:
     paths:
       - "supabase/migrations/*mdi*"
