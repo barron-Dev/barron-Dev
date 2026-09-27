@@ -202,10 +202,10 @@ $$;
 create or replace function public.mdi_screen_name(p_name text,p_threshold numeric default .82)
 returns table(entity_id uuid,name text,similarity numeric)
 language sql stable set search_path=public as $$
-select id,name,similarity(name_norm,public.mdi_norm_name(p_name))::numeric
+select id,name,extensions.similarity(name_norm,public.mdi_norm_name(p_name))::numeric
 from public.mdi_sanctions_entities
 where similarity(name_norm,public.mdi_norm_name(p_name)) >= p_threshold
-order by similarity(name_norm,public.mdi_norm_name(p_name)) desc limit 25
+order by extensions.similarity(name_norm,public.mdi_norm_name(p_name)) desc limit 25
 $$;
 
 create or replace function public.mdi_audit_retention(p_tenant_id uuid)
