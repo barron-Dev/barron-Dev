@@ -1,31 +1,176 @@
-import Link from "next/link";
+"use client";
+
+import { FormEvent, useEffect, useState } from "react";
+import { apiFetch } from "@/lib/api";
+
+type App = {
+  id: string;
+  name: string;
+  description?: string | null;
+  active: boolean;
+  created_at: string;
+};
+
+type Key = {
+  id: string;
+  app_id: string;
+  key_prefix: string;
+  scopes: string[];
+  active: boolean;
+  expires_at: string | null;
+  created_at: string;
+};
 
 export default function Developers() {
+  const [apps, setApps] = useState<App[]>([]);
+  const [keys, setKeys] = useState<Key[]>([]);
+  const [selectedApp, setSelectedApp] = useState("");
+  const [name, setName] = useState("");
+  const [scopes, setScopes] = useState("");
+  const [newKey, setNewKey] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [working, setWorking] = useState(false);
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+
+  async function load() {
+    setLoading(true);
+    setError("");
+    try {
+      const data = await apiFetch<App[]>("/api/v1/developer/apps");
+      setApps(data);
+      const current = selectedApp && data.some((app) => app.id === selectedApp) ? selectedApp : data[0]?.id ?? "";
+      setSelectedApp(current);
+      if (current) {
+        setKeys(await apiFetch<Key[]>(`/api/v1/developer/apps/${current}/keys`));
+      } else {
+        setKeys([]);
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not load developer access");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => { void load(); }, []);
+
+  async function createApp(event: FormEvent) {
+    event.preventDefault();
+    if (!name.trim()) return;
+    setWorking(true); setError(""); setMessage("");
+    try {
+      const app = await apiFetch<App>("/api/v1/developer/apps", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: name.trim(),
+          allowed_scopes: scopes.split(",").map((s) => s.trim()).filter(Boolean),
+        }),
+      });
+      setName("");
+      setScopes("");
+      setSelectedApp(app.id);
+      setMessage("Application created.");
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not create application");
+    } finally { setWorking(false); }
+  }
+
+  async function createKey() {
+    if (!selectedApp) return;
+    setWorking(true); setError(""); setMessage(""); setNewKey("");
+    try {
+      const result = await apiFetch<{api_key?: string; key?: string; key_prefix?: string}>(`/api/v1/developer/apps/${selectedApp}/keys`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ scopes: scopes.split(",").map((s) => s.trim()).filter(Boolean) }),
+      });
+      const secret = result.api_key ?? result.key;
+      if (secret) setNewKey(secret);
+      setMessage(secret ? "API key created. Copy it now; it may only be shown once." : "API key created.");
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not create API key");
+    } finally { setWorking(false); }
+  }
+
+  async function selectApp(id: string) {
+    setSelectedApp(id);
+    setNewKey("");
+    setError("");
+    try { setKeys(await apiFetch<Key[]>(`/api/v1/developer/apps/${id}/keys`)); }
+    catch (e) { setError(e instanceof Error ? e.message : "Could not load API keys"); }
+  }
+
   return (
     <main className="min-h-screen bg-[#05070a] text-[#e8eef6]">
-      <header className="flex min-h-14 items-center justify-between border-b border-[#1a2330] bg-[#0a0e14] px-6 py-3">
-        <div><span className="font-semibold">Cyclothone</span><span className="ml-3 text-[10px] uppercase tracking-[.16em] text-[#00ff9d]">Developer</span></div>
-        <Link href="/developers/playground" className="border border-[#00ff9d] px-3 py-2 text-[10px] text-[#00ff9d]">Open playground →</Link>
+      <header className="border-b border-[#1a2330] bg-[#0a0e14] px-6 py-4">
+        <div className="mx-auto max-w-4xl">
+          <span className="font-semibold">Cyclothone</span>
+          <span className="ml-3 text-[10px] uppercase tracking-[.16em] text-[#00ff9d]">Developer</span>
+        </div>
       </header>
 
-      <div className="mx-auto max-w-5xl px-6 py-12">
-        <div className="max-w-2xl">
-          <div className="text-[10px] uppercase tracking-[.18em] text-[#5a6675]">Developer platform</div>
-          <h1 className="mt-2 text-3xl font-semibold">Build with Cyclothone.</h1>
-          <p className="mt-3 text-sm leading-6 text-[#8a97a8]">Use the trust API to integrate governed AI workloads. Start with the API contract, then test a real request.</p>
-        </div>
+      <div className="mx-auto max-w-4xl px-6 py-10">
+        <h1 className="text-2xl font-semibold">Developer access</h1>
+        <p className="mt-2 max-w-xl text-sm leading-6 text-[#8a97a8]">
+          Create an application, issue an API key, and use the Cyclothone API. Advanced runtime details stay out of this screen.
+        </p>
 
-        <div className="mt-10 grid gap-4 md:grid-cols-3">
-          <a href="#api" className="border border-[#2a3646] bg-[#0a0e14] p-5 hover:border-[#00ff9d]"><div className="text-[10px] uppercase tracking-[.15em] text-[#00ff9d]">01</div><h2 className="mt-2 font-medium">API</h2><p className="mt-2 text-xs leading-5 text-[#8a97a8]">The governed API entry point for durable AI runs.</p></a>
-          <Link href="/developers/playground" className="border border-[#2a3646] bg-[#0a0e14] p-5 hover:border-[#00ff9d]"><div className="text-[10px] uppercase tracking-[.15em] text-[#00ff9d]">02</div><h2 className="mt-2 font-medium">Playground</h2><p className="mt-2 text-xs leading-5 text-[#8a97a8]">Send a real API request and inspect the response.</p></Link>
-          <a href="https://customers.cyclothone.online/login" className="border border-[#2a3646] bg-[#0a0e14] p-5 hover:border-[#ffb347]"><div className="text-[10px] uppercase tracking-[.15em] text-[#ffb347]">03</div><h2 className="mt-2 font-medium">Account</h2><p className="mt-2 text-xs leading-5 text-[#8a97a8]">Sign in with your Cyclothone account before using protected access.</p></a>
-        </div>
+        {error && <div className="mt-6 border border-[#6b3030] bg-[#160b0b] p-4 text-sm">{error}</div>}
+        {message && <div className="mt-6 border border-[#244936] bg-[#0b160f] p-4 text-sm">{message}</div>}
+        {newKey && (
+          <div className="mt-4 border border-[#00ff9d] bg-[#07110c] p-4">
+            <div className="text-[10px] uppercase tracking-[.16em] text-[#00ff9d]">New API key</div>
+            <code className="mt-2 block break-all text-xs">{newKey}</code>
+            <p className="mt-2 text-xs text-[#8a97a8]">Copy this key now. Cyclothone does not display secret material from list endpoints.</p>
+          </div>
+        )}
 
-        <section id="api" className="mt-10 border border-[#1a2330] bg-[#0a0e14] p-6">
-          <div className="text-[10px] uppercase tracking-[.15em] text-[#5a6675]">API contract</div>
-          <div className="mt-3 flex flex-wrap items-center gap-3"><span className="border border-[#00ff9d] px-2 py-1 font-mono text-[10px] text-[#00ff9d]">POST</span><code className="font-mono text-xs">/api/v1/ai/run</code></div>
-          <p className="mt-3 text-xs leading-5 text-[#8a97a8]">A production run requires a real execution binding: mission, version, hash, provider/model binding and idempotency token. Incomplete configuration is rejected.</p>
-          <div className="mt-5 overflow-auto border border-[#1a2330] p-4"><pre className="font-mono text-[11px] leading-5 text-[#8a97a8]">{JSON.stringify({workload_layer:"customer",risk_level:"LOW",mission_id:"uuid",mission_version:1,mission_hash:"sha256...",idempotency_token:"unique-request"},null,2)}</pre></div>
+        <section className="mt-8 border border-[#1a2330] bg-[#0a0e14] p-6">
+          <h2 className="font-medium">1. Create an application</h2>
+          <form onSubmit={createApp} className="mt-4 grid gap-3 md:grid-cols-[1fr_1fr_auto]">
+            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Application name" className="border border-[#2a3646] bg-[#05070a] p-3 text-sm" />
+            <input value={scopes} onChange={(e) => setScopes(e.target.value)} placeholder="Scopes, comma separated (optional)" className="border border-[#2a3646] bg-[#05070a] p-3 text-sm" />
+            <button disabled={working} className="border border-[#00ff9d] px-5 py-3 text-sm text-[#00ff9d] disabled:opacity-50">Create</button>
+          </form>
+        </section>
+
+        <section className="mt-4 border border-[#1a2330] bg-[#0a0e14] p-6">
+          <h2 className="font-medium">2. API access</h2>
+          {loading ? <p className="mt-4 text-sm text-[#8a97a8]">Loading…</p> : apps.length === 0 ? (
+            <p className="mt-4 text-sm text-[#8a97a8]">No applications are registered for this developer account.</p>
+          ) : (
+            <>
+              <select value={selectedApp} onChange={(e) => void selectApp(e.target.value)} className="mt-4 w-full border border-[#2a3646] bg-[#05070a] p-3 text-sm">
+                {apps.map((app) => <option key={app.id} value={app.id}>{app.name}{app.active ? "" : " — inactive"}</option>)}
+              </select>
+              <button onClick={() => void createKey()} disabled={working || !selectedApp} className="mt-3 border border-[#00ff9d] px-5 py-3 text-sm text-[#00ff9d] disabled:opacity-50">Create API key</button>
+
+              <div className="mt-6 border-t border-[#1a2330] pt-5">
+                <div className="text-[10px] uppercase tracking-[.16em] text-[#5a6675]">Existing keys</div>
+                {keys.length === 0 ? <p className="mt-3 text-sm text-[#8a97a8]">No API keys.</p> : (
+                  <div className="mt-3 space-y-2">
+                    {keys.map((key) => (
+                      <div key={key.id} className="flex items-center justify-between border border-[#1a2330] p-3 text-xs">
+                        <span>{key.key_prefix} · {key.active ? "Active" : "Revoked"}</span>
+                        <span className="text-[#8a97a8]">{key.scopes.length ? key.scopes.join(", ") : "No scopes"}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+        </section>
+
+        <section className="mt-4 border border-[#1a2330] bg-[#0a0e14] p-6">
+          <h2 className="font-medium">3. Integrate</h2>
+          <p className="mt-2 text-sm leading-6 text-[#8a97a8]">
+            Use your API key with the Cyclothone API. Documentation and language examples can be added after the underlying API workflow is commissioned; this page does not invent a test request.
+          </p>
         </section>
       </div>
     </main>
