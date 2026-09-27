@@ -113,7 +113,7 @@ export default function CustomerServices() {
             </div>
             <div className="mt-auto flex items-center justify-between gap-3 pt-5">
               <div className="text-[10px] text-[#5a6675]">{count} request{count===1?"":"s"} · {serviceCases} case{serviceCases===1?"":"s"}</div>
-              <a href={"/request-service?service="+encodeURIComponent(service.key)} className="border border-[#00d9ff] px-3 py-2 text-[10px] text-[#00d9ff]">Request</a>
+              <a href={"/customer/services/"+encodeURIComponent(service.key)} className="border border-[#00d9ff] px-3 py-2 text-[10px] text-[#00d9ff]">Request</a>
             </div>
           </article>;
         })}
