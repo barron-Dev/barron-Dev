@@ -2,7 +2,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from cyclothone.api.routes.customer_identity import operator_principal
+from cyclothone.api.routes.customer_identity import operator_principal, principal as customer_principal
 from cyclothone.developer.auth import DeveloperPrincipal, authenticate_request
 from cyclothone.mobile_intelligence.service import MobileIntelligenceError, MobileIntelligenceService, CAPABILITIES, normalize_number, subject_hash
 from cyclothone.storage.supabase_client import supabase
@@ -13,6 +13,11 @@ class AuthorizationRequest(BaseModel):
     purpose:str=Field(min_length=3,max_length=120); authority_reference:str=Field(min_length=3,max_length=240); number:str=Field(min_length=7,max_length=20); valid_hours:int=Field(default=24,ge=1,le=720)
 class IntelligenceRequest(BaseModel):
     number:str=Field(min_length=7,max_length=20); capabilities:list[str]=Field(min_length=1,max_length=20); purpose:str=Field(min_length=3,max_length=120); authority_reference:str=Field(min_length=3,max_length=240); authorization_id:str; max_age_hours:int=Field(default=24,ge=1,le=720); latitude:float|None=Field(default=None,ge=-90,le=90); longitude:float|None=Field(default=None,ge=-180,le=180); radius_km:int|None=Field(default=None,ge=1,le=100)
+
+@router.get("/customer-status")
+async def customer_status(p:DeveloperPrincipal=Depends(customer_principal)):
+    if not p.tenant_id: raise HTTPException(403,"workspace_not_admitted")
+    return await service.status(__import__("uuid").UUID(p.tenant_id))
 
 @router.get("/capabilities")
 async def capabilities(p:DeveloperPrincipal=Depends(principal)): return {"service":"mobile_digital_intelligence","capabilities":sorted(CAPABILITIES)}
