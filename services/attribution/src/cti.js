@@ -9,7 +9,7 @@ function required(name){const v=process.env[name];if(!v)throw new Error(`missing
 async function sb(path,options={}){
   const res=await fetch(`${SUPABASE_URL}/rest/v1/${path}`,{
     ...options,
-    headers:{apikey:SUPABASE_KEY,Authorization:`Bearer ${SUPABASE_KEY`},...(options.headers||{})}
+    headers:{apikey:SUPABASE_KEY,Authorization:`Bearer ${SUPABASE_KEY}`},...(options.headers||{})}
   });
   if(!res.ok) throw new Error(`supabase_${res.status}:${await res.text()}`);
   return res.status===204?null:res.json();
