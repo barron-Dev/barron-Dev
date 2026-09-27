@@ -1,6 +1,15 @@
 name: MDI RF and Attribution Gates
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - "supabase/migrations/*mdi_*"
+      - "services/sat-sigint/**"
+      - "services/attribution/**"
+      - "console/app/customer/cases/**/attribution/**"
+      - "src/cyclothone/api/routes/mobile_intelligence_attribution.py"
+      - "src/cyclothone/api/app.py"
   pull_request:
     paths:
       - "supabase/migrations/*mdi_*"
