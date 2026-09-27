@@ -49,9 +49,6 @@ async function syncGroup(group){
       mean_anomaly:s.MEAN_ANOMALY ?? null,
       mean_motion:s.MEAN_MOTION ?? null,
       bstar:s.BSTAR ?? null,
-      source_url:url,
-      source_format:"celestrak_gp_json",
-      source_updated_at:now,
       updated_at:now
     });
   }
