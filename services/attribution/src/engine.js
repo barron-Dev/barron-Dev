@@ -28,6 +28,6 @@ export function combine(caseTtps,actors,spaceSize){
   return actors.map(actor=>{
     const j=jaccard(caseTtps,actor.ttps);
     const b=bayes.find(x=>x.actor.id===actor.id)?.prob??0;
-    return {actorId:actor.actorId,name:actor.name,jaccard:j,bayesProb:b,combined:Math.sqrt(j*b),sharedTtps:caseTtps.filter(t=>actor.ttps.has(t))};
+    return {actorId:actor.actorId,actorUuid:actor.id,name:actor.name,jaccard:j,bayesProb:b,combined:Math.sqrt(j*b),sharedTtps:caseTtps.filter(t=>actor.ttps.has(t))};
   }).filter(x=>x.jaccard>0||x.bayesProb>0).sort((a,b)=>b.combined-a.combined);
 }
