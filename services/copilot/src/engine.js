@@ -24,6 +24,10 @@ rag_search: async({tenant_id,query,case_id})=>sb.rpc("mdi_rag_search",{p_tenant_
 };
 
 async function callModel(messages){
+  if(process.env.OPENAI_API_KEY){
+    const r=await fetch("https://api.openai.com/v1/chat/completions",{method:"POST",headers:{"content-type":"application/json",Authorization:`Bearer ${process.env.OPENAI_API_KEY}`},body:JSON.stringify({model:process.env.OPENAI_MODEL||"gpt-5.6-mini",messages,temperature:0.1,response_format:{type:"json_object"}})});
+    if(r.ok){const j=await r.json();return j.choices?.[0]?.message?.content||"";}
+  }
   const r=await fetch(OLLAMA+"/api/chat",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({model:MODEL,messages,stream:false,format:"json",options:{temperature:0.1,num_ctx:8192}})});
   if(!r.ok) throw new Error("LLM unavailable");
   const j=await r.json(); return j.message?.content||"";
