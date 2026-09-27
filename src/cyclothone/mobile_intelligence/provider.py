@@ -4,13 +4,10 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import urljoin
 import httpx
-
 from cyclothone.storage.supabase_client import supabase
-
 
 class ProviderUnavailable(RuntimeError):
     pass
-
 
 class MobileProvider:
     def __init__(self, account: dict[str, Any]) -> None:
@@ -25,25 +22,14 @@ class MobileProvider:
         if self._token and self._token[1] > datetime.now(UTC) + timedelta(seconds=30):
             return self._token[0]
         ref = str(self.account.get("client_secret_ref") or "").strip()
-        if not ref:
-            raise ProviderUnavailable("provider_credential_reference_missing")
+        token_url = str(self.account.get("token_url") or "").strip()
+        client_id = str(self.account.get("client_id") or "").strip()
+        if not ref or not token_url or not client_id:
+            raise ProviderUnavailable("provider_oauth_configuration_missing")
         secret = await self._vault(ref)
         if not secret:
             raise ProviderUnavailable("provider_credential_unavailable")
-        token_url = str(self.account.get("token_url") or "").strip()
-        client_id = str(self.account.get("client_id") or "").strip()
-        if not token_url or not client_id:
-            raise ProviderUnavailable("provider_oauth_configuration_missing")
-        response = await self.http.post(
-            token_url,
-            data={
-                "grant_type": "client_credentials",
-                "client_id": client_id,
-                "client_secret": secret,
-                "scope": " ".join(self.account.get("scopes") or []),
-            },
-            headers={"content-type": "application/x-www-form-urlencoded"},
-        )
+        response = await self.http.post(token_url, data={"grant_type":"client_credentials","client_id":client_id,"client_secret":secret,"scope":" ".join(self.account.get("scopes") or [])}, headers={"content-type":"application/x-www-form-urlencoded"})
         if response.status_code >= 400:
             raise ProviderUnavailable(f"provider_token_http_{response.status_code}")
         data = response.json()
@@ -55,7 +41,7 @@ class MobileProvider:
         return access
 
     async def call(self, capability: str, payload: dict[str, Any]) -> dict[str, Any]:
-        endpoints = self.account.get("endpoints") or {}
+        endpoints = self.account.get("capabilities") or {}
         path = str(endpoints.get(capability) or "").strip()
         if not path:
             raise ProviderUnavailable(f"provider_capability_not_configured:{capability}")
@@ -63,15 +49,10 @@ class MobileProvider:
         if not base:
             raise ProviderUnavailable("provider_base_url_missing")
         token = await self.token()
-        url = path if path.startswith("http://") or path.startswith("https://") else urljoin(base.rstrip("/") + "/", path.lstrip("/"))
-        response = await self.http.post(
-            url,
-            json=payload,
-            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json", "Accept": "application/json"},
-        )
-        body: Any
+        url = path if path.startswith(("http://", "https://")) else urljoin(base.rstrip("/") + "/", path.lstrip("/"))
+        response = await self.http.post(url, json=payload, headers={"Authorization":f"Bearer {token}","Content-Type":"application/json","Accept":"application/json"})
         try:
-            body = response.json()
+            body: Any = response.json()
         except ValueError:
             body = {"raw": response.text[:2000]}
         if response.status_code >= 400:
