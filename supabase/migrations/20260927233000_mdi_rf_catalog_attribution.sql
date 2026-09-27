@@ -88,11 +88,11 @@ with matches as (
     end as freq_mhz
   from public.mdi_band_plan b
   where b.rat=p_rat and p_arfcn between b.arfcn_min and b.arfcn_max
+),
+winner as (
+  select band,freq_mhz from matches order by band limit 1
 )
-select m.band,true,m.freq_mhz,'reference_range_match'
-from matches m
-order by m.band
-limit 1
+select w.band,true,w.freq_mhz,'reference_range_match' from winner w
 union all
 select null,false,null,'arfcn_not_in_reference_range'
 where not exists (select 1 from matches);
