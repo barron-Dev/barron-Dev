@@ -20,9 +20,11 @@ create table if not exists public.mdi_rf_fingerprint_catalog (
   source_version text,
   validated_at timestamptz,
   metadata jsonb not null default '{}',
-  created_at timestamptz not null default now(),
-  unique (manufacturer, coalesce(product_line,''), coalesce(model,''))
+  created_at timestamptz not null default now()
 );
+
+create unique index if not exists mdi_rf_catalog_identity_idx
+  on public.mdi_rf_fingerprint_catalog (manufacturer, coalesce(product_line,''), coalesce(model,''));
 
 create index if not exists mdi_rf_catalog_manufacturer_idx
   on public.mdi_rf_fingerprint_catalog(manufacturer);
@@ -75,28 +77,25 @@ on conflict (band) do update set
 create or replace function public.mdi_validate_arfcn(p_rat text, p_arfcn bigint)
 returns table(band text, valid boolean, freq_mhz numeric, reason text)
 language sql stable set search_path=public as $$
-  select b.band, true,
+with matches as (
+  select b.band,
     case
       when b.rat='LTE' then b.dl_low_mhz + ((p_arfcn-b.arfcn_offset)::numeric * 0.1)
-      when b.rat='NR' then
-        case
-          when p_arfcn between 0 and 599999 then
-            (p_arfcn - 0)::numeric * 0.005
-          else null
-        end
+      when b.rat='NR' and p_arfcn < 600000 then p_arfcn::numeric * 0.005
+      when b.rat='NR' and p_arfcn < 2016667 then 3000 + (p_arfcn-600000)::numeric * 0.015
+      when b.rat='NR' then 24250 + (p_arfcn-2016667)::numeric * 0.06
       else null
-    end,
-    'reference_range_match'
+    end as freq_mhz
   from public.mdi_band_plan b
   where b.rat=p_rat and p_arfcn between b.arfcn_min and b.arfcn_max
-  order by b.band
-  limit 1
-  union all
-  select null,false,null,'arfcn_not_in_reference_range'
-  where not exists (
-    select 1 from public.mdi_band_plan b
-    where b.rat=p_rat and p_arfcn between b.arfcn_min and b.arfcn_max
-  );
+)
+select m.band,true,m.freq_mhz,'reference_range_match'
+from matches m
+order by m.band
+limit 1
+union all
+select null,false,null,'arfcn_not_in_reference_range'
+where not exists (select 1 from matches);
 $$;
 
 create table if not exists public.mdi_attack_mobile (
