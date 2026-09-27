@@ -1,0 +1,31 @@
+name: MDI Copilot + Compliance Gates
+on:
+  pull_request:
+    paths:
+      - "supabase/migrations/*mdi*"
+      - "services/copilot/**"
+      - "services/compliance/**"
+      - "src/cyclothone/api/routes/mobile_intelligence_*.py"
+      - "console/app/customer/services/**"
+jobs:
+  static-gates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Copilot must not expose service role to browser
+        run: |
+          if grep -RIn "SUPABASE_SERVICE_ROLE_KEY" console/app console/components console/lib --include='*.ts' --include='*.tsx'; then
+            echo "service-role reference found in browser code"; exit 1
+          fi
+      - name: Copilot route must use authenticated MDI backend
+        run: |
+          grep -q 'mobile-intelligence/copilot' src/cyclothone/api/routes/mobile_intelligence_copilot.py
+          grep -q 'authenticate_request' src/cyclothone/api/routes/mobile_intelligence_copilot.py
+      - name: Compliance rule coverage
+        run: |
+          for j in GDPR UAE_PDPL SAUDI_PDPL POPIA DPDP_IN; do
+            grep -q "'$j'" supabase/migrations/*mdi_copilot_compliance.sql || { echo "missing $j"; exit 1; }
+          done
+      - name: No production database dependency
+        run: |
+          ! grep -RIn "DATABASE_URL" .github/workflows/mdi-copilot-compliance-gates.yml
