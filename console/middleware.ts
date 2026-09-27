@@ -16,15 +16,10 @@ export function middleware(req: NextRequest) {
   const p = req.nextUrl.pathname;
   if (p.startsWith("/_next") || p.startsWith("/api")) return NextResponse.next();
 
-  // Keep canonical internal route prefixes addressable without another rewrite.
   if (p.startsWith("/surface") || p.startsWith("/customer") || p.startsWith("/developers") || p.startsWith("/kontrol")) {
     return NextResponse.next();
   }
 
-  // These are real shared entry routes used by the customer surface.
-  // They must not be rewritten to /customer/<route>, because their
-  // implementations live at the app root and the catch-all module route
-  // would otherwise render "Module not found".
   if (p === "/login" || p === "/register" || p === "/request-service" || p.startsWith("/invitations/")) {
     return NextResponse.next();
   }
@@ -37,8 +32,12 @@ export function middleware(req: NextRequest) {
   }
 
   if (surface === "customer") {
-    // Customer subdomain exposes clean customer URLs while the app keeps
-    // customer routes under /customer/* internally.
+    // The customer domain is a protected destination. Its root enters real authentication;
+    // public product discovery stays on cyclothone.online/platform.
+    if (p === "/") {
+      u.pathname = "/login";
+      return NextResponse.rewrite(u);
+    }
     u.pathname = "/customer" + (p === "/" ? "/overview" : p);
     return NextResponse.rewrite(u);
   }
@@ -48,9 +47,6 @@ export function middleware(req: NextRequest) {
     return NextResponse.rewrite(u);
   }
 
-  // Kontrol is different: its operational modules already live at root
-  // paths (/detection, /response, /intelligence/*, ...). Do not prefix them
-  // with /kontrol or the catch-all service routes become unreachable.
   if (surface === "kontrol") return NextResponse.next();
 
   return NextResponse.next();
