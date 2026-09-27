@@ -1,0 +1,13 @@
+begin;
+alter function public.mdi_e164(text,text) set search_path=public,extensions;
+alter function public.mdi_luhn_ok(text) set search_path=public,extensions;
+alter function public.mdi_imei_valid(text) set search_path=public,extensions;
+alter function public.mdi_imei_tac(text) set search_path=public,extensions;
+alter function public.mdi_decay(numeric,numeric) set search_path=public,extensions;
+alter function public.mdi_risk_from_signals(numeric,jsonb) set search_path=public,extensions;
+alter function public.mdi_shortest_path(uuid,uuid,integer,numeric) set search_path=public,extensions;
+alter function public.mdi_neighborhood(uuid,integer,numeric) set search_path=public,extensions;
+alter function public.mdi_haversine_m(double precision,double precision,double precision,double precision) set search_path=public,extensions;
+alter function public.mdi_point_in_ring(jsonb,double precision,double precision) set search_path=public,extensions;
+alter function public.mdi_geofence_hit(uuid,double precision,double precision) set search_path=public,extensions;
+commit;
