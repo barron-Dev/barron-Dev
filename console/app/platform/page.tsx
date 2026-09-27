@@ -71,7 +71,8 @@ const serviceGuides:ServiceGuide[]=[
 {key:"mobile_digital_intelligence",name:"Mobile & Digital Intelligence",purpose:"Analyze authorized mobile, network, device, location and communications signals when deeper digital context is required.",how:"Specialized RF, A2P, voice, payment, satellite and mobile intelligence pipelines normalize signals, apply bounded analytical methods and expose evidence through governed investigation workflows.",solves:"Fraud, surveillance, telecom and mobile threats that cross device, network, identity, payment and physical boundaries.",outcome:"Cross-domain intelligence that can connect signals other security tools normally investigate separately."}
 ];
 
-const serviceNames=new Set(planes.flatMap(p=>p.layers.flatMap(l=>l.capabilities.filter(c=>c.serviceKey).map(c=>c.serviceKey!))));\n
+const serviceNames=new Set(planes.flatMap(p=>p.layers.flatMap(l=>l.capabilities.filter(c=>c.serviceKey).map(c=>c.serviceKey!))));
+
 const journey=[
 {n:"01",name:"WORLD",text:"The people, organizations, devices, networks, places and systems that Cyclothone is authorized to protect.",role:"Context"},
 {n:"02",name:"OBSERVE",text:"Collect authorized signals and preserve their source, scope and provenance.",role:"Evidence"},
