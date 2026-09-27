@@ -8,6 +8,7 @@ on:
       - "services/compliance/**"
       - "src/cyclothone/api/routes/mobile_intelligence_*.py"
       - "console/app/customer/services/**"
+      - ".github/workflows/mdi-copilot-compliance-gates.yml"
   pull_request:
     paths:
       - "supabase/migrations/*mdi*"
