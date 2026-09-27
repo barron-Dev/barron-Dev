@@ -27,7 +27,7 @@ export default function Register(){
   async function submit(e:FormEvent){
     e.preventDefault();setBusy(true);setError(null);setDone(null);
     try{
-      const {data,error}=await supabase.auth.signUp({email,password,data:{account_type:type}});
+      const {data,error}=await supabase.auth.signUp({email,password,options:{data:{account_type:type}}});
       if(error) throw new Error(error.message);
       if(!data.session){
         sessionStorage.setItem("cyclothone_pending_organization",JSON.stringify({type,name,country,domain,registration}));
