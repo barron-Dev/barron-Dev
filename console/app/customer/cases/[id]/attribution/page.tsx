@@ -6,6 +6,7 @@ import {apiFetch,setApiToken} from "@/lib/api";
 
 type Attribution={id:string;actor_id:string|null;confidence:number;method:string;evidence:any;alternative_actors:any[];computed_at:string};
 type Ttp={id:number;technique_id:string;confidence:number;detector:string;observed_at:string};
+type Actor={id:string;name?:string|null};
 
 export default function AttributionPage(){
   const params=useParams<{id:string}>();
@@ -27,7 +28,7 @@ export default function AttributionPage(){
   if(loading)return <main className="min-h-screen bg-[#05070a] text-[#e8eef6] p-6 text-xs">Loading live attribution…</main>;
   if(error)return <main className="min-h-screen bg-[#05070a] text-[#e8eef6] p-6"><div className="border border-[#ff2d55]/40 p-4 text-xs text-[#ff6b83]">{error}</div></main>;
 
-  const actors=new Map((data?.actors??[]).map((a:any)=>[a.id,a]));
+  const actors=new Map<string,Actor>((data?.actors??[]).map((a:Actor)=>[a.id,a]));
   const attrs:Attribution[]=data?.attributions??[];
   const ttps:Ttp[]=data?.ttps??[];
 
@@ -51,7 +52,7 @@ export default function AttributionPage(){
         <h2 className="font-semibold">Attribution evidence</h2>
         {!attrs.length?<p className="mt-4 text-xs text-[#5a6675]">No attribution result has been computed from live source-backed evidence yet.</p>:
         <div className="mt-4 space-y-3">{attrs.map(a=>{
-          const actor=actors.get(a.actor_id);
+          const actor=actors.get(a.actor_id??"");
           return <article key={a.id} className="border border-[#1a2330] p-4">
             <div className="flex items-center justify-between">
               <b>{actor?.name??"Unresolved actor"}</b>
