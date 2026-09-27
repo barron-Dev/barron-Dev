@@ -1,149 +1,59 @@
 import Link from "next/link";
 
-type Service = { key: string; name: string; description: string };
-type Layer = { id: string; name: string; description: string; services: Service[] };
+type Capability={name:string;description:string;serviceKey?:string};
+type Layer={id:string;name:string;description:string;capabilities:Capability[]};
+type Plane={name:string;description:string;layers:Layer[]};
 
-const planes: { name: string; description: string; layers: Layer[] }[] = [
-  {
-    name: "Identity & World",
-    description: "Establish who is acting, what exists, and which organization or world state the action belongs to.",
-    layers: [
-      { id: "01", name: "Global Identity", description: "Identity, account and principal foundations used across Cyclothone.", services: [] },
-      { id: "02", name: "Customer & Admission", description: "Organization onboarding, verification, admission and tenant establishment.", services: [{ key: "cybersecurity_assessment", name: "Customer onboarding", description: "Organization, verification and admission before protected operations." }] },
-      { id: "03", name: "Device & Infrastructure Identity", description: "Identity and trust context for devices, infrastructure and connected security assets.", services: [{ key: "soc_mdr", name: "SOC / MDR", description: "Managed security operations around authorized infrastructure." }] },
-    ],
-  },
-  {
-    name: "Security Operations",
-    description: "Observe, detect, investigate and manage security-relevant activity using authorized evidence.",
-    layers: [
-      { id: "04", name: "Data & Evidence", description: "Evidence, provenance and customer-visible records that support security decisions.", services: [{ key: "compliance", name: "Compliance", description: "Evidence and assurance results for approved frameworks." }] },
-      { id: "05", name: "Security Intelligence", description: "Threat, exposure and intelligence capabilities across approved sources.", services: [
-        { key: "threat_intelligence", name: "Threat Intelligence", description: "Relevant indicators and threat information." },
-        { key: "web_intelligence", name: "Web Intelligence", description: "Approved web targets and security-relevant findings." },
-        { key: "dark_web_monitoring", name: "Dark Web Monitoring", description: "Approved-source exposure monitoring." },
-        { key: "brand_protection", name: "Brand Protection", description: "Brand abuse and impersonation monitoring." },
-        { key: "scam_monitoring", name: "Scam Monitoring", description: "Approved scam-related exposure monitoring." },
-        { key: "mobile_digital_intelligence", name: "Mobile & Digital Intelligence", description: "Authorized mobile, device, network and location intelligence." },
-      ] },
-      { id: "06", name: "Investigation & Cases", description: "Turn authorized findings into investigations, cases and documented outcomes.", services: [
-        { key: "investigation", name: "Investigation", description: "Evidence-backed authorized investigations." },
-        { key: "hunting", name: "Threat Hunting", description: "Approved hunts against authorized scope." },
-        { key: "incident_response", name: "Incident Response", description: "Coordinated response to active or suspected incidents." },
-      ] },
-    ],
-  },
-  {
-    name: "Trust & Control",
-    description: "Keep authority, policy, risk and trust decisions outside the model and enforce them before action.",
-    layers: [
-      { id: "07", name: "Response & Execution", description: "Controlled transition from an authorized decision to an executable action.", services: [{ key: "incident_response", name: "Incident Response", description: "Controlled response activity and documented outcomes." }] },
-      { id: "08", name: "Policy & Risk Control", description: "Risk, policy and compliance controls that constrain protected operations.", services: [{ key: "compliance", name: "Compliance", description: "Framework assessment and assurance evidence." }, { key: "cybersecurity_assessment", name: "Cybersecurity Assessment", description: "Security posture and verified gaps." }] },
-      { id: "09", name: "Trust Infrastructure", description: "Verification, attestation, authorization and continuous trust boundaries.", services: [{ key: "ai_security", name: "AI Security", description: "Security controls around AI systems and exposure." }] },
-    ],
-  },
-  {
-    name: "Intelligence & AI",
-    description: "Models, agents and investigation intelligence operate within explicit trust and authorization boundaries.",
-    layers: [
-      { id: "10", name: "Digital Twin & World State", description: "Represent authorized assets, physical context and changing world state.", services: [{ key: "physical_security", name: "Physical Security", description: "Approved physical security assets and events." }] },
-      { id: "11", name: "Federation & Trust Exchange", description: "Controlled exchange of trust and intelligence signals across authorized boundaries.", services: [] },
-      { id: "12", name: "AI Control Plane", description: "AI providers, models, agents, missions, tools and lifecycle controls.", services: [{ key: "ai_security", name: "AI Security", description: "AI-system security and operational controls." }] },
-    ],
-  },
-  {
-    name: "Execution & Orchestration",
-    description: "Coordinate response, recovery, automation and governance while preserving evidence of what happened.",
-    layers: [
-      { id: "13", name: "AI Trust & Autonomy", description: "Bound autonomous intelligence with trust, admission and authorization controls.", services: [{ key: "mobile_digital_intelligence", name: "Investigation Copilot", description: "Evidence-backed assistance; it does not authorize or execute actions." }] },
-      { id: "14", name: "Global Orchestration", description: "Coordinate security workflows across services, cases and execution paths.", services: [{ key: "soc_mdr", name: "SOC / MDR", description: "Security operations monitoring and managed workflows." }, { key: "recovery", name: "Recovery", description: "Approved recovery workflow and documented result." }] },
-      { id: "15", name: "Governance, Audit & Public Trust", description: "Governance, auditability, assurance and durable public trust around platform operation.", services: [{ key: "compliance", name: "Compliance", description: "Assurance status, evidence and compliance results." }] },
-    ],
-  },
-];
+const CUSTOMER="https://customers.cyclothone.online";
+const DEVELOPERS="https://developers.cyclothone.online";
 
-const serviceNames = new Set(planes.flatMap(p => p.layers.flatMap(l => l.services.map(s => s.key))));
+const planes:Plane[]=[
+{name:"Identity & World",description:"Establish who is acting, what exists, and which organization or world state an operation belongs to.",layers:[
+{id:"01",name:"Global Identity",description:"Identity and principal foundations shared across the platform.",capabilities:[
+{name:"Authentication",description:"Real account authentication and session establishment."},{name:"Principal identity",description:"Authenticated user and service principals used by protected operations."},{name:"Identity context",description:"Identity attributes used by trust and authorization controls."}]},
+{id:"02",name:"Customer & Admission",description:"Organization onboarding, verification, admission and tenant establishment.",capabilities:[
+{name:"Organization onboarding",description:"Create the organization record associated with an authenticated account."},{name:"Verification",description:"Collect and track organization verification evidence."},{name:"Admission",description:"Establish whether the organization may enter protected operations."}]},
+{id:"03",name:"Device & Infrastructure Identity",description:"Identity and trust context for devices, infrastructure and connected security assets.",capabilities:[
+{name:"Device identity",description:"Bind authorized devices and agents to an accountable identity."},{name:"Infrastructure identity",description:"Maintain security context for connected infrastructure."},{name:"Agent trust",description:"Support authenticated, governed agent participation."}]}
+]},
+{name:"Security Operations",description:"Observe, detect, investigate and manage security-relevant activity using authorized evidence.",layers:[
+{id:"04",name:"Data & Evidence",description:"Evidence, provenance and durable records supporting security decisions.",capabilities:[
+{name:"Evidence",description:"Preserve evidence associated with authorized findings and cases."},{name:"Provenance",description:"Maintain source and processing context for security records."},{name:"Audit records",description:"Record protected operations and their outcomes."}]},
+{id:"05",name:"Security Intelligence",description:"Threat, exposure and intelligence capabilities across approved sources.",capabilities:[
+{name:"Detection",description:"Identify security-relevant events and threats.",serviceKey:"cybersecurity_assessment"},{name:"Threat Intelligence",description:"Investigate relevant indicators and threat information.",serviceKey:"threat_intelligence"},{name:"Web Intelligence",description:"Monitor approved web targets for security-relevant findings.",serviceKey:"web_intelligence"},{name:"Dark Web Monitoring",description:"Monitor approved sources for relevant exposure.",serviceKey:"dark_web_monitoring"},{name:"Brand Protection",description:"Monitor brand assets for abuse and impersonation.",serviceKey:"brand_protection"},{name:"Scam Monitoring",description:"Monitor approved scam-related exposure.",serviceKey:"scam_monitoring"},{name:"Mobile & Digital Intelligence",description:"Authorized mobile, device, network and location intelligence.",serviceKey:"mobile_digital_intelligence"}]},
+{id:"06",name:"Investigation & Cases",description:"Turn authorized findings into investigations, cases and documented outcomes.",capabilities:[
+{name:"Threat Hunting",description:"Run approved hunts against authorized scope.",serviceKey:"hunting"},{name:"Investigation",description:"Conduct evidence-backed authorized investigations.",serviceKey:"investigation"},{name:"Incident Response",description:"Coordinate response to active or suspected incidents.",serviceKey:"incident_response"},{name:"Case management",description:"Track protected cases, activity and customer-visible outcomes."}]}
+]},
+{name:"Trust & Control",description:"Keep authority, policy, risk and trust decisions outside the model and enforce them before action.",layers:[
+{id:"07",name:"Response & Execution",description:"Transition an authorized decision into an executable, evidenced action.",capabilities:[
+{name:"Response",description:"Coordinate authorized response actions.",serviceKey:"incident_response"},{name:"Action authorization",description:"Require the appropriate trust and control boundary before execution."},{name:"Execution evidence",description:"Record what was authorized, dispatched and completed."}]},
+{id:"08",name:"Policy & Risk Control",description:"Risk, policy, compliance and operational constraints for protected activity.",capabilities:[
+{name:"Risk control",description:"Evaluate risk and enforce operational constraints."},{name:"Compliance",description:"Framework and assurance workflows.",serviceKey:"compliance"},{name:"Cybersecurity Assessment",description:"Assess security posture and verified gaps.",serviceKey:"cybersecurity_assessment"},{name:"Lawful-basis controls",description:"Keep sensitive intelligence processing subject to applicable authorization and lawful-basis gates."}]},
+{id:"09",name:"Trust Infrastructure",description:"Verification, attestation, authorization and continuous trust boundaries.",capabilities:[
+{name:"Trust decisions",description:"Evaluate whether a protected operation may proceed."},{name:"Authorization",description:"Enforce scoped authority before protected actions."},{name:"Continuous verification",description:"Re-check relevant identity, policy and trust conditions."}]}
+]},
+{name:"Intelligence & AI",description:"Models, agents and investigation intelligence operate within explicit trust and authorization boundaries.",layers:[
+{id:"10",name:"Digital Twin & World State",description:"Represent authorized assets, physical context and changing world state.",capabilities:[
+{name:"Digital world state",description:"Represent authorized assets and their security context."},{name:"Physical Security",description:"Monitor approved physical security assets and events.",serviceKey:"physical_security"},{name:"World-state correlation",description:"Correlate authorized digital and physical context."}]},
+{id:"11",name:"Federation & Trust Exchange",description:"Controlled exchange of trust and intelligence signals across authorized boundaries.",capabilities:[
+{name:"Federation",description:"Connect authorized trust and intelligence domains.",serviceKey:"soc_mdr"},{name:"Reputation exchange",description:"Exchange governed reputation signals without exposing unnecessary underlying data."},{name:"Developer integration",description:"Integrate approved applications with the platform."}]},
+{id:"12",name:"AI Control Plane",description:"AI providers, models, agents, missions, tools and lifecycle controls.",capabilities:[
+{name:"Models & providers",description:"Govern model and provider bindings."},{name:"Agents & missions",description:"Define governed agents and mission execution."},{name:"AI Security",description:"Protect AI systems and their operational boundaries.",serviceKey:"ai_security"}]}
+]},
+{name:"Execution & Orchestration",description:"Coordinate response, recovery, automation and governance while preserving evidence of what happened.",layers:[
+{id:"13",name:"AI Trust & Autonomy",description:"Bound autonomous intelligence with trust, admission and authorization controls.",capabilities:[
+{name:"Investigation Copilot",description:"Evidence-backed assistance that does not authorize or execute actions.",serviceKey:"mobile_digital_intelligence"},{name:"Model routing",description:"Route governed workloads to approved model/provider bindings."},{name:"Attribution & prediction",description:"Produce bounded intelligence outputs subject to trust and evidence controls."}]},
+{id:"14",name:"Global Orchestration",description:"Coordinate security workflows across services, cases and execution paths.",capabilities:[
+{name:"SOC / MDR",description:"Managed security operations and governed workflows.",serviceKey:"soc_mdr"},{name:"Automation",description:"Coordinate approved multi-step security workflows."},{name:"Recovery",description:"Execute approved recovery workflows and document results.",serviceKey:"recovery"}]},
+{id:"15",name:"Governance, Audit & Public Trust",description:"Governance, auditability, assurance and durable trust around platform operation.",capabilities:[
+{name:"Governance",description:"Define and enforce accountable operating boundaries."},{name:"Audit & assurance",description:"Provide durable evidence of protected operations.",serviceKey:"compliance"},{name:"Public trust boundary",description:"Keep public explanation separate from customer telemetry and protected operations."}]}
+]}];
 
-export default function Platform() {
-  return (
-    <main className="min-h-screen bg-[#05070a] text-[#e8eef6]">
-      <nav className="sticky top-0 z-20 flex min-h-14 items-center justify-between border-b border-[#1a2330] bg-[#05070a]/95 px-5 backdrop-blur md:px-12">
-        <Link href="/" className="font-semibold tracking-tight">Cyclothone</Link>
-        <div className="flex items-center gap-3 text-[10px] text-[#8a97a8]">
-          <a href="#planes">Platform</a>
-          <a href="#flow">How it works</a>
-          <a href="https://developers.cyclothone.online">Developer</a>
-          <a href="https://customers.cyclothone.online/login" className="border border-[#2a3646] px-3 py-2">Sign in</a>
-        </div>
-      </nav>
+const serviceNames=new Set(planes.flatMap(p=>p.layers.flatMap(l=>l.capabilities.filter(c=>c.serviceKey).map(c=>c.serviceKey!))));
 
-      <section className="border-b border-[#1a2330] px-5 py-16 md:px-12 md:py-24">
-        <div className="max-w-4xl">
-          <div className="text-[10px] uppercase tracking-[.18em] text-[#00d9ff]">The Cyclothone platform</div>
-          <h1 className="mt-4 text-4xl font-semibold leading-tight md:text-6xl">Understand the whole system before you enter it.</h1>
-          <p className="mt-6 max-w-3xl text-sm leading-6 text-[#8a97a8]">
-            Cyclothone connects identity, security operations, trust and control, intelligence and AI, and execution into one governed security platform. This public view explains the architecture and the services without exposing customer data or pretending that protected telemetry exists.
-          </p>
-          <div className="mt-7 flex flex-wrap gap-3">
-            <a href="https://customers.cyclothone.online/login" className="border border-[#00d9ff] px-4 py-3 text-[10px] text-[#00d9ff]">Enter customer platform →</a>
-            <a href="https://developers.cyclothone.online" className="border border-[#2a3646] px-4 py-3 text-[10px]">Explore developer platform →</a>
-          </div>
-        </div>
-      </section>
-
-      <section id="planes" className="px-5 py-12 md:px-12 md:py-16">
-        <div className="mb-8">
-          <div className="text-[10px] uppercase tracking-[.18em] text-[#5a6675]">Five planes · fifteen layers</div>
-          <h2 className="mt-2 text-3xl font-semibold">The complete public map</h2>
-          <p className="mt-2 max-w-3xl text-xs leading-5 text-[#8a97a8]">The layer map is architectural. Service links below lead to protected customer operations; visitors can read what each capability does before authentication.</p>
-        </div>
-
-        <div className="space-y-6">
-          {planes.map((plane, pi) => (
-            <section key={plane.name} className="border border-[#1a2330] bg-[#0a0e14]">
-              <div className="border-b border-[#1a2330] p-5 md:p-6">
-                <div className="text-[9px] uppercase tracking-[.16em] text-[#00d9ff]">Plane {pi + 1}</div>
-                <h3 className="mt-1 text-xl font-medium">{plane.name}</h3>
-                <p className="mt-2 max-w-3xl text-xs leading-5 text-[#8a97a8]">{plane.description}</p>
-              </div>
-              <div className="grid gap-px bg-[#1a2330] md:grid-cols-2 xl:grid-cols-3">
-                {plane.layers.map(layer => (
-                  <article id={"layer-" + layer.id} key={layer.id} className="bg-[#070a0f] p-5">
-                    <div className="font-mono text-[10px] text-[#00d9ff]">{layer.id}</div>
-                    <h4 className="mt-2 font-medium">{layer.name}</h4>
-                    <p className="mt-2 text-xs leading-5 text-[#8a97a8]">{layer.description}</p>
-                    <div className="mt-4 space-y-2">
-                      {layer.services.length ? layer.services.map(service => (
-                        <div key={service.key} className="border-t border-[#1a2330] pt-2">
-                          <div className="text-[11px]">{service.name}</div>
-                          <div className="mt-1 text-[10px] leading-4 text-[#5a6675]">{service.description}</div>
-                          {serviceNames.has(service.key) && (
-                            <a href={"https://customers.cyclothone.online/request-service?service=" + encodeURIComponent(service.key)} className="mt-2 inline-block text-[9px] text-[#00d9ff]">Protected service entry →</a>
-                          )}
-                        </div>
-                      )) : <div className="border-t border-[#1a2330] pt-3 text-[10px] text-[#5a6675]">Architecture layer; protected capabilities connect here when authorized.</div>}
-                    </div>
-                  </article>
-                ))}
-              </div>
-            </section>
-          ))}
-        </div>
-      </section>
-
-      <section id="flow" className="border-y border-[#1a2330] px-5 py-12 md:px-12 md:py-16">
-        <div className="max-w-4xl">
-          <div className="text-[10px] uppercase tracking-[.18em] text-[#00ff9d]">Operating boundary</div>
-          <h2 className="mt-3 text-3xl font-semibold">AI reasons. Trust verifies. Control authorizes. Execution acts. Evidence proves.</h2>
-          <p className="mt-4 text-sm leading-6 text-[#8a97a8]">
-            Public visitors can understand the workflow without receiving customer telemetry. Authentication belongs at the protected customer or developer destination, and higher-risk operations remain subject to verification, admission and authorization.
-          </p>
-        </div>
-      </section>
-
-      <footer className="px-5 py-8 text-[10px] text-[#5a6675] md:px-12">
-        Cyclothone · Public platform map · No customer telemetry is displayed on this surface.
-      </footer>
-    </main>
-  );
-}
+export default function Platform(){return <main className="min-h-screen bg-[#05070a] text-[#e8eef6]">
+<nav className="sticky top-0 z-20 flex min-h-14 items-center justify-between border-b border-[#1a2330] bg-[#05070a]/95 px-5 backdrop-blur md:px-12"><Link href="/" className="font-semibold tracking-tight">Cyclothone</Link><div className="flex items-center gap-3 text-[10px] text-[#8a97a8]"><a href="#planes">Platform</a><a href="#flow">How it works</a><a href={DEVELOPERS}>Developer</a><a href={CUSTOMER+"/login"} className="border border-[#2a3646] px-3 py-2">Sign in</a></div></nav>
+<section className="border-b border-[#1a2330] px-5 py-16 md:px-12 md:py-24"><div className="max-w-4xl"><div className="text-[10px] uppercase tracking-[.18em] text-[#00d9ff]">The Cyclothone platform</div><h1 className="mt-4 text-4xl font-semibold leading-tight md:text-6xl">Understand the whole system before you enter it.</h1><p className="mt-6 max-w-3xl text-sm leading-6 text-[#8a97a8]">Cyclothone connects identity, security operations, trust and control, intelligence and AI, and execution into one governed security platform. This public map explains all five planes and fifteen layers without exposing customer data or inventing protected telemetry.</p><div className="mt-7 flex flex-wrap gap-3"><a href="#planes" className="border border-[#00d9ff] px-4 py-3 text-[10px] text-[#00d9ff]">Explore all layers →</a><a href={CUSTOMER+"/login"} className="border border-[#2a3646] px-4 py-3 text-[10px]">Enter customer platform →</a><a href={DEVELOPERS} className="border border-[#2a3646] px-4 py-3 text-[10px]">Explore developer platform →</a></div></div></section>
+<section id="planes" className="px-5 py-12 md:px-12 md:py-16"><div className="mb-8"><div className="text-[10px] uppercase tracking-[.18em] text-[#5a6675]">Five planes · fifteen layers</div><h2 className="mt-2 text-3xl font-semibold">The complete public map</h2><p className="mt-2 max-w-3xl text-xs leading-5 text-[#8a97a8]">Every capability below is an architectural description. Customer service entry points remain protected and require real identity, organization admission and authorization.</p></div><div className="space-y-6">{planes.map((plane,pi)=><section key={plane.name} className="border border-[#1a2330] bg-[#0a0e14]"><div className="border-b border-[#1a2330] p-5 md:p-6"><div className="text-[9px] uppercase tracking-[.16em] text-[#00d9ff]">Plane {pi+1}</div><h3 className="mt-1 text-xl font-medium">{plane.name}</h3><p className="mt-2 max-w-3xl text-xs leading-5 text-[#8a97a8]">{plane.description}</p></div><div className="grid gap-px bg-[#1a2330] md:grid-cols-2 xl:grid-cols-3">{plane.layers.map(layer=><article id={"layer-"+layer.id} key={layer.id} className="bg-[#070a0f] p-5"><div className="font-mono text-[10px] text-[#00d9ff]">{layer.id}</div><h4 className="mt-2 font-medium">{layer.name}</h4><p className="mt-2 text-xs leading-5 text-[#8a97a8]">{layer.description}</p><div className="mt-4 space-y-3">{layer.capabilities.map(cap=><div key={cap.name} className="border-t border-[#1a2330] pt-3"><div className="text-[11px]">{cap.name}</div><div className="mt-1 text-[10px] leading-4 text-[#5a6675]">{cap.description}</div>{cap.serviceKey&&serviceNames.has(cap.serviceKey)&&<a href={CUSTOMER+"/request-service?service="+encodeURIComponent(cap.serviceKey)} className="mt-2 inline-block text-[9px] text-[#00d9ff]">Protected service entry →</a>}</div>)}</div></article>)}</div></section>)}</div></section>
+<section id="flow" className="border-y border-[#1a2330] px-5 py-12 md:px-12 md:py-16"><div className="max-w-4xl"><div className="text-[10px] uppercase tracking-[.18em] text-[#00ff9d]">Operating boundary</div><h2 className="mt-3 text-3xl font-semibold">AI reasons. Trust verifies. Control authorizes. Execution acts. Evidence proves.</h2><p className="mt-4 text-sm leading-6 text-[#8a97a8]">Visitors can understand the complete operating model without receiving customer telemetry. Authentication belongs at the protected customer or developer destination, and higher-risk operations remain subject to verification, admission and authorization.</p></div></section>
+<footer className="px-5 py-8 text-[10px] text-[#5a6675] md:px-12">Cyclothone · Public platform map · No customer telemetry is displayed on this surface.</footer></main>}
