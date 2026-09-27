@@ -151,7 +151,6 @@ with vec as (
          1-(e.embedding <=> p_query_embedding) as sim
   from public.mdi_embeddings e
   where e.tenant_id=p_tenant_id
-    and e.entity_kind='subject'
     and exists (select 1 from public.mdi_subject_tenants st where st.tenant_id=p_tenant_id and st.subject_id=e.entity_id)
     and e.embedding is not null
     and (p_kinds is null or e.entity_kind=any(p_kinds))
@@ -163,9 +162,9 @@ case_ctx as (
 )
 select v.entity_kind,v.entity_id,v.content,
        v.sim::numeric,
-       least(coalesce((select count(*) from public.mdi_graph_edges e where e.src_id=v.entity_id or e.dst_id=v.entity_id),0)::numeric/20,1),
+       case when exists(select 1 from public.mdi_subject_tenants st where st.tenant_id=p_tenant_id and st.subject_id=v.entity_id) then least(coalesce((select count(*) from public.mdi_graph_edges e where e.src_id=v.entity_id or e.dst_id=v.entity_id),0)::numeric/20,1) else 0 end,
        (v.sim*0.75
-        +least(coalesce((select count(*) from public.mdi_graph_edges e where e.src_id=v.entity_id or e.dst_id=v.entity_id),0)::numeric/20,1)*0.15
+        +case when exists(select 1 from public.mdi_subject_tenants st where st.tenant_id=p_tenant_id and st.subject_id=v.entity_id) then least(coalesce((select count(*) from public.mdi_graph_edges e where e.src_id=v.entity_id or e.dst_id=v.entity_id),0)::numeric/20,1)*0.15 else 0 end
         +case when p_case is not null and v.entity_id in(select subject_id from case_ctx) then 0.10 else 0 end)::numeric
 from vec v order by 6 desc limit greatest(p_k,1);
 $$;
