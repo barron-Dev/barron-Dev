@@ -18,5 +18,8 @@ async def case_attribution(case_id:str,p:DeveloperPrincipal=Depends(customer_pri
     actor_ids=[a.get("actor_id") for a in attrs if a.get("actor_id")]
     actors=[]
     if actor_ids:
-        actors=await supabase.select("mdi_threat_actors","id,actor_id,name,aliases,origin_country,motivation,sophistication",id__in=actor_ids)
+        actors=[]
+        for actor_id in actor_ids:
+            actor=await supabase.select_one("mdi_threat_actors","id,actor_id,name,aliases,origin_country,motivation,sophistication",id=actor_id)
+            if actor: actors.append(actor)
     return {"case":case,"ttps":ttps,"attributions":attrs,"actors":actors}
