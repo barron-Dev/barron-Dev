@@ -22,10 +22,12 @@ async function syncGapMatrixActor(actorId){
   });
   if(!res.ok) throw new Error(`gapmatrix_${res.status}`);
   const a=await res.json();
+  const originCountry=/^[A-Z]{2}$/.test(String(a.origin_country??"").toUpperCase())?String(a.origin_country).toUpperCase():null;
+  const targetCountries=(Array.isArray(a.target_countries)?a.target_countries:[]).map(x=>String(x).toUpperCase()).filter(x=>/^[A-Z]{2}$/.test(x));
   const actorRows=await sb("mdi_threat_actors?on_conflict=actor_id",{
     method:"POST",
     headers:{"Content-Type":"application/json",Prefer:"resolution=merge-duplicates,return=representation"},
-    body:JSON.stringify({actor_id:a.actor_id??actorId,name:a.name??actorId,aliases:a.aliases??[],origin_country:a.origin_country??null,motivation:a.motivation??null,sophistication:a.sophistication??null,first_seen:a.first_seen??null,last_seen:a.last_seen??null,target_sectors:a.target_sectors??[],target_countries:a.target_countries??[],sources:["gapmatrix"],metadata:a,updated_at:new Date().toISOString()})
+    body:JSON.stringify({actor_id:a.actor_id??actorId,name:a.name??actorId,aliases:a.aliases??[],origin_country:originCountry,motivation:a.motivation??null,sophistication:a.sophistication??null,first_seen:a.first_seen??null,last_seen:a.last_seen??null,target_sectors:a.target_sectors??[],target_countries:targetCountries,sources:["gapmatrix"],metadata:a,updated_at:new Date().toISOString()})
   });
   const actor=actorRows?.[0];
   if(!actor) return {actorId,stored:false};
@@ -57,7 +59,7 @@ async function syncRansomwareGroups(){
     await sb("mdi_threat_actors?on_conflict=actor_id",{
       method:"POST",
       headers:{"Content-Type":"application/json",Prefer:"resolution=merge-duplicates,return=minimal"},
-      body:JSON.stringify({actor_id:actorId,name:actorId,aliases:g.aliases??[],motivation:"financial",target_sectors:g.sectors??[],target_countries:g.countries??[],sources:["ransomware.live"],metadata:g,updated_at:new Date().toISOString()})
+      body:JSON.stringify({actor_id:actorId,name:actorId,aliases:g.aliases??[],motivation:"financial",target_sectors:g.sectors??[],target_countries:(Array.isArray(g.countries)?g.countries:[]).map(x=>String(x).toUpperCase()).filter(x=>/^[A-Z]{2}$/.test(x)),sources:["ransomware.live"],metadata:g,updated_at:new Date().toISOString()})
     });
     stored++;
   }
