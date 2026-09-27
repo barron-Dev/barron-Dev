@@ -394,4 +394,21 @@ $$;
 revoke all on function public.mdi_federated_publish(text) from public;
 grant execute on function public.mdi_federated_publish(text) to service_role;
 
+alter table public.mdi_advanced_alerts add column if not exists dedupe_key text;
+create unique index if not exists mdi_adv_alerts_dedupe_idx on public.mdi_advanced_alerts(dedupe_key) where dedupe_key is not null;
+
+revoke all on public.mdi_wangiri_bursts from anon, authenticated;
+revoke all on public.mdi_grey_routes from anon, authenticated;
+grant select on public.mdi_wangiri_bursts, public.mdi_grey_routes to service_role;
+
+revoke all on function public.mdi_simswap_hazard(uuid) from public;
+revoke all on function public.mdi_simswap_guard() from public;
+revoke all on function public.mdi_irsf_score(text) from public;
+revoke all on function public.mdi_recycle_quarantine() from public;
+revoke all on function public.mdi_silent_sms_alert() from public;
+revoke all on function public.mdi_materialize_wangiri() from public;
+revoke all on function public.mdi_materialize_grey_routes() from public;
+grant execute on function public.mdi_materialize_wangiri() to service_role;
+grant execute on function public.mdi_materialize_grey_routes() to service_role;
+
 commit;
