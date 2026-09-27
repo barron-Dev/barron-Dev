@@ -87,3 +87,49 @@ td small { display: block; margin-top: 3px; color: #5a6675; font: 11px ui-monosp
 .detail-panel dd { margin: 0; color: #e8eef6; font-size: 13px; }
 .break { overflow-wrap: anywhere; }
 @media (max-width: 720px) { .page-shell { padding: 20px 16px 36px; } .page-header { flex-direction: column; } .toolbar input { min-width: 100%; } }
+
+/* Cyclothone public atlas: deep-water presentation only. No telemetry is generated here. */
+.platform-abyss {
+  background:
+    radial-gradient(ellipse at 50% 0%, rgba(0,217,255,.10), transparent 42%),
+    radial-gradient(ellipse at 20% 80%, rgba(0,92,140,.08), transparent 48%),
+    linear-gradient(180deg, #07121a 0%, #05070a 62%, #030507 100%);
+}
+.platform-depth { position:absolute; inset:0; pointer-events:none; overflow:hidden; }
+.depth-line {
+  position:absolute; left:-10%; width:120%; height:1px;
+  background:linear-gradient(90deg, transparent, rgba(0,217,255,.16), transparent);
+  transform:rotate(-2deg); opacity:.5;
+  animation: depth-drift 14s ease-in-out infinite alternate;
+}
+.depth-line-a { top:28%; }
+.depth-line-b { top:55%; animation-delay:-5s; opacity:.28; }
+.depth-line-c { top:78%; animation-delay:-9s; opacity:.18; }
+.depth-particle {
+  position:absolute; width:3px; height:3px; border-radius:50%;
+  background:rgba(0,217,255,.45); box-shadow:0 0 12px rgba(0,217,255,.35);
+  animation: depth-rise 16s linear infinite;
+}
+.depth-particle-a { left:18%; top:82%; animation-delay:-3s; }
+.depth-particle-b { left:64%; top:72%; animation-delay:-8s; transform:scale(.7); }
+.depth-particle-c { left:82%; top:90%; animation-delay:-12s; transform:scale(.55); }
+.platform-plane { position:relative; overflow:hidden; transition:border-color 180ms ease, transform 180ms ease; }
+.platform-plane::before {
+  content:""; position:absolute; left:0; top:0; width:28%; height:1px;
+  background:linear-gradient(90deg, rgba(0,217,255,.5), transparent);
+}
+.platform-plane:hover { border-color:#26384a; transform:translateY(-1px); }
+.platform-services details { transition:border-color 180ms ease, background 180ms ease; }
+.platform-services details:hover { border-color:#26384a; background:#0b1017; }
+@keyframes depth-drift {
+  from { transform:translate3d(-2%,0,0) rotate(-2deg); }
+  to { transform:translate3d(2%,6px,0) rotate(-1deg); }
+}
+@keyframes depth-rise {
+  0% { transform:translate3d(0,40px,0); opacity:0; }
+  15% { opacity:.55; }
+  100% { transform:translate3d(30px,-420px,0); opacity:0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .depth-line, .depth-particle { animation:none !important; }
+}
