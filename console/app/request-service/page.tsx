@@ -1,19 +1,19 @@
 "use client";
 import { useEffect, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { getCustomerOrganizations, getCustomerVerification, setApiToken, apiFetch, type CustomerOrganization } from "../../lib/api";
 
-const SERVICES=[["cybersecurity_assessment","Cybersecurity Assessment"],["incident_response","Incident Response"],["threat_intelligence","Threat Intelligence"],["brand_protection","Brand Protection"],["dark_web_monitoring","Dark Web Monitoring"],["soc_mdr","SOC / MDR"],["ai_security","AI Security"],["physical_security","Physical Security"],["compliance","Compliance"],["other","Other"]];
+const SERVICES=[["cybersecurity_assessment","Cybersecurity Assessment"],["incident_response","Incident Response"],["threat_intelligence","Threat Intelligence"],["web_intelligence","Web Intelligence"],["scam_monitoring","Scam Monitoring"],["dark_web_monitoring","Dark Web Monitoring"],["brand_protection","Brand Protection"],["soc_mdr","SOC / MDR"],["ai_security","AI Security"],["physical_security","Physical Security"],["compliance","Compliance"],["hunting","Threat Hunting"],["investigation","Investigation"],["recovery","Recovery"]];
 
 export default function RequestService(){
- const router=useRouter();
+ const router=useRouter(); const searchParams=useSearchParams();
  const [orgs,setOrgs]=useState<CustomerOrganization[]>([]),[org,setOrg]=useState(""),[service,setService]=useState("cybersecurity_assessment"),[urgency,setUrgency]=useState("normal"),[description,setDescription]=useState(""),[verification,setVerification]=useState<any[]>([]),[error,setError]=useState<string|null>(null),[ok,setOk]=useState(false),[loading,setLoading]=useState(true);
  async function load(){
   setLoading(true);setError(null);
   try{const r=await getCustomerOrganizations();setOrgs(r.organizations);const id=r.organizations[0]?.id||"";setOrg(id);if(id){const v=await getCustomerVerification(id);setVerification(v.verifications)}}catch(e){setError(e instanceof Error?e.message:"Unable to load organization")}finally{setLoading(false)}
  }
- useEffect(()=>{const t=sessionStorage.getItem("cyclothone_access_token")||"";if(!t){router.replace("/login");return}setApiToken(t);void load()},[]);
+ useEffect(()=>{const requested=searchParams.get("service"); if(requested && SERVICES.some(x=>x[0]===requested)) setService(requested); const t=sessionStorage.getItem("cyclothone_access_token")||"";if(!t){router.replace("/login");return}setApiToken(t);void load()},[]);
  async function selectOrg(id:string){setOrg(id);setError(null);try{const v=await getCustomerVerification(id);setVerification(v.verifications)}catch(e){setError(e instanceof Error?e.message:"Unable to load verification")}}
  async function requestAdmission(){setError(null);try{await apiFetch("/api/v1/customer/organizations/"+encodeURIComponent(org)+"/admission",{method:"POST"});await load()}catch(e){setError(e instanceof Error?e.message:"Admission request failed")}}
  async function submit(e:FormEvent){e.preventDefault();setError(null);setOk(false);try{await apiFetch("/api/v1/customer/service-requests",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({organization_id:org,service_key:service,urgency,description})});setOk(true);setDescription("")}catch(e){setError(e instanceof Error?e.message:"Service request failed")}}
@@ -36,7 +36,7 @@ export default function RequestService(){
  );
  return (
   <main className="min-h-screen bg-[#05070a] text-[#e8eef6]">
-   <header className="flex items-center justify-between border-b border-[#1a2330] bg-[#0a0e14] px-6 py-4"><a href="/customer/workspace" className="font-semibold">Cyclothone</a><a href="/customer/workspace" className="text-xs text-[#8a97a8]">Customer workspace</a></header>
+   <header className="flex items-center justify-between border-b border-[#1a2330] bg-[#0a0e14] px-6 py-4"><a href="/customer/services" className="font-semibold">Cyclothone</a><div className="flex gap-3 text-xs"><a href="/customer/services" className="text-[#00d9ff]">Services</a><a href="/customer/workspace" className="text-[#8a97a8]">Customer workspace</a></div></header>
    <div className="mx-auto max-w-2xl px-6 py-10">
     <h1 className="text-3xl font-semibold">Request a security service</h1>
     <p className="mt-2 text-sm text-[#8a97a8]">Every request is attached to your authenticated organization and tenant workspace.</p>
