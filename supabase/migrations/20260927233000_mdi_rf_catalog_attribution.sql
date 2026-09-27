@@ -98,6 +98,11 @@ select null,false,null,'arfcn_not_in_reference_range'
 where not exists (select 1 from matches);
 $$;
 
+alter table public.mdi_satellites
+  add column if not exists source_url text,
+  add column if not exists source_format text,
+  add column if not exists source_updated_at timestamptz;
+
 create table if not exists public.mdi_attack_mobile (
   technique_id text primary key,
   name text not null,
