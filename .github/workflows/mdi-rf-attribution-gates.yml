@@ -10,6 +10,7 @@ on:
       - "console/app/customer/cases/**/attribution/**"
       - "src/cyclothone/api/routes/mobile_intelligence_attribution.py"
       - "src/cyclothone/api/app.py"
+      - ".github/workflows/mdi-rf-attribution-gates.yml"
   pull_request:
     paths:
       - "supabase/migrations/*mdi_*"
