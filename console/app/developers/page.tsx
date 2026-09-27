@@ -167,7 +167,13 @@ export default function Developers() {
         </section>
 
         <section className="mt-4 border border-[#1a2330] bg-[#0a0e14] p-6">
-          <h2 className="font-medium">3. Integrate</h2>
+          <h2 className="font-medium">3. Mobile & Digital Intelligence</h2>
+          <p className="mt-2 text-sm leading-6 text-[#8a97a8]">Request the <code>mobile:intelligence</code> scope for an approved application. The API exposes authorized number, SIM/device, location, reachability and roaming intelligence. Every query requires an approved authority record; unavailable provider data is returned as an error, never fabricated.</p>
+          <code className="mt-3 block text-xs text-[#c4cedb]">POST /api/v1/mobile-intelligence/query</code>
+        </section>
+
+        <section className="mt-4 border border-[#1a2330] bg-[#0a0e14] p-6">
+          <h2 className="font-medium">4. Integrate</h2>
           <p className="mt-2 text-sm leading-6 text-[#8a97a8]">
             Use your API key with the Cyclothone API. Documentation and language examples can be added after the underlying API workflow is commissioned; this page does not invent a test request.
           </p>

@@ -516,7 +516,7 @@ async def create_service_request(body:ServiceRequest,p:DeveloperPrincipal=Depend
     org=await supabase.select_one("customer_organizations","id,tenant_id,admission_status",id=body.organization_id,owner_user_id=p.user_id)
     if not org or org.get("admission_status") != "approved": raise HTTPException(403,detail="workspace_not_admitted")
     if not org: raise HTTPException(404,detail="organization_not_found")
-    if body.service_key not in {"cybersecurity_assessment","incident_response","threat_intelligence","brand_protection","dark_web_monitoring","soc_mdr","ai_security","physical_security","compliance","other"}: raise HTTPException(400,detail="invalid service")
+    if body.service_key not in {"cybersecurity_assessment","incident_response","threat_intelligence","brand_protection","dark_web_monitoring","soc_mdr","ai_security","physical_security","compliance","mobile_digital_intelligence","other"}: raise HTTPException(400,detail="invalid service")
     if body.urgency not in {"low","normal","high","critical"}: raise HTTPException(400,detail="invalid urgency")
     if not p.user_id: raise HTTPException(403,detail="user_identity_required")
     row=await supabase.insert_one("service_requests",{"organization_id":body.organization_id,"requester_user_id":p.user_id,"service_key":body.service_key,"urgency":body.urgency,"description":body.description.strip(),"status":"submitted"})

@@ -25,6 +25,7 @@ const SERVICES: Service[] = [
   { key: "hunting", name: "Threat Hunting", description: "Run approved hunts against your authorized security scope.", outcome: "Hunt status, findings and resulting cases." },
   { key: "investigation", name: "Investigation", description: "Conduct an authorized investigation with evidence and activity tracking.", outcome: "Investigation status, evidence and documented outcome." },
   { key: "recovery", name: "Recovery", description: "Use the approved recovery workflow for protected organizational data.", outcome: "Recovery status, verification and documented result." },
+  { key: "mobile_digital_intelligence", name: "Mobile & Digital Intelligence", description: "Authorized mobile, device, network and location intelligence for security investigations.", outcome: "Verified provider observations, investigation evidence and controlled response." },
 ];
 
 const statusTone: Record<string,string> = {
