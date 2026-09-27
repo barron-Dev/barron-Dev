@@ -411,4 +411,10 @@ revoke all on function public.mdi_materialize_grey_routes() from public;
 grant execute on function public.mdi_materialize_wangiri() to service_role;
 grant execute on function public.mdi_materialize_grey_routes() to service_role;
 
+revoke all on function public.mdi_emit_advanced_alert(text,uuid,public.mdi_risk_band,numeric,text,text,jsonb,uuid) from public;
+grant execute on function public.mdi_emit_advanced_alert(text,uuid,public.mdi_risk_band,numeric,text,text,jsonb,uuid) to service_role;
+grant execute on function public.mdi_simswap_guard() to service_role;
+grant execute on function public.mdi_recycle_quarantine() to service_role;
+grant execute on function public.mdi_silent_sms_alert() to service_role;
+
 commit;
