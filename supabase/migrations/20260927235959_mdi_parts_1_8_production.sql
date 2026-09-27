@@ -110,7 +110,6 @@ create table if not exists public.mdi_crypto_exposure(
 
 create table if not exists public.mdi_sanctions_entities(
  id uuid primary key default gen_random_uuid(),source text not null,external_id text,entity_type text not null,name text not null,name_norm text not null,aliases text[] not null default '{}',country char(2),dob date,program text,pep boolean not null default false,raw jsonb not null default '{}',updated_at timestamptz not null default now());
-);
 create unique index if not exists mdi_sanctions_identity_idx on public.mdi_sanctions_entities(source,coalesce(external_id,name_norm));
 create index if not exists mdi_sanctions_name_trgm on public.mdi_sanctions_entities using gin(name_norm gin_trgm_ops);
 create table if not exists public.mdi_sanctions_hits(
