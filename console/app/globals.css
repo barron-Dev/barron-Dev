@@ -133,3 +133,28 @@ td small { display: block; margin-top: 3px; color: #5a6675; font: 11px ui-monosp
 @media (prefers-reduced-motion: reduce) {
   .depth-line, .depth-particle { animation:none !important; }
 }
+\n
+/* Cyclothone journey: a visual operating chain, not live telemetry. */
+.platform-journey { background:linear-gradient(180deg,#04080d 0%,#07111a 48%,#04070b 100%); }
+.journey-rail { position:relative; }
+.journey-line { position:absolute; left:18px; top:22px; bottom:22px; width:1px; background:linear-gradient(180deg,rgba(0,217,255,.08),rgba(0,217,255,.55),rgba(0,255,157,.32),rgba(0,217,255,.08)); }
+.journey-step { position:relative; display:grid; grid-template-columns:36px minmax(0,1fr); gap:18px; min-height:108px; }
+.journey-node { position:relative; z-index:1; width:36px; height:36px; display:grid; place-items:center; border:1px solid #284154; border-radius:50%; background:#07111a; box-shadow:0 0 0 5px rgba(4,8,13,.85),0 0 24px rgba(0,217,255,.07); }
+.journey-node span { font:600 9px ui-monospace,SFMono-Regular,Menlo,monospace; color:#00d9ff; }
+.journey-copy { padding:2px 0 28px; border-bottom:1px solid #121d28; }
+.journey-copy h3 { margin:0; font:600 12px/1.3 ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.12em; }
+.journey-copy span { border:1px solid #1f3344; padding:4px 7px; color:#5f8da0; font:9px ui-monospace,SFMono-Regular,Menlo,monospace; text-transform:uppercase; letter-spacing:.08em; }
+.journey-copy p { max-width:760px; margin:9px 0 0; color:#8a97a8; font-size:12px; line-height:1.7; }
+.journey-arrow { position:absolute; left:11px; bottom:8px; z-index:2; color:#35586a; font-size:12px; }
+.journey-principle { display:flex; align-items:center; justify-content:space-between; gap:24px; border:1px solid #1a2b38; background:rgba(7,16,24,.72); padding:20px; }
+@media (min-width:900px) {
+  .journey-rail { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); column-gap:72px; }
+  .journey-line { left:50%; top:22px; bottom:22px; transform:translateX(-.5px); }
+  .journey-step { grid-template-columns:36px minmax(0,1fr); }
+  .journey-step:nth-child(odd) { transform:translateX(0); }
+  .journey-step:nth-child(even) { transform:translateX(0); }
+  .journey-arrow { display:none; }
+}
+@media (max-width:720px) {
+  .journey-principle { align-items:flex-start; flex-direction:column; }
+}
