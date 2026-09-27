@@ -2,10 +2,13 @@
 import {useEffect,useState} from "react";
 import {useParams} from "next/navigation";
 import {apiFetch,setApiToken} from "../../../../../lib/api";
+
+type ComplianceCounts={critical:number;violation:number;warning:number;info:number};
+
 export default function CompliancePage(){
  const {service}=useParams<{service:string}>(); const [findings,setFindings]=useState<any[]>([]); const [loading,setLoading]=useState(true); const [error,setError]=useState("");
  async function load(){setLoading(true);setError("");try{setApiToken(sessionStorage.getItem("cyclothone_access_token")||"");const r=await apiFetch<any[]>("/api/v1/mobile-intelligence/compliance/findings?limit=200");setFindings(r)}catch(e){setError(e instanceof Error?e.message:"Unable to load compliance findings")}finally{setLoading(false)}}
  useEffect(()=>{if(service==="mobile_digital_intelligence")void load()},[service]);
- const grouped=findings.reduce((a,f)=>{a[f.jurisdiction]??={critical:0,violation:0,warning:0,info:0};a[f.jurisdiction][f.severity]=(a[f.jurisdiction][f.severity]||0)+1;return a},{} as Record<string,any>);
+ const grouped=findings.reduce<Record<string,ComplianceCounts>>((a,f)=>{a[f.jurisdiction]??={critical:0,violation:0,warning:0,info:0};a[f.jurisdiction][f.severity]=(a[f.jurisdiction][f.severity]||0)+1;return a},{});
  return <main className="min-h-screen bg-[#05070a] text-[#e8eef6] p-6"><div className="max-w-7xl mx-auto"><div className="text-xs opacity-60">Cyclothone · MDI</div><h1 className="text-2xl font-semibold mt-1">Compliance Auto-Audit</h1><p className="text-sm opacity-70 mt-1">Evidence findings from the configured MDI audit rules. This is an operational audit surface, not a legal-compliance certification.</p>{loading?<div className="mt-8 opacity-60">Loading…</div>:error?<div className="mt-8">{error}</div>:<><div className="grid grid-cols-1 md:grid-cols-5 gap-3 mt-6">{Object.entries(grouped).map(([j,s])=><div key={j} className="border border-[#1a2330] rounded p-3"><div className="font-semibold">{j}</div><div className="text-xs mt-2 space-y-1"><div>critical: {s.critical||0}</div><div>violation: {s.violation||0}</div><div>warning: {s.warning||0}</div><div>info: {s.info||0}</div></div></div>)}</div><div className="border border-[#1a2330] mt-6 overflow-auto"><table className="w-full text-sm"><thead><tr className="text-left opacity-60"><th className="p-3">Time</th><th>Jurisdiction</th><th>Severity</th><th>Finding</th></tr></thead><tbody>{findings.slice(0,100).map(f=><tr key={f.id} className="border-t border-[#1a2330]"><td className="p-3">{new Date(f.detected_at).toLocaleString()}</td><td>{f.jurisdiction}</td><td>{f.severity}</td><td>{f.finding}</td></tr>)}</tbody></table></div></>}</div></main>
 }
