@@ -48,18 +48,18 @@ class CrossBorderRequest(BaseModel):
 
 
 @router.post("/observe/ss7")
-async def observe_ss7(body: Ss7Request, _: DeveloperPrincipal = Depends(principal)):
-    return await service.observe_ss7(body.gt, body.opcode, body.timestamp_ms)
+async def observe_ss7(body: Ss7Request, p: DeveloperPrincipal = Depends(principal)):
+    return await service.observe_ss7(body.gt, body.opcode, body.timestamp_ms, tenant_id=p.tenant_id)
 
 
 @router.post("/observe/otp")
-async def observe_otp(body: OtpRequest, _: DeveloperPrincipal = Depends(principal)):
-    return await service.observe_otp(body.model_dump())
+async def observe_otp(body: OtpRequest, p: DeveloperPrincipal = Depends(principal)):
+    return await service.observe_otp(body.model_dump(), tenant_id=p.tenant_id)
 
 
 @router.post("/observe/flash-calls")
-async def observe_flash_calls(body: FlashRequest, _: DeveloperPrincipal = Depends(principal)):
-    return await service.observe_flash_calls(body.calls)
+async def observe_flash_calls(body: FlashRequest, p: DeveloperPrincipal = Depends(principal)):
+    return await service.observe_flash_calls(body.calls, tenant_id=p.tenant_id)
 
 
 @router.post("/observe/sip")
@@ -68,26 +68,27 @@ async def observe_sip(body: SipRequest, _: DeveloperPrincipal = Depends(principa
 
 
 @router.post("/observe/cross-border")
-async def observe_cross_border(body: CrossBorderRequest, _: DeveloperPrincipal = Depends(principal)):
-    return await service.observe_cross_border(body.events)
+async def observe_cross_border(body: CrossBorderRequest, p: DeveloperPrincipal = Depends(principal)):
+    return await service.observe_cross_border(body.events, tenant_id=p.tenant_id)
 
 
 @router.get("/alerts")
-async def alerts(_: DeveloperPrincipal = Depends(principal)):
+async def alerts(p: DeveloperPrincipal = Depends(principal)):
     from cyclothone.storage.supabase_client import supabase
 
     rows = await supabase.select(
         "mdi_advanced_alerts",
-        "id,alert_type,subject_id,severity,score,action,algorithm,explanation,case_id,created_at,resolved_at",
+        "id,alert_type,subject_id,severity,score,action,algorithm,explanation,case_id,created_at,resolved_at,tenant_id",
+        tenant_id=p.tenant_id,
     )
     return {"items": rows[:200]}
 
 
 @router.get("/status")
-async def status(_: DeveloperPrincipal = Depends(principal)):
+async def status(p: DeveloperPrincipal = Depends(principal)):
     from cyclothone.storage.supabase_client import supabase
 
-    rows = await supabase.select("mdi_advanced_alerts", "alert_type,severity,created_at")
+    rows = await supabase.select("mdi_advanced_alerts", "alert_type,severity,created_at", tenant_id=p.tenant_id)
     return {
         "service": "mobile_digital_intelligence_advanced",
         "live": True,
