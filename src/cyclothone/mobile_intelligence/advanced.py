@@ -191,6 +191,7 @@ class AdvancedMdiService:
         algorithm: str,
         explanation: dict[str, Any],
         case_id: str | None = None,
+        tenant_id: str | None = None,
     ) -> dict[str, Any]:
         row = await supabase.insert_one(
             "mdi_advanced_alerts",
@@ -203,6 +204,7 @@ class AdvancedMdiService:
                 "algorithm": algorithm,
                 "explanation": explanation,
                 "case_id": case_id,
+                "tenant_id": tenant_id,
             },
         )
         return dict(row)
