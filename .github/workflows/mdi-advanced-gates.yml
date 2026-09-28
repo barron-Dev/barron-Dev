@@ -40,7 +40,8 @@ jobs:
       - name: Verify live schema access is configured
         if: env.SUPABASE_DB_URL == ''
         run: |
-          echo "::warning::SUPABASE_DB_URL is not configured; live schema drift check skipped."
+          echo "::error::SUPABASE_DB_URL is required for the MDI live schema drift gate."
+          exit 1
       - uses: supabase/setup-cli@v1
         if: env.SUPABASE_DB_URL != ''
         with:
