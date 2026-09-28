@@ -45,11 +45,12 @@ class Observation(BaseModel):
 @router.post("/consent")
 async def consent(body:Consent,p:DeveloperPrincipal=Depends(authenticate_request)):
     p.require(("mobile:intelligence",))
-    row={"observer_id":str(p.user_id),"rf_scan":body.rf_scan,"gnss_share":body.gnss_share,"wifi_share":body.wifi_share,"ble_share":body.ble_share,"purpose":body.purpose.strip(),"granted_at":datetime.now(UTC).isoformat(),"expires_at":body.expires_at.isoformat(),"revoked_at":None}
+    row={"observer_id":str(p.user_id),"tenant_id":p.tenant_id,"rf_scan":body.rf_scan,"gnss_share":body.gnss_share,"wifi_share":body.wifi_share,"ble_share":body.ble_share,"purpose":body.purpose.strip(),"granted_at":datetime.now(UTC).isoformat(),"expires_at":body.expires_at.isoformat(),"revoked_at":None}
     return await supabase.upsert("mdi_observer_consent",row,on_conflict="observer_id")
 @router.post("/report",status_code=201)
 async def report(body:Observation,p:DeveloperPrincipal=Depends(authenticate_request)):
     p.require(("mobile:intelligence",))
+    if not p.tenant_id: raise HTTPException(403,"tenant_required")
     consent=await supabase.select_one("mdi_observer_consent","rf_scan,gnss_share,wifi_share,ble_share,expires_at,revoked_at",observer_id=str(p.user_id))
     if not consent or not consent.get("rf_scan") or consent.get("revoked_at") or (consent.get("expires_at") and datetime.fromisoformat(str(consent["expires_at"]).replace("Z","+00:00"))<=datetime.now(UTC)):
         raise HTTPException(403,"rf_consent_required")
@@ -58,6 +59,6 @@ async def report(body:Observation,p:DeveloperPrincipal=Depends(authenticate_requ
     if radio=="gnss" and not consent.get("gnss_share"): raise HTTPException(403,"gnss_consent_required")
     if radio=="wifi" and not consent.get("wifi_share"): raise HTTPException(403,"wifi_consent_required")
     if radio=="ble" and not consent.get("ble_share"): raise HTTPException(403,"ble_consent_required")
-    row=body.model_dump(); row["observer_id"]=str(p.user_id); row["observed_at"]=(body.observed_at or datetime.now(UTC)).isoformat()
+    row=body.model_dump(); row["observer_id"]=str(p.user_id); row["tenant_id"]=p.tenant_id; row["observed_at"]=(body.observed_at or datetime.now(UTC)).isoformat()
     row.pop("subject_id",None)
     return await supabase.insert_one("mdi_rf_observations",row)
