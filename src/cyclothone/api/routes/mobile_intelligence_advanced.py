@@ -88,7 +88,7 @@ async def alerts(p: DeveloperPrincipal = Depends(principal)):
 async def status(p: DeveloperPrincipal = Depends(principal)):
     from cyclothone.storage.supabase_client import supabase
 
-    rows = await supabase.select("mdi_advanced_alerts", "alert_type,severity,created_at", tenant_id=p.tenant_id, created_at={"gte":(datetime.now(UTC)-timedelta(hours=24)).isoformat()})
+    async def load():\n        client = await supabase._ensure()\n        return await client.table("mdi_advanced_alerts").select("alert_type,severity,created_at").eq("tenant_id", p.tenant_id).gte("created_at", (datetime.now(UTC) - timedelta(hours=24)).isoformat()).execute()\n    response = await supabase._retry(load, attempts=2)\n    rows = list(response.data or [])
     return {
         "service": "mobile_digital_intelligence_advanced",
         "live": True,
