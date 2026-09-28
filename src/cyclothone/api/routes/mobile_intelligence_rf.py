@@ -51,7 +51,7 @@ async def consent(body:Consent,p:DeveloperPrincipal=Depends(authenticate_request
 async def report(body:Observation,p:DeveloperPrincipal=Depends(authenticate_request)):
     p.require(("mobile:intelligence",))
     if not p.tenant_id: raise HTTPException(403,"tenant_required")
-    consent=await supabase.select_one("mdi_observer_consent","rf_scan,gnss_share,wifi_share,ble_share,expires_at,revoked_at",observer_id=str(p.user_id))
+    consent=await supabase.select_one("mdi_observer_consent","rf_scan,gnss_share,wifi_share,ble_share,expires_at,revoked_at,tenant_id",observer_id=str(p.user_id),tenant_id=p.tenant_id)
     if not consent or not consent.get("rf_scan") or consent.get("revoked_at") or (consent.get("expires_at") and datetime.fromisoformat(str(consent["expires_at"]).replace("Z","+00:00"))<=datetime.now(UTC)):
         raise HTTPException(403,"rf_consent_required")
     radio=body.radio
