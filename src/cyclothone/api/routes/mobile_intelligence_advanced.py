@@ -73,21 +73,22 @@ async def observe_cross_border(body: CrossBorderRequest, _: DeveloperPrincipal =
 
 
 @router.get("/alerts")
-async def alerts(_: DeveloperPrincipal = Depends(principal)):
+async def alerts(p: DeveloperPrincipal = Depends(principal)):
     from cyclothone.storage.supabase_client import supabase
 
     rows = await supabase.select(
         "mdi_advanced_alerts",
-        "id,alert_type,subject_id,severity,score,action,algorithm,explanation,case_id,created_at,resolved_at",
+        "id,tenant_id,alert_type,subject_id,severity,score,action,algorithm,explanation,case_id,created_at,resolved_at",
+        {"tenant_id": f"eq.{p.tenant_id}"},
     )
     return {"items": rows[:200]}
 
 
 @router.get("/status")
-async def status(_: DeveloperPrincipal = Depends(principal)):
+async def status(p: DeveloperPrincipal = Depends(principal)):
     from cyclothone.storage.supabase_client import supabase
 
-    rows = await supabase.select("mdi_advanced_alerts", "alert_type,severity,created_at")
+    rows = await supabase.select("mdi_advanced_alerts", "alert_type,severity,created_at", {"tenant_id": f"eq.{p.tenant_id}"})
     return {
         "service": "mobile_digital_intelligence_advanced",
         "live": True,
