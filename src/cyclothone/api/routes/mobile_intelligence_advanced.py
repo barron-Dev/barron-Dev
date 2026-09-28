@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from datetime import UTC, datetime, timedelta\nfrom typing import Any
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
@@ -88,7 +88,7 @@ async def alerts(p: DeveloperPrincipal = Depends(principal)):
 async def status(p: DeveloperPrincipal = Depends(principal)):
     from cyclothone.storage.supabase_client import supabase
 
-    rows = await supabase.select("mdi_advanced_alerts", "alert_type,severity,created_at", tenant_id=p.tenant_id)
+    rows = await supabase.select("mdi_advanced_alerts", "alert_type,severity,created_at", tenant_id=p.tenant_id, created_at={"gte":(datetime.now(UTC)-timedelta(hours=24)).isoformat()})
     return {
         "service": "mobile_digital_intelligence_advanced",
         "live": True,
