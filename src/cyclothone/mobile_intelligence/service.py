@@ -41,7 +41,7 @@ class MobileIntelligenceService:
             results=[]
             for capability in requested:
                 body=await provider.call(capability,self._payload(capability,normalized,max_age_hours,latitude,longitude,radius_km))
-                observation=await self._record_observation(q,provider.account["id"],capability,body)
+                observation=await self._record_observation(q,provider.account["id"],capability,body,normalized)
                 results.append({"capability":capability,"observation_id":observation,"data":body})
             await self._finish_query(q,"completed",None); await provider.close()
             return {"query_id":q,"authorization_id":auth,"subject":{"type":"phone_number","hash":subject_hash(normalized)},"results":results,"observed_at":datetime.now(UTC).isoformat()}
@@ -74,18 +74,18 @@ class MobileIntelligenceService:
 
     async def _create_query(self,tenant_id:UUID,app_id:str,authorization_id:str,number:str,capabilities:list[str])->str:
         row=await supabase.insert_one("mobile_queries",{"tenant_id":str(tenant_id),"app_id":app_id,"authorization_id":authorization_id,"subject_hash":subject_hash(number),"capabilities":capabilities,"status":"running"}); return str(row["id"])
-    async def _record_observation(self,query_id:str,provider_id:str,capability:str,body:dict[str,Any])->str:
+    async def _record_observation(self,query_id:str,provider_id:str,capability:str,body:dict[str,Any],normalized_number:str)->str:
         row=await supabase.insert_one("mobile_observations",{"query_id":query_id,"provider_id":provider_id,"capability":capability,"data":body,"observed_at":datetime.now(UTC).isoformat()})
-        await self._bind_canonical_subject(query_id)
+        await self._bind_canonical_subject(query_id,normalized_number)
         return str(row["id"])
 
-    async def _bind_canonical_subject(self,query_id:str)->None:
+    async def _bind_canonical_subject(self,query_id:str,normalized_number:str)->None:
         query=await supabase.select_one("mobile_queries","tenant_id,subject_hash",id=query_id)
         if not query: raise MobileIntelligenceError("mobile_query_not_found")
         await supabase.rpc("mdi_bind_subject_tenant",{
             "p_tenant_id":query["tenant_id"],
             "p_kind":"msisdn",
-            "p_canonical":str(query["subject_hash"]),
+            "p_canonical":normalized_number,
             "p_display":None,
             "p_country":None,
             "p_attrs":{"source":"mobile_intelligence","query_id":query_id},
