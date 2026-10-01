@@ -62,12 +62,13 @@ impl eframe::App for CyclothoneApp {
                         ui.add_space(12.0);
 
                         let (state, detail) = match &self.status {
-                            Some(s) if s.status == "connected" => (
-                                "CONNECTED",
+                            Some(s) => (
+                                if s.protection == "protected" { "PROTECTED" } else { "ATTENTION" },
                                 format!(
-                                    "Protection: {}\n{}",
-                                    s.protection,
-                                    s.device_id.as_deref().map(|_| "Device identity present").unwrap_or("Device identity pending")
+                                    "Enrollment: {}\nSecure channel: {}\nBackend telemetry: {}",
+                                    if s.enrolled { "confirmed" } else { "required" },
+                                    if s.mtls_ready { "ready" } else { "not ready" },
+                                    if s.telemetry_healthy { "confirmed" } else { "not confirmed" }
                                 ),
                             ),
                             _ => ("NOT CONNECTED", "Cyclothone Agent is not reachable.".into()),
@@ -97,9 +98,9 @@ impl eframe::App for CyclothoneApp {
 
                         if let Some(s) = &self.status {
                             ui.label(egui::RichText::new(if s.api_configured {
-                                "Backend configuration detected"
+                                "Backend endpoint configured"
                             } else {
-                                "Backend configuration required"
+                                "Backend endpoint not configured"
                             }).size(15.0).color(text));
                         }
 
