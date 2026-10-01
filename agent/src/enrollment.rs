@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use rcgen::{CertificateParams, DnType, KeyPair};
 use serde::Deserialize;
 use std::{path::{Path, PathBuf}, time::Duration};
