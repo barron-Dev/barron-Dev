@@ -4,7 +4,9 @@ use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
 use std::os::windows::io::FromRawHandle;
 use windows::core::PCWSTR;
-use windows::Win32::Foundation::{CloseHandle, GetLastError, HLOCAL, LocalFree, ERROR_PIPE_CONNECTED, INVALID_HANDLE_VALUE};
+use windows::Win32::Foundation::{
+    CloseHandle, GetLastError, HLOCAL, LocalFree, ERROR_PIPE_CONNECTED, INVALID_HANDLE_VALUE,
+};
 use windows::Win32::Security::{PSECURITY_DESCRIPTOR, SECURITY_ATTRIBUTES};
 use windows::Win32::Security::Authorization::{
     ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1,
@@ -34,7 +36,11 @@ pub struct AgentStatus {
     pub api_configured: bool,
 }
 
-pub fn spawn_status_server(\n    api_configured: bool,\n    device_id: Option<String>,\n    tenant_id: Option<String>,\n) {
+pub fn spawn_status_server(
+    api_configured: bool,
+    device_id: Option<String>,
+    tenant_id: Option<String>,
+) {
     std::thread::Builder::new()
         .name("cyclothone-ipc".into())
         .spawn(move || {
@@ -45,7 +51,11 @@ pub fn spawn_status_server(\n    api_configured: bool,\n    device_id: Option<St
         .expect("spawn Cyclothone IPC server");
 }
 
-fn server_loop(\n    api_configured: bool,\n    device_id: Option<String>,\n    tenant_id: Option<String>,\n) -> Result<()> {
+fn server_loop(
+    api_configured: bool,
+    device_id: Option<String>,
+    tenant_id: Option<String>,
+) -> Result<()> {
     loop {
         let mut security_descriptor: PSECURITY_DESCRIPTOR = PSECURITY_DESCRIPTOR::default();
         let sddl = to_wide(r"D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGW;;;AU)");
@@ -157,6 +167,9 @@ mod tests {
         };
         let encoded = serde_json::to_string(&request).unwrap();
         assert!(encoded.contains("GetStatus"));
-        assert_eq!(\n            serde_json::from_str::<IpcRequest>(&encoded).unwrap().version,\n            1\n        );
+        assert_eq!(
+            serde_json::from_str::<IpcRequest>(&encoded).unwrap().version,
+            1
+        );
     }
 }
