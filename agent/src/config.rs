@@ -23,8 +23,9 @@ impl AgentConfig {
             .unwrap_or_else(|_| PathBuf::from(r"C:\ProgramData\Cyclothone"));
         let model_sync_secs = std::env::var("CYCLOTHONE_MODEL_SYNC_SECS")
             .ok().and_then(|value| value.parse::<u64>().ok()).unwrap_or(3600);
-        let device_id = std::env::var("CYCLOTHONE_DEVICE_ID").context("CYCLOTHONE_DEVICE_ID must identify the device UUID")?;
-        let tenant_id = std::env::var("CYCLOTHONE_TENANT_ID").context("CYCLOTHONE_TENANT_ID must identify the tenant UUID")?;
+        let persisted = crate::enrollment::load_identity(&state_dir)?.ok_or_else(|| anyhow::anyhow!("device identity is not enrolled"))?;
+        let device_id = std::env::var("CYCLOTHONE_DEVICE_ID").unwrap_or_else(|_| persisted.0.clone());
+        let tenant_id = std::env::var("CYCLOTHONE_TENANT_ID").unwrap_or_else(|_| persisted.1.clone());
         let command_poll_secs = std::env::var("CYCLOTHONE_COMMAND_POLL_SECS")
             .ok().and_then(|value| value.parse::<u64>().ok()).unwrap_or(5).clamp(1, 60);
 
