@@ -15,10 +15,16 @@ import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URLEncoder
 import java.net.URL
+import java.security.KeyStore
+import javax.crypto.Cipher
+import javax.crypto.KeyGenerator
+import javax.crypto.SecretKey
+import javax.crypto.spec.GCMParameterSpec
 import java.security.MessageDigest
 import java.security.SecureRandom
 import java.util.UUID
 import kotlin.concurrent.thread
+import android.util.Base64
 
 class MainActivity : Activity() {
     companion object {
@@ -31,12 +37,17 @@ class MainActivity : Activity() {
         private const val CODE_VERIFIER = "code_verifier"
         private const val STATE = "oauth_state"
         private const val SUPABASE_KEY = "sb_publishable_3qKBAIdxxrDuE8gEGwJICg_5NEH3CVU"
+        private const val KEYSTORE = "AndroidKeyStore"
+        private const val KEY_ALIAS = "cyclothone-session-v1"
+        private const val ENCRYPTED_ACCESS_TOKEN = "encrypted_access_token"
+        private const val ENCRYPTED_REFRESH_TOKEN = "encrypted_refresh_token"
         private fun b64(b:ByteArray)=android.util.Base64.encodeToString(b,android.util.Base64.URL_SAFE or android.util.Base64.NO_WRAP or android.util.Base64.NO_PADDING)
         private fun verifier()=ByteArray(32).also{SecureRandom().nextBytes(it)}.let(::b64)
         private fun challenge(v:String)=b64(MessageDigest.getInstance("SHA-256").digest(v.toByteArray(Charsets.US_ASCII)))
         private fun enc(v:String)=URLEncoder.encode(v,Charsets.UTF_8.name())
     }
     private val prefs by lazy{getSharedPreferences(PREFS,MODE_PRIVATE)}
+    private val sessionCrypto by lazy { SessionCrypto() }
     private lateinit var status:TextView
     private lateinit var signIn:Button
 
@@ -82,7 +93,7 @@ class MainActivity : Activity() {
         val code=uri.getQueryParameter("code");val returned=uri.getQueryParameter("state");val expected=prefs.getString(STATE,null);val v=prefs.getString(CODE_VERIFIER,null)
         if(code.isNullOrBlank()||v.isNullOrBlank()||expected.isNullOrBlank()||returned!=expected){status.text="Secure sign-in could not be verified. Please try again.";signIn.isEnabled=true;clearPkce();return}
         status.text="Completing secure sign-in…";signIn.isEnabled=false
-        thread{try{val s=exchange(code,v);prefs.edit().putString(ACCESS_TOKEN,s.first).putString(REFRESH_TOKEN,s.second).apply();clearPkce();runOnUiThread{openWorkspace()}}
+        thread{try{val s=exchange(code,v);saveSession(s.first,s.second);clearPkce();runOnUiThread{openWorkspace()}}
         catch(e:Exception){clearPkce();runOnUiThread{status.text=e.message?:"Unable to complete sign-in.";signIn.isEnabled=true}}}
     }
 
@@ -95,11 +106,67 @@ class MainActivity : Activity() {
         val j=JSONObject(body);val a=j.optString("access_token");val r=j.optString("refresh_token");if(a.isBlank()||r.isBlank())throw IllegalStateException("Authentication exchange returned no session.");return a to r
     }
 
-    private fun openWorkspace(){
-        val a=prefs.getString(ACCESS_TOKEN,null);val r=prefs.getString(REFRESH_TOKEN,null);if(a.isNullOrBlank()||r.isNullOrBlank()){showEntry();return}
-        val web=WebView(this).apply{settings.javaScriptEnabled=true;settings.domStorageEnabled=true;settings.allowFileAccess=false;settings.allowContentAccess=false;webViewClient=WebViewClient()}
-        val handoff="$WORKSPACE_URL#access_token=${enc(a)}&refresh_token=${enc(r)}&token_type=bearer&type=recovery";web.loadUrl(handoff);setContentView(web)
+    private fun migrateLegacySession() {
+        val legacyAccess = prefs.getString(ACCESS_TOKEN, null)
+        val legacyRefresh = prefs.getString(REFRESH_TOKEN, null)
+        if (!legacyAccess.isNullOrBlank() && !legacyRefresh.isNullOrBlank()) {
+            saveSession(legacyAccess, legacyRefresh)
+            prefs.edit().remove(ACCESS_TOKEN).remove(REFRESH_TOKEN).apply()
+        }
     }
-    private fun hasSession()=!prefs.getString(ACCESS_TOKEN,null).isNullOrBlank()&&!prefs.getString(REFRESH_TOKEN,null).isNullOrBlank()
+
+    private fun saveSession(access: String, refresh: String) {
+        prefs.edit()
+            .putString(ENCRYPTED_ACCESS_TOKEN, sessionCrypto.encrypt(access))
+            .putString(ENCRYPTED_REFRESH_TOKEN, sessionCrypto.encrypt(refresh))
+            .apply()
+    }
+
+    private fun readSession(): Pair<String, String>? {
+        migrateLegacySession()
+        val a = prefs.getString(ENCRYPTED_ACCESS_TOKEN, null)?.let { runCatching { sessionCrypto.decrypt(it) }.getOrNull() }
+        val r = prefs.getString(ENCRYPTED_REFRESH_TOKEN, null)?.let { runCatching { sessionCrypto.decrypt(it) }.getOrNull() }
+        return if (!a.isNullOrBlank() && !r.isNullOrBlank()) a to r else null
+    }
+
+    private fun openWorkspace(){
+        val session = readSession() ?: run { showEntry(); return }
+        val web=WebView(this).apply{settings.javaScriptEnabled=true;settings.domStorageEnabled=true;settings.allowFileAccess=false;settings.allowContentAccess=false;webViewClient=WebViewClient()}
+        val handoff="$WORKSPACE_URL#access_token=${enc(session.first)}&refresh_token=${enc(session.second)}&token_type=bearer&type=recovery";web.loadUrl(handoff);setContentView(web)
+    }
+    private fun hasSession()=readSession()!=null
     private fun clearPkce(){prefs.edit().remove(CODE_VERIFIER).remove(STATE).apply()}
+
+    private class SessionCrypto {
+        private val key: SecretKey
+        init {
+            val ks = KeyStore.getInstance(KEYSTORE).apply { load(null) }
+            val existing = ks.getKey(KEY_ALIAS, null) as? SecretKey
+            key = existing ?: KeyGenerator.getInstance("AES", KEYSTORE).apply {
+                init(android.security.keystore.KeyGenParameterSpec.Builder(
+                    KEY_ALIAS,
+                    android.security.keystore.KeyProperties.PURPOSE_ENCRYPT or android.security.keystore.KeyProperties.PURPOSE_DECRYPT
+                ).setBlockModes(android.security.keystore.KeyProperties.BLOCK_MODE_GCM)
+                 .setEncryptionPaddings(android.security.keystore.KeyProperties.ENCRYPTION_PADDING_NONE)
+                 .setRandomizedEncryptionRequired(true)
+                 .build())
+            }.generateKey()
+        }
+        fun encrypt(value: String): String {
+            val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+            cipher.init(Cipher.ENCRYPT_MODE, key)
+            val iv = cipher.iv
+            val ciphertext = cipher.doFinal(value.toByteArray(Charsets.UTF_8))
+            return Base64.encodeToString(iv + ciphertext, Base64.NO_WRAP)
+        }
+        fun decrypt(encoded: String): String {
+            val packed = Base64.decode(encoded, Base64.NO_WRAP)
+            require(packed.size > 12)
+            val iv = packed.copyOfRange(0, 12)
+            val ciphertext = packed.copyOfRange(12, packed.size)
+            val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+            cipher.init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(128, iv))
+            return cipher.doFinal(ciphertext).toString(Charsets.UTF_8)
+        }
+    }
 }
