@@ -1,22 +1,11 @@
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-use std::io::{BufRead, BufReader, Write};
-use std::os::windows::io::{AsRawHandle, FromRawHandle};
 use std::fs::File;
-use std::ptr;
-
+use std::io::{BufRead, BufReader, Write};
 use windows::core::PCWSTR;
-use windows::Win32::Foundation::{CloseHandle, GetLastError, HANDLE, INVALID_HANDLE_VALUE};
-use windows::Win32::Security::{
-    ConvertStringSecurityDescriptorToSecurityDescriptorW, PSECURITY_DESCRIPTOR, SECURITY_ATTRIBUTES,
-    SDDL_REVISION_1,
-};
+use windows::Win32::Foundation::{GetLastError, INVALID_HANDLE_VALUE};
 use windows::Win32::Storage::FileSystem::{
     CreateFileW, FILE_GENERIC_READ, FILE_GENERIC_WRITE, FILE_SHARE_NONE, OPEN_EXISTING,
-};
-use windows::Win32::System::Pipes::{
-    ConnectNamedPipe, CreateNamedPipeW, PIPE_ACCESS_DUPLEX, PIPE_READMODE_BYTE, PIPE_TYPE_BYTE,
-    PIPE_WAIT,
 };
 
 pub const PIPE_NAME: &str = r"\\.\pipe\CyclothoneAgent";
@@ -51,10 +40,14 @@ pub fn query_status() -> Result<AgentStatus> {
             Default::default(),
             None,
         )
-    }.context("open Cyclothone agent IPC pipe")?;
+    }
+    .context("open Cyclothone agent IPC pipe")?;
 
     if handle == INVALID_HANDLE_VALUE {
-        anyhow::bail!("Cyclothone agent IPC pipe is unavailable: {}", unsafe { GetLastError().0 });
+        anyhow::bail!(
+            "Cyclothone agent IPC pipe is unavailable: {}",
+            unsafe { GetLastError().0 }
+        );
     }
 
     let mut file = unsafe { File::from_raw_handle(handle.0 as *mut _) };
@@ -63,8 +56,7 @@ pub fn query_status() -> Result<AgentStatus> {
         request_id: format!("{:x}", std::process::id()),
         operation: "GetStatus".to_owned(),
     };
-    let payload = serde_json::to_string(&request)?;
-    writeln!(file, "{payload}")?;
+    writeln!(file, "{}", serde_json::to_string(&request)?)?;
     file.flush()?;
 
     let mut reader = BufReader::new(file);
@@ -73,113 +65,24 @@ pub fn query_status() -> Result<AgentStatus> {
     serde_json::from_str(line.trim()).context("decode agent IPC response")
 }
 
-pub fn spawn_status_server(api_configured: bool, device_id: Option<String>, tenant_id: Option<String>) {
-    let device_id = device_id.map(|v| v.to_owned());
-    let tenant_id = tenant_id.map(|v| v.to_owned());
-
-    std::thread::Builder::new()
-        .name("cyclothone-ipc".into())
-        .spawn(move || {
-            if let Err(error) = server_loop(api_configured, device_id, tenant_id) {
-                tracing::error!(%error, "agent IPC server stopped");
-            }
-        })
-        .expect("spawn Cyclothone IPC server");
-}
-
-fn server_loop(api_configured: bool, device_id: Option<String>, tenant_id: Option<String>) -> Result<()> {
-    loop {
-        let mut security_descriptor: PSECURITY_DESCRIPTOR = PSECURITY_DESCRIPTOR::default();
-        let sddl = to_wide(r"D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGW;;;AU)");
-        unsafe {
-            ConvertStringSecurityDescriptorToSecurityDescriptorW(
-                PCWSTR(sddl.as_ptr()),
-                SDDL_REVISION_1,
-                &mut security_descriptor,
-                None,
-            ).context("create IPC security descriptor")?;
-        }
-
-        let mut attrs = SECURITY_ATTRIBUTES {
-            nLength: std::mem::size_of::<SECURITY_ATTRIBUTES>() as u32,
-            lpSecurityDescriptor: security_descriptor.0 as *mut _,
-            bInheritHandle: false.into(),
-        };
-
-        let name = to_wide(PIPE_NAME);
-        let pipe = unsafe {
-            CreateNamedPipeW(
-                PCWSTR(name.as_ptr()),
-                PIPE_ACCESS_DUPLEX,
-                PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
-                1,
-                8192,
-                8192,
-                5000,
-                Some(&mut attrs),
-            )
-        };
-
-        unsafe {
-            windows::Win32::System::Memory::LocalFree(
-                windows::Win32::Foundation::HLOCAL(security_descriptor.0 as *mut _)
-            );
-        }
-
-        if pipe == INVALID_HANDLE_VALUE {
-            anyhow::bail!("CreateNamedPipeW failed: {}", unsafe { GetLastError().0 });
-        }
-
-        let connected = unsafe { ConnectNamedPipe(pipe, None) }.is_ok();
-        if !connected {
-            unsafe { CloseHandle(pipe) };
-            continue;
-        }
-
-        let mut file = unsafe { File::from_raw_handle(pipe.0 as *mut _) };
-        let mut line = String::new();
-        let request = {
-            let mut reader = BufReader::new(&mut file);
-            reader.read_line(&mut line).ok();
-            serde_json::from_str::<IpcRequest>(line.trim())
-        };
-
-        let response = match request {
-            Ok(req) if req.version == 1 && req.operation == "GetStatus" => AgentStatus {
-                version: 1,
-                request_id: req.request_id,
-                status: "connected".into(),
-                device_id: device_id.clone(),
-                tenant_id: tenant_id.clone(),
-                protection: "agent-active".into(),
-                api_configured,
-            },
-            Ok(req) => AgentStatus {
-                version: 1,
-                request_id: req.request_id,
-                status: "rejected".into(),
-                device_id: None,
-                tenant_id: None,
-                protection: format!("unsupported operation: {}", req.operation),
-                api_configured,
-            },
-            Err(_) => AgentStatus {
-                version: 1,
-                request_id: "invalid".into(),
-                status: "rejected".into(),
-                device_id: None,
-                tenant_id: None,
-                protection: "invalid IPC request".into(),
-                api_configured,
-            },
-        };
-
-        let encoded = serde_json::to_string(&response)?;
-        writeln!(file, "{encoded}")?;
-        file.flush()?;
-    }
-}
-
 fn to_wide(value: &str) -> Vec<u16> {
     value.encode_utf16().chain(std::iter::once(0)).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn protocol_round_trip() {
+        let request = IpcRequest {
+            version: 1,
+            request_id: "test".into(),
+            operation: "GetStatus".into(),
+        };
+        let encoded = serde_json::to_string(&request).unwrap();
+        let decoded: IpcRequest = serde_json::from_str(&encoded).unwrap();
+        assert_eq!(decoded.version, 1);
+        assert_eq!(decoded.operation, "GetStatus");
+    }
 }
