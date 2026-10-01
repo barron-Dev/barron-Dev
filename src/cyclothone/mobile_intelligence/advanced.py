@@ -39,7 +39,8 @@ class SS7Anomaly:
         while arr and arr[0] < cutoff:
             arr.popleft()
 
-        rate = len(arr) / (self.window_ms / 1000)
+        burst_window_s = max((now - arr[0]) / 1000, 1.0) if arr else 1.0
+        rate = len(arr) / min(self.window_ms / 1000, burst_window_s)
         mean = float(os.getenv("MDI_SS7_BASELINE_MEAN", "5"))
         sd = float(os.getenv("MDI_SS7_BASELINE_SD", "2"))
         z = (rate - mean) / sd if sd > 0 else 0.0
