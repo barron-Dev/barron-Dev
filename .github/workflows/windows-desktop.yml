@@ -3,7 +3,9 @@ name: Windows Desktop
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
+      - desktop/cyclothone-workstation-v1
     paths:
       - "Cargo.toml"
       - "Cargo.lock"
@@ -36,7 +38,6 @@ jobs:
         with:
           toolchain: stable
           targets: x86_64-pc-windows-msvc
-
 
       - name: Test workspace
         run: cargo test --workspace --target x86_64-pc-windows-msvc
