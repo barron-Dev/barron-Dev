@@ -2,7 +2,8 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
-use std::os::windows::io::FromRawHandle;\nuse std::sync::atomic::{AtomicU64, Ordering};
+use std::os::windows::io::FromRawHandle;
+use std::sync::atomic::{AtomicU64, Ordering};
 use windows::core::PCWSTR;
 use windows::Win32::Foundation::{GetLastError, INVALID_HANDLE_VALUE};
 use windows::Win32::Storage::FileSystem::{
@@ -29,7 +30,9 @@ pub struct AgentStatus {
     pub api_configured: bool,
 }
 
-static REQUEST_SEQUENCE: AtomicU64 = AtomicU64::new(1);\n\npub fn query_status() -> Result<AgentStatus> {
+static REQUEST_SEQUENCE: AtomicU64 = AtomicU64::new(1);
+
+pub fn query_status() -> Result<AgentStatus> {
     let wide = to_wide(PIPE_NAME);
     let handle = unsafe {
         CreateFileW(
@@ -54,7 +57,11 @@ static REQUEST_SEQUENCE: AtomicU64 = AtomicU64::new(1);\n\npub fn query_status()
     let mut file = unsafe { File::from_raw_handle(handle.0 as *mut _) };
     let request = IpcRequest {
         version: 1,
-        request_id: format!(\n            "{:x}-{:x}",\n            std::process::id(),\n            REQUEST_SEQUENCE.fetch_add(1, Ordering::Relaxed)\n        ),
+        request_id: format!(
+            "{:x}-{:x}",
+            std::process::id(),
+            REQUEST_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        ),
         operation: "GetStatus".to_owned(),
     };
     writeln!(file, "{}", serde_json::to_string(&request)?)?;
