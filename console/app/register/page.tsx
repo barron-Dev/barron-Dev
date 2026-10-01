@@ -1,7 +1,6 @@
 "use client";
 
 import { FormEvent, useState } from "react";
-import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabase-public";
 
 type Method = "email" | "phone" | "google";
@@ -11,7 +10,6 @@ function cleanPhone(value: string) {
 }
 
 export default function Register() {
-  const router = useRouter();
   const [method, setMethod] = useState<Method>("email");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
