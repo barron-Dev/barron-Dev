@@ -1,3 +1,7 @@
+#define AppName "Cyclothone"
+#define AppVersion "0.1.0"
+#define AppPublisher "Cyclothone"
+#define AppExeName "cyclothone-desktop.exe"
 
 [Setup]
 AppId={{B8C7A8E5-4D0E-4E9B-A5B4-2D1F8D7C6E21}
