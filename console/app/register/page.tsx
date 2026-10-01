@@ -44,10 +44,12 @@ export default function Register() {
     setDone(null);
     try {
       const cleanName = name.trim();
+      const redirectTo = `${window.location.origin}/login?confirmed=1`;
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
         options: {
+          emailRedirectTo: redirectTo,
           data: {
             account_type: type,
             account_name: cleanName,
