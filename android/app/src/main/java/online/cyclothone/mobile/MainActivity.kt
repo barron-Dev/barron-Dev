@@ -11,6 +11,7 @@ import android.webkit.WebViewClient
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.EditText
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URLEncoder
@@ -50,6 +51,8 @@ class MainActivity : Activity() {
     private val sessionCrypto by lazy { SessionCrypto() }
     private lateinit var status:TextView
     private lateinit var signIn:Button
+    private var emailInput: EditText? = null
+    private var passwordInput: EditText? = null
 
     override fun onCreate(state:Bundle?){
         super.onCreate(state); showEntry()
@@ -65,11 +68,70 @@ class MainActivity : Activity() {
         signIn=Button(this).apply{text="Sign in with Google";setOnClickListener{startGoogle()}}
         val github=Button(this).apply{text="Continue with GitHub";setOnClickListener{startGithub()}}
         val email=Button(this).apply{text="Email / Magic link";setOnClickListener{openWeb("/login")}}
-        val register=Button(this).apply{text="Create account / Registration";setOnClickListener{openWeb("/register")}}
-        val password=Button(this).apply{text="Email + Password";setOnClickListener{openWeb("/login")}}
+        val register=Button(this).apply{text="Create account / Registration";setOnClickListener{showRegistration()}}
+        val password=Button(this).apply{text="Email + Password";setOnClickListener{showPasswordLogin()}}
         root.addView(title,LinearLayout.LayoutParams(-1,-2));root.addView(sub,LinearLayout.LayoutParams(-1,-2));root.addView(status,LinearLayout.LayoutParams(-1,-2))
         root.addView(signIn,LinearLayout.LayoutParams(-1,-2));root.addView(github,LinearLayout.LayoutParams(-1,-2))
         root.addView(email,LinearLayout.LayoutParams(-1,-2));root.addView(register,LinearLayout.LayoutParams(-1,-2));root.addView(password,LinearLayout.LayoutParams(-1,-2));setContentView(root)
+    }
+
+    private fun showPasswordLogin() {
+        val root = LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; gravity=Gravity.CENTER; setPadding(48,48,48,48); setBackgroundColor(Color.rgb(4,16,27)) }
+        val title=TextView(this).apply{text="Email + Password";textSize=24f;setTextColor(Color.WHITE);gravity=Gravity.CENTER}
+        status=TextView(this).apply{text="Sign in securely.";textSize=13f;setTextColor(Color.LTGRAY);gravity=Gravity.CENTER;setPadding(0,12,0,20)}
+        emailInput=EditText(this).apply{hint="Email";setTextColor(Color.WHITE);setHintTextColor(Color.GRAY);inputType=android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS}
+        passwordInput=EditText(this).apply{hint="Password";setTextColor(Color.WHITE);setHintTextColor(Color.GRAY);inputType=android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD}
+        val submit=Button(this).apply{text="Sign in";setOnClickListener{nativePasswordSignIn()}}
+        val back=Button(this).apply{text="Back";setOnClickListener{showEntry()}}
+        root.addView(title);root.addView(status);root.addView(emailInput);root.addView(passwordInput);root.addView(submit);root.addView(back);setContentView(root)
+    }
+
+    private fun showRegistration() {
+        val root = LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; gravity=Gravity.CENTER; setPadding(48,48,48,48); setBackgroundColor(Color.rgb(4,16,27)) }
+        val title=TextView(this).apply{text="Create Cyclothone account";textSize=24f;setTextColor(Color.WHITE);gravity=Gravity.CENTER}
+        status=TextView(this).apply{text="Use your real details. Email verification may be required.";textSize=13f;setTextColor(Color.LTGRAY);gravity=Gravity.CENTER;setPadding(0,12,0,20)}
+        val name=EditText(this).apply{hint="Name or company name";setTextColor(Color.WHITE);setHintTextColor(Color.GRAY)}
+        emailInput=EditText(this).apply{hint="Email";setTextColor(Color.WHITE);setHintTextColor(Color.GRAY);inputType=android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS}
+        val phone=EditText(this).apply{hint="Phone";setTextColor(Color.WHITE);setHintTextColor(Color.GRAY);inputType=android.text.InputType.TYPE_CLASS_PHONE}
+        passwordInput=EditText(this).apply{hint="Password";setTextColor(Color.WHITE);setHintTextColor(Color.GRAY);inputType=android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD}
+        val submit=Button(this).apply{text="Create account";setOnClickListener{nativeRegister(name.text.toString(),phone.text.toString())}}
+        val back=Button(this).apply{text="Back";setOnClickListener{showEntry()}}
+        root.addView(title);root.addView(status);root.addView(name);root.addView(emailInput);root.addView(phone);root.addView(passwordInput);root.addView(submit);root.addView(back);setContentView(root)
+    }
+
+    private fun nativePasswordSignIn() {
+        val email=emailInput?.text?.toString()?.trim()?.lowercase().orEmpty(); val password=passwordInput?.text?.toString().orEmpty()
+        if(email.isBlank()||password.isBlank()){status.text="Email and password are required.";return}
+        status.text="Signing in…"
+        thread { try { val s=passwordToken(email,password); saveSession(s.first,s.second); runOnUiThread{openWorkspace()} } catch(e:Exception){runOnUiThread{status.text=e.message?:"Sign-in failed."}} }
+    }
+
+    private fun nativeRegister(name:String,phone:String) {
+        val email=emailInput?.text?.toString()?.trim()?.lowercase().orEmpty(); val password=passwordInput?.text?.toString().orEmpty()
+        if(name.trim().isBlank()||email.isBlank()||phone.trim().isBlank()||password.isBlank()){status.text="Name, email, phone and password are required.";return}
+        status.text="Creating account…"
+        thread { try { val response=signup(email,password,name.trim(),phone.trim()); if(response.first!=null){saveSession(response.first!!,response.second!!);runOnUiThread{openWorkspace()}} else runOnUiThread{status.text="Account created. Check your email to verify, then sign in."} } catch(e:Exception){runOnUiThread{status.text=e.message?:"Registration failed."}} }
+    }
+
+    private fun passwordToken(email:String,password:String):Pair<String,String>{
+        return tokenRequest("grant_type=password","email="+enc(email)+"&password="+enc(password))
+    }
+
+    private fun signup(email:String,password:String,name:String,phone:String):Pair<String?,String?>{
+        val body=JSONObject().apply{put("email",email);put("password",password);put("data",JSONObject().apply{put("account_name",name);put("phone_number",phone);put("onboarding_stage","registered")})}.toString()
+        val c=(URL("$SUPABASE_URL/auth/v1/signup").openConnection() as HttpURLConnection).apply{requestMethod="POST";doOutput=true;connectTimeout=15000;readTimeout=15000;setRequestProperty("apikey",SUPABASE_KEY);setRequestProperty("Content-Type","application/json");setRequestProperty("Accept","application/json")}
+        c.outputStream.use{it.write(body.toByteArray(Charsets.UTF_8))}
+        val input=if(c.responseCode in 200..299)c.inputStream else c.errorStream;val text=input.bufferedReader().use{it.readText()}
+        if(c.responseCode !in 200..299) throw IllegalStateException(runCatching{JSONObject(text).optString("msg")}.getOrNull().orEmpty().ifBlank{"Registration failed (${c.responseCode})."})
+        val j=JSONObject(text); val a=j.optString("access_token").takeIf{it.isNotBlank()}; val r=j.optString("refresh_token").takeIf{it.isNotBlank()}; return a to r
+    }
+
+    private fun tokenRequest(query:String,body:String):Pair<String,String>{
+        val c=(URL("$SUPABASE_URL/auth/v1/token?"+query).openConnection() as HttpURLConnection).apply{requestMethod="POST";doOutput=true;connectTimeout=15000;readTimeout=15000;setRequestProperty("apikey",SUPABASE_KEY);setRequestProperty("Content-Type","application/x-www-form-urlencoded");setRequestProperty("Accept","application/json")}
+        c.outputStream.use{it.write(body.toByteArray(Charsets.UTF_8))}
+        val input=if(c.responseCode in 200..299)c.inputStream else c.errorStream;val text=input.bufferedReader().use{it.readText()}
+        if(c.responseCode !in 200..299) throw IllegalStateException(runCatching{JSONObject(text).optString("msg")}.getOrNull().orEmpty().ifBlank{"Authentication failed (${c.responseCode})."})
+        val j=JSONObject(text);val a=j.optString("access_token");val r=j.optString("refresh_token");if(a.isBlank()||r.isBlank())throw IllegalStateException("Authentication returned no active session.");return a to r
     }
 
     private fun startOAuth(provider:String){
