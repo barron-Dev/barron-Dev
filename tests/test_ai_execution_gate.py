@@ -259,11 +259,11 @@ async def test_destructive_orchestrator_rejects_client_supplied_envelope_without
     gate = AsyncMock()
     result = await ResponseOrchestrator(dispatcher, store, execution_gate=gate, envelope_issuer=AsyncMock()).run_chain(
         tenant_id=tenant, case_id=uuid4(), device_id=uuid4(),
-        plan=[ActionPlan("kill_process", {"pid": 7}, agent_envelope=envelope(), model_id="model-a", provider_id="provider-a", target="device-1")],
+        plan=[ActionPlan("kill_process", {"pid": 7}, agent_envelope=envelope(), model_id="model-a", provider_id="provider-a", target="device-1", run_id=uuid4())],
         issued_by="test",
     )
     assert result.rejected == ["1"]
-    assert "canonical AI run binding" in result.reasons["1"]
+    assert "issuance request" in result.reasons["1"]
     dispatcher.issue.assert_not_called()
 
 
@@ -277,11 +277,11 @@ async def test_destructive_orchestrator_mints_and_consumes_authoritative_envelop
     env = AgentEnvelope(
         "env-issued", tenant, agent, "model-a", "provider-a", "kill_process", "kill_process",
         {"pid": 7}, "device-1", datetime.now(UTC), datetime.now(UTC) + timedelta(minutes=1),
-        "kid", "sig", "1", "b" * 64,
+        "kid", "sig", "1", "b" * 64, "mission-a", 1, "d" * 64,
     )
     request = EnvelopeIssueRequest(
         tenant_id=tenant, agent_id=agent, model_id="model-a", provider_id="provider-a",
-        tool_name="kill_process", action="kill_process", args={"pid": 7}, target="device-1",
+        tool_name="kill_process", action="kill_process", args={"pid": 7}, target="device-1", mission_id="mission-a", mission_version=1, mission_hash="d" * 64,
     )
     issuer = AsyncMock()
     issuer.issue = AsyncMock(return_value=env)
@@ -296,7 +296,7 @@ async def test_destructive_orchestrator_mints_and_consumes_authoritative_envelop
         dispatcher, store, execution_gate=gate, envelope_issuer=issuer
     ).run_chain(
         tenant_id=tenant, case_id=uuid4(), device_id=uuid4(),
-        plan=[ActionPlan("kill_process", {"pid": 7}, envelope_request=request)],
+        plan=[ActionPlan("kill_process", {"pid": 7}, envelope_request=request, run_id=uuid4())],
         issued_by="test",
     )
 
