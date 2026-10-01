@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
 use std::os::windows::io::FromRawHandle;
+use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
 use windows::core::PCWSTR;
 use windows::Win32::Foundation::{
     CloseHandle, GetLastError, HLOCAL, LocalFree, ERROR_PIPE_CONNECTED, INVALID_HANDLE_VALUE,
@@ -37,17 +38,55 @@ pub struct AgentStatus {
     pub tenant_id: Option<String>,
     pub protection: String,
     pub api_configured: bool,
+    pub enrolled: bool,
+    pub mtls_ready: bool,
+    pub telemetry_healthy: bool,
 }
+
+#[derive(Debug)]
+pub struct HealthState {
+    pub enrolled: AtomicBool,
+    pub mtls_ready: AtomicBool,
+    pub telemetry_healthy: AtomicBool,
+}
+
+impl HealthState {
+    pub fn new(enrolled: bool) -> Self {
+        Self {
+            enrolled: AtomicBool::new(enrolled),
+            mtls_ready: AtomicBool::new(false),
+            telemetry_healthy: AtomicBool::new(false),
+        }
+    }
+
+    pub fn protection(&self) -> &'static str {
+        let enrolled = self.enrolled.load(Ordering::Acquire);
+        let mtls = self.mtls_ready.load(Ordering::Acquire);
+        let telemetry = self.telemetry_healthy.load(Ordering::Acquire);
+        if enrolled && mtls && telemetry {
+            "protected"
+        } else if enrolled && mtls {
+            "backend-not-confirmed"
+        } else if enrolled {
+            "mtls-not-ready"
+        } else {
+            "enrollment-required"
+        }
+    }
+}
+
+pub type SharedHealth = Arc<HealthState>;
 
 pub fn spawn_status_server(
     api_configured: bool,
     device_id: Option<String>,
     tenant_id: Option<String>,
+    health: SharedHealth,
 ) {
     std::thread::Builder::new()
         .name("cyclothone-ipc".into())
         .spawn(move || {
-            if let Err(error) = server_loop(api_configured, device_id, tenant_id) {
+            if let Err(error) = server_loop(api_configured, device_id, tenant_id, health) {
                 tracing::error!(%error, "agent IPC server stopped");
             }
         })
@@ -58,6 +97,7 @@ fn server_loop(
     api_configured: bool,
     device_id: Option<String>,
     tenant_id: Option<String>,
+    health: SharedHealth,
 ) -> Result<()> {
     loop {
         let mut security_descriptor: PSECURITY_DESCRIPTOR = PSECURITY_DESCRIPTOR::default();
@@ -122,11 +162,14 @@ fn server_loop(
             Ok(req) if valid_request(&req) && req.operation == "GetStatus" => AgentStatus {
                 version: 1,
                 request_id: req.request_id,
-                status: "connected".into(),
+                status: health.protection().into(),
                 device_id: device_id.clone(),
                 tenant_id: tenant_id.clone(),
-                protection: "agent-reachable".into(),
+                protection: health.protection().into(),
                 api_configured,
+                enrolled: health.enrolled.load(Ordering::Acquire),
+                mtls_ready: health.mtls_ready.load(Ordering::Acquire),
+                telemetry_healthy: health.telemetry_healthy.load(Ordering::Acquire),
             },
             Ok(req) => AgentStatus {
                 version: 1,
@@ -140,6 +183,9 @@ fn server_loop(
                 tenant_id: None,
                 protection: "unsupported or invalid IPC request".into(),
                 api_configured: false,
+                enrolled: false,
+                mtls_ready: false,
+                telemetry_healthy: false,
             },
             Err(_) => AgentStatus {
                 version: 1,
