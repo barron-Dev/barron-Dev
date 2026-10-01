@@ -17,6 +17,7 @@ on:
       - "Cargo.lock"
       - "agent/**"
       - "desktop/**"
+      - "installer/**"
       - ".github/workflows/windows-desktop.yml"
   workflow_dispatch:
 
