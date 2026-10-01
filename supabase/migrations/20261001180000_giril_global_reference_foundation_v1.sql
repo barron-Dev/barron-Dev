@@ -253,6 +253,8 @@ create policy giril_ref_domain_rules_read on public.giril_ref_domain_rules for s
 drop policy if exists giril_ref_asn_read on public.giril_ref_asn;
 create policy giril_ref_asn_read on public.giril_ref_asn for select to authenticated using(true);
 
+create policy giril_ref_sync_runs_service_role on public.giril_ref_sync_runs for all to service_role using(true) with check(true);
+
 drop policy if exists giril_onboarding_case_owner_read on public.giril_onboarding_cases;
 create policy giril_onboarding_case_owner_read on public.giril_onboarding_cases for select to authenticated using(applicant_user_id=(select auth.uid()));
 drop policy if exists giril_verification_check_owner_read on public.giril_verification_checks;
