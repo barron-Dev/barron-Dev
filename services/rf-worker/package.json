@@ -1,1 +1,0 @@
-{"name":"cyclothone-mdi-rf-worker","private":true,"version":"1.0.0","type":"module","scripts":{"start":"node src/index.js"},"dependencies":{}}

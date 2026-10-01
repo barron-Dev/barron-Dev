@@ -1,5 +1,0 @@
--- Physical-digital convergence schema source.
--- Authoritative production application: Supabase migration `physical_digital_convergence`.
--- The live migration contains the complete DDL, RLS, indexes, and service-role RPC.
--- This numbered source file is intentionally a pointer because migration ordering in
--- this repository is not identical to the historical specification numbering.

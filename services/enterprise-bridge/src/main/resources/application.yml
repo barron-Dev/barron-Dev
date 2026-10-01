@@ -1,1 +1,0 @@
-spring:\n  application:\n    name: cyclothone-enterprise-bridge\ncyclothone:\n  grpc:\n    port: 9443\n    tls:\n      certificate: $${CYCLOTHONE_GRPC_CERT}\n      private-key: $${CYCLOTHONE_GRPC_KEY}\n      trust-bundle: $${CYCLOTHONE_GRPC_TRUST_BUNDLE}\n

@@ -1,3 +1,0 @@
--- 124_ai_trust_registry_sync_corrections.sql
--- Correct measurement enum/alias usage from the initial registry bridge.
--- See the live migration trust registry sync corrections.
