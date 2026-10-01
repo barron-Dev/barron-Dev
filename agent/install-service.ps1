@@ -8,6 +8,14 @@ $ErrorActionPreference = 'Stop'
 $serviceName = 'CyclothoneAgent'
 $displayName = 'Cyclothone Agent'
 $description = 'Cyclothone endpoint telemetry and local detection agent'
+$apiUrl = 'https://cyclothone-api-production.up.railway.app'
+$stateDir = 'C:\ProgramData\Cyclothone'
+$hostId = $env:COMPUTERNAME
+
+New-Item -ItemType Directory -Force -Path $stateDir | Out-Null
+[Environment]::SetEnvironmentVariable('CYCLOTHONE_API_URL', $apiUrl, 'Machine')
+[Environment]::SetEnvironmentVariable('CYCLOTHONE_STATE_DIR', $stateDir, 'Machine')
+[Environment]::SetEnvironmentVariable('CYCLOTHONE_HOST_ID', $hostId, 'Machine')
 
 if (-not (Test-Path -LiteralPath $BinaryPath -PathType Leaf)) {
     throw "Cyclothone agent binary not found: $BinaryPath"
@@ -41,4 +49,6 @@ if ($LASTEXITCODE -ne 0) {
     throw "Failed to configure service recovery"
 }
 
-Write-Host "$serviceName installed. Start is deferred until the endpoint has completed real enrollment/configuration."
+Start-Service -Name $serviceName
+if ((Get-Service -Name $serviceName).Status -ne 'Running') { throw "Failed to start $serviceName" }
+Write-Host "$serviceName installed and waiting for authenticated desktop enrollment."
