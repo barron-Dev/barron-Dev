@@ -73,5 +73,5 @@ Deno.serve(async(req)=>{
   trust={subject_id:subjectId,state:state.data?.state??null,assurance_level:state.data?.assurance_level??null,evidence_id:evidenceId};
   await admin.from("giril_onboarding_cases").update({state:result.status==="VERIFIED"?"CONTROL_REVIEW":"MANUAL_REVIEW",updated_at:now}).eq("id",caseId);
  }
- return json({status:"accepted",onboarding_case_id:caseId,verification,trust,admission:"CONTROL_REVIEW"});
+ if(verification?.status==="VERIFIED"){const admission=await admin.rpc("giril_control_admit",{p_onboarding_case_id:caseId});if(admission.error)return json({error:"control_admission_failed",detail:admission.error.message},500);return json({status:"admitted",onboarding_case_id:caseId,verification,trust,admission_id:admission.data});}\n return json({status:"accepted",onboarding_case_id:caseId,verification,trust,admission:"CONTROL_REVIEW"});
 });
