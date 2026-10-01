@@ -61,3 +61,21 @@ jobs:
           path: |
             target/x86_64-pc-windows-msvc/release/cyclothone-agent.exe
             target/x86_64-pc-windows-msvc/release/cyclothone-desktop.exe
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --no-progress -y
+
+      - name: Build Cyclothone installer
+        shell: pwsh
+        run: |
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" installer\Cyclothone.iss
+          $installer = "installer\output\Cyclothone-Setup.exe"
+          if (!(Test-Path $installer)) { throw "Installer artifact missing: $installer" }
+          Get-FileHash $installer -Algorithm SHA256
+
+      - name: Upload Cyclothone installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: cyclothone-windows-installer
+          path: installer/output/Cyclothone-Setup.exe
