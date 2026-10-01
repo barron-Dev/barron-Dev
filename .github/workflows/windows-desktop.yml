@@ -34,6 +34,12 @@ jobs:
           toolchain: stable
           targets: x86_64-pc-windows-msvc
 
+      - name: Format check
+        run: cargo fmt --all -- --check
+
+      - name: Test workspace
+        run: cargo test --workspace --target x86_64-pc-windows-msvc
+
       - name: Build agent
         run: cargo build --release -p cyclothone-agent --target x86_64-pc-windows-msvc
 
