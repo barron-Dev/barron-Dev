@@ -5,6 +5,8 @@ pub mod events;
 pub mod commands;
 pub mod ml;
 pub mod telemetry;
+#[cfg(windows)]
+pub mod ipc;
 
 #[cfg(windows)]
 pub mod etw;
@@ -30,6 +32,11 @@ pub async fn run_agent() -> anyhow::Result<()> {
         .unwrap_or_else(|_| std::path::PathBuf::from(r"C:\\ProgramData\\Cyclothone"));
     enrollment::bootstrap_if_needed(&api_url, &state_dir).await?;
     let config = config::AgentConfig::from_env()?;
+    ipc::spawn_status_server(
+        true,
+        Some(config.device_id.clone()),
+        Some(config.tenant_id.clone()),
+    );
     let model_dir = config.state_dir.join("models");
     std::fs::create_dir_all(&model_dir)?;
 
