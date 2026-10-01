@@ -17,6 +17,7 @@ pub struct IpcRequest {
     pub version: u16,
     pub request_id: String,
     pub operation: String,
+    pub enrollment_token: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -76,6 +77,40 @@ pub fn query_status() -> Result<AgentStatus> {
     serde_json::from_str(line.trim()).context("decode agent IPC response")
 }
 
+pub fn enroll(token: &str) -> Result<AgentStatus> {
+    if token.trim().is_empty() {
+        anyhow::bail!("enrollment token is empty");
+    }
+    let wide = to_wide(PIPE_NAME);
+    let handle = unsafe {
+        CreateFileW(
+            PCWSTR(wide.as_ptr()),
+            FILE_GENERIC_READ.0 | FILE_GENERIC_WRITE.0,
+            FILE_SHARE_NONE,
+            None,
+            OPEN_EXISTING,
+            Default::default(),
+            None,
+        )
+    }.context("open Cyclothone agent IPC pipe")?;
+    if handle == INVALID_HANDLE_VALUE {
+        anyhow::bail!("Cyclothone agent IPC pipe is unavailable: {}", unsafe { GetLastError().0 });
+    }
+    let mut file = unsafe { File::from_raw_handle(handle.0 as *mut _) };
+    let request = IpcRequest {
+        version: 1,
+        request_id: format!("enroll-{:x}", REQUEST_SEQUENCE.fetch_add(1, Ordering::Relaxed)),
+        operation: "Enroll".to_owned(),
+        enrollment_token: Some(token.to_owned()),
+    };
+    writeln!(file, "{}", serde_json::to_string(&request)?)?;
+    file.flush()?;
+    let mut reader = BufReader::new(file);
+    let mut line = String::new();
+    reader.read_line(&mut line)?;
+    serde_json::from_str(line.trim()).context("decode enrollment response")
+}
+
 fn to_wide(value: &str) -> Vec<u16> {
     value.encode_utf16().chain(std::iter::once(0)).collect()
 }
@@ -90,6 +125,7 @@ mod tests {
             version: 1,
             request_id: "test".into(),
             operation: "GetStatus".into(),
+            enrollment_token: None,
         };
         let encoded = serde_json::to_string(&request).unwrap();
         let decoded: IpcRequest = serde_json::from_str(&encoded).unwrap();
