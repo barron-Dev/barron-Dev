@@ -1,0 +1,25 @@
+services:
+  sandbox:
+    build: .
+    image: sentinel-sandbox:latest
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:8080"
+    read_only: true
+    tmpfs:
+      - /tmp:size=512m,noexec,nosuid,nodev
+      - /downloads:size=256m,noexec,nosuid,nodev
+    cap_drop: [ALL]
+    cap_add: [NET_ADMIN]
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 2g
+    cpus: 2.0
+    pids_limit: 512
+    environment:
+      SANDBOX_API_KEY: ${SANDBOX_API_KEY:?SANDBOX_API_KEY is required}
+      SANDBOX_TIMEOUT_MS: 25000
+      SANDBOX_MAX_CONCURRENCY: 4
+      SANDBOX_MAX_DOWNLOAD_BYTES: 26214400
+      SANDBOX_BLOCK_PRIVATE_IPS: "1"
+      SANDBOX_APPLY_IPTABLES: "1"

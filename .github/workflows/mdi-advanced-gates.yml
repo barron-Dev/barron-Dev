@@ -1,0 +1,53 @@
+name: MDI advanced gates
+on:
+  pull_request:
+    paths:
+      - 'supabase/migrations/**mdi**'
+      - 'src/cyclothone/mobile_intelligence/**'
+      - 'src/cyclothone/api/routes/mobile_intelligence_advanced.py'
+      - 'console/**mdi**'
+      - 'scripts/mdi-*'
+      - '.github/workflows/mdi-advanced-gates.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'supabase/migrations/**mdi**'
+      - 'src/cyclothone/mobile_intelligence/**'
+      - 'console/**mdi**'
+      - 'scripts/mdi-*'
+
+jobs:
+  lawful-basis:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Enforce lawful basis for location retrieval
+        run: node scripts/mdi-lawful-basis-check.mjs
+
+  cost-ceiling:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Cost regression
+        run: node scripts/mdi-cost-sim.mjs --scenario=1M-numbers
+
+  schema-drift:
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify live schema access is configured
+        if: env.SUPABASE_DB_URL == ''
+        run: |
+          echo "::warning::SUPABASE_DB_URL is not configured; live schema drift check skipped."
+      - uses: supabase/setup-cli@v1
+        if: env.SUPABASE_DB_URL != ''
+        with:
+          version: latest
+      - name: Dump live schema
+        if: env.SUPABASE_DB_URL != ''
+        run: supabase db dump --db-url "$SUPABASE_DB_URL" -f /tmp/live.sql
+      - name: Verify MDI advanced objects exist
+        if: env.SUPABASE_DB_URL != ''
+        run: node scripts/mdi-schema-gate.mjs /tmp/live.sql

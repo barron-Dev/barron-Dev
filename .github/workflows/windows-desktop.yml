@@ -1,0 +1,84 @@
+name: Windows Desktop
+# Installer and desktop enrollment gate
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "agent/**"
+      - "desktop/**"
+      - "installer/**"
+      - ".github/workflows/windows-desktop.yml"
+  pull_request:
+    paths:
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "agent/**"
+      - "desktop/**"
+      - "installer/**"
+      - ".github/workflows/windows-desktop.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          targets: x86_64-pc-windows-msvc
+
+
+      - name: Test workspace
+        run: cargo test --workspace --target x86_64-pc-windows-msvc
+
+      - name: Build agent
+        run: cargo build --release -p cyclothone-agent --target x86_64-pc-windows-msvc
+
+      - name: Build desktop
+        run: cargo build --release -p cyclothone-desktop --target x86_64-pc-windows-msvc
+
+      - name: Smoke-check artifacts
+        shell: pwsh
+        run: |
+          $agent = "target\x86_64-pc-windows-msvc\release\cyclothone-agent.exe"
+          $desktop = "target\x86_64-pc-windows-msvc\release\cyclothone-desktop.exe"
+          if (!(Test-Path $agent)) { throw "Agent artifact missing: $agent" }
+          if (!(Test-Path $desktop)) { throw "Desktop artifact missing: $desktop" }
+          Get-FileHash $agent -Algorithm SHA256
+          Get-FileHash $desktop -Algorithm SHA256
+
+      - name: Upload Windows binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: cyclothone-windows-x64
+          path: |
+            target/x86_64-pc-windows-msvc/release/cyclothone-agent.exe
+            target/x86_64-pc-windows-msvc/release/cyclothone-desktop.exe
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --no-progress -y
+
+      - name: Build Cyclothone installer
+        shell: pwsh
+        run: |
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" installer\Cyclothone.iss
+          $installer = "installer\output\Cyclothone-Setup.exe"
+          if (!(Test-Path $installer)) { throw "Installer artifact missing: $installer" }
+          Get-FileHash $installer -Algorithm SHA256
+
+      - name: Upload Cyclothone installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: cyclothone-windows-installer
+          path: installer/output/Cyclothone-Setup.exe

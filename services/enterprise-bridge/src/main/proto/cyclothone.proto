@@ -1,0 +1,20 @@
+syntax = "proto3";
+package cyclothone.v1;
+option java_multiple_files = true;
+option java_package = "online.cyclothone.bridge.v1";
+
+service ThreatBridge {
+  rpc StreamDetections(DetectionStreamRequest) returns (stream Detection);
+  rpc PushIndicators(IndicatorBatch) returns (IndicatorAck);
+  rpc CheckTenant(TenantCheckRequest) returns (TenantCheckResponse);
+  rpc AttributePhone(AttributionRequest) returns (AttributionResponse);
+}
+message DetectionStreamRequest { string tenant_id=1; int32 min_severity=2; uint32 max_batch=3; }
+message Detection { string id=1; string tenant_id=2; string device_id=3; string detector=4; string verdict=5; float score=6; repeated string reasons=7; string mitre_technique=8; int64 created_at_millis=9; }
+message Indicator { string ioc_type=1; string value_hash=2; string severity=3; float confidence=4; string category=5; repeated string tags=6; }
+message IndicatorBatch { string tenant_id=1; repeated Indicator indicators=2; }
+message IndicatorAck { uint32 accepted=1; uint32 rejected=2; string batch_hash=3; }
+message TenantCheckRequest { string tenant_id=1; }
+message TenantCheckResponse { string tenant_id=1; string region_code=2; string home_region=3; bool active=4; string plan=5; }
+message AttributionRequest { string tenant_id=1; string phone_e164=2; bool include_voice=3; }
+message AttributionResponse { string root_entity_id=1; float confidence=2; repeated string related_entity_ids=3; string attribution_note=4; }

@@ -1,0 +1,2 @@
+# Recovery Vault production object storage client.
+boto3==1.35.99
