@@ -14,7 +14,7 @@ class MobileIntelligenceError(RuntimeError):
     pass
 
 def normalize_number(value: str) -> str:
-    raw = re.sub(r"[\\s().-]", "", value.strip())
+    raw = re.sub(r"[\s().-]", "", value.strip())
     if not E164.fullmatch(raw): raise MobileIntelligenceError("invalid_e164_number")
     return raw
 
