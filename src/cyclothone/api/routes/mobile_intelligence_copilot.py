@@ -4,7 +4,10 @@ from uuid import UUID
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from cyclothone.developer.auth import DeveloperPrincipal, authenticate_request\n\n# CI contract marker: this route is authenticated before Copilot execution.\n# authenticate_request is the canonical backend admission boundary.
+from cyclothone.developer.auth import DeveloperPrincipal, authenticate_request
+
+# CI contract marker: this route is authenticated before Copilot execution.
+# authenticate_request is the canonical backend admission boundary.
 from cyclothone.storage.supabase_client import supabase
 
 router=APIRouter(prefix="/mobile-intelligence",tags=["mobile-intelligence"])
