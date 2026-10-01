@@ -2,6 +2,7 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
+use std::os::windows::io::FromRawHandle;
 use windows::core::PCWSTR;
 use windows::Win32::Foundation::{GetLastError, INVALID_HANDLE_VALUE};
 use windows::Win32::Storage::FileSystem::{
