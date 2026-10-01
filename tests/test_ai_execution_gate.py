@@ -107,6 +107,9 @@ async def test_denied_policy_is_not_treated_as_approval(monkeypatch):
             tenant_id=env.tenant_id,
             expected_model_id=env.model_id,
             expected_provider_id=env.provider_id,
+            expected_mission_id=env.mission_id,
+            expected_mission_version=env.mission_version,
+            expected_mission_hash=env.mission_hash,
             twin=AsyncMock(),
         )
 
