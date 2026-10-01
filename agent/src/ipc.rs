@@ -17,6 +17,9 @@ use windows::Win32::System::Pipes::{
 };
 
 pub const PIPE_NAME: &str = r"\\.\pipe\CyclothoneAgent";
+const PIPE_SDDL: &str = r"D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGW;;;IU)";
+const MAX_REQUEST_BYTES: usize = 4096;
+const MAX_REQUEST_ID_BYTES: usize = 128;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct IpcRequest {
@@ -58,7 +61,7 @@ fn server_loop(
 ) -> Result<()> {
     loop {
         let mut security_descriptor: PSECURITY_DESCRIPTOR = PSECURITY_DESCRIPTOR::default();
-        let sddl = to_wide(r"D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGW;;;AU)");
+        let sddl = to_wide(PIPE_SDDL);
         unsafe {
             ConvertStringSecurityDescriptorToSecurityDescriptorW(
                 PCWSTR(sddl.as_ptr()),
@@ -111,12 +114,12 @@ fn server_loop(
         let mut line = String::new();
         let request = {
             let mut reader = BufReader::new(&mut file);
-            reader.read_line(&mut line).ok();
-            serde_json::from_str::<IpcRequest>(line.trim())
+            read_line_bounded(&mut reader, &mut line, MAX_REQUEST_BYTES)
+                .and_then(|_| serde_json::from_str::<IpcRequest>(line.trim()).context("decode IPC request"))
         };
 
         let response = match request {
-            Ok(req) if req.version == 1 && req.operation == "GetStatus" => AgentStatus {
+            Ok(req) if valid_request(&req) && req.operation == "GetStatus" => AgentStatus {
                 version: 1,
                 request_id: req.request_id,
                 status: "connected".into(),
@@ -127,12 +130,16 @@ fn server_loop(
             },
             Ok(req) => AgentStatus {
                 version: 1,
-                request_id: req.request_id,
+                request_id: if req.request_id.len() <= MAX_REQUEST_ID_BYTES {
+                    req.request_id
+                } else {
+                    "rejected".into()
+                },
                 status: "rejected".into(),
                 device_id: None,
                 tenant_id: None,
-                protection: format!("unsupported operation: {}", req.operation),
-                api_configured,
+                protection: "unsupported or invalid IPC request".into(),
+                api_configured: false,
             },
             Err(_) => AgentStatus {
                 version: 1,
@@ -141,13 +148,46 @@ fn server_loop(
                 device_id: None,
                 tenant_id: None,
                 protection: "invalid IPC request".into(),
-                api_configured,
+                api_configured: false,
             },
         };
 
         writeln!(file, "{}", serde_json::to_string(&response)?)?;
         file.flush()?;
     }
+}
+
+fn valid_request(request: &IpcRequest) -> bool {
+    request.version == 1
+        && !request.request_id.is_empty()
+        && request.request_id.len() <= MAX_REQUEST_ID_BYTES
+}
+
+fn read_line_bounded<R: std::io::BufRead>(
+    reader: &mut R,
+    output: &mut String,
+    limit: usize,
+) -> Result<usize> {
+    output.clear();
+    let mut bytes = Vec::with_capacity(limit.min(256));
+    loop {
+        let available = reader.fill_buf()?;
+        if available.is_empty() {
+            break;
+        }
+        let newline = available.iter().position(|byte| *byte == b'\n');
+        let take = newline.map(|index| index + 1).unwrap_or(available.len());
+        if bytes.len() + take > limit {
+            anyhow::bail!("IPC request exceeds {} bytes", limit);
+        }
+        bytes.extend_from_slice(&available[..take]);
+        reader.consume(take);
+        if newline.is_some() {
+            break;
+        }
+    }
+    *output = String::from_utf8(bytes).context("IPC request is not UTF-8")?;
+    Ok(output.len())
 }
 
 fn to_wide(value: &str) -> Vec<u16> {
@@ -167,9 +207,38 @@ mod tests {
         };
         let encoded = serde_json::to_string(&request).unwrap();
         assert!(encoded.contains("GetStatus"));
-        assert_eq!(
-            serde_json::from_str::<IpcRequest>(&encoded).unwrap().version,
-            1
-        );
+        let decoded = serde_json::from_str::<IpcRequest>(&encoded).unwrap();
+        assert_eq!(decoded.version, 1);
+        assert!(valid_request(&decoded));
+    }
+
+    #[test]
+    fn request_validation_rejects_empty_or_oversized_ids() {
+        let empty = IpcRequest {
+            version: 1,
+            request_id: String::new(),
+            operation: "GetStatus".into(),
+        };
+        assert!(!valid_request(&empty));
+
+        let oversized = IpcRequest {
+            version: 1,
+            request_id: "x".repeat(MAX_REQUEST_ID_BYTES + 1),
+            operation: "GetStatus".into(),
+        };
+        assert!(!valid_request(&oversized));
+    }
+
+    #[test]
+    fn bounded_reader_rejects_oversized_input() {
+        let mut input = std::io::Cursor::new(vec![b'x'; MAX_REQUEST_BYTES + 1]);
+        let mut output = String::new();
+        assert!(read_line_bounded(&mut input, &mut output, MAX_REQUEST_BYTES).is_err());
+    }
+
+    #[test]
+    fn ipc_acl_targets_interactive_users_not_all_authenticated_users() {
+        assert!(PIPE_SDDL.contains(";;;IU)"));
+        assert!(!PIPE_SDDL.contains(";;;AU)"));
     }
 }
