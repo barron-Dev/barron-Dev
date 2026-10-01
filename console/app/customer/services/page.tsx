@@ -75,46 +75,46 @@ export default function CustomerServices() {
     return map;
   }, [cases]);
 
-  return <main className="min-h-screen bg-[#05070a] text-[#e8eef6]">
-    <header className="flex min-h-14 flex-wrap items-center justify-between gap-3 border-b border-[#1a2330] bg-[#0a0e14] px-5 py-3">
-      <div><a href="/customer/overview" className="font-semibold">Cyclothone</a><span className="ml-3 text-[10px] uppercase tracking-[.16em] text-[#ffb347]">Customer services</span></div>
+  return <main className="relative min-h-screen overflow-hidden min-h-screen bg-[#021014] text-[#e8eef6]">
+    <header className="relative z-10 backdrop-blur-2xl flex min-h-14 flex-wrap items-center justify-between gap-3 border-b border-white/10 bg-[#06181e]/70 px-5 py-3">
+      <div><a href="/customer/overview" className="font-semibold">Cyclothone</a><span className="ml-3 text-[10px] uppercase tracking-[.16em] text-[#70d3ca]">Customer services</span></div>
       <nav className="flex gap-2 text-[10px]">
-        <a href="/customer/overview" className="border border-[#2a3646] px-3 py-2">Overview</a>
-        <a href="/customer/workspace" className="border border-[#2a3646] px-3 py-2">Workspace</a>
-        <a href="/customer/cases" className="border border-[#2a3646] px-3 py-2">Cases</a>
-        <a href="/request-service" className="border border-[#00d9ff] px-3 py-2 text-[#00d9ff]">Request service</a>
+        <a href="/customer/overview" className="border border-white/10 px-3 py-2">Overview</a>
+        <a href="/customer/workspace" className="border border-white/10 px-3 py-2">Workspace</a>
+        <a href="/customer/cases" className="border border-white/10 px-3 py-2">Cases</a>
+        <a href="/request-service" className="border border-[#5ccbc3] px-3 py-2 text-[#5ccbc3]">Request service</a>
       </nav>
     </header>
 
-    <div className="mx-auto max-w-7xl px-5 py-8">
+    <div className="relative z-10 mx-auto max-w-7xl px-5 py-8 md:px-8">
       <div className="max-w-3xl">
-        <div className="text-[10px] uppercase tracking-[.18em] text-[#5a6675]">Customer security services</div>
+        <div className="text-[10px] uppercase tracking-[.18em] text-[#688487]">Customer security services</div>
         <h1 className="mt-2 text-3xl font-semibold">Your security services</h1>
-        <p className="mt-3 text-sm leading-6 text-[#8a97a8]">Choose a service to request. Cyclothone only displays verified information returned for your organization; it does not invent operational results.</p>
+        <p className="mt-3 text-sm leading-6 text-[#91aaab]">Choose what you need. Cyclothone keeps the customer experience simple: define the outcome, submit the request, then follow the live status and evidence.</p>
       </div>
 
       {error && <div className="mt-6 border border-[#ff2d55]/40 bg-[#ff2d55]/5 p-4 text-xs text-[#ff6b83]">{error}</div>}
 
-      {loading ? <div className="mt-8 border border-[#1a2330] bg-[#0a0e14] p-8 text-center text-xs text-[#5a6675]">Loading your services…</div> :
-      !org ? <div className="mt-8 border border-dashed border-[#2a3646] bg-[#0a0e14] p-8"><h2 className="text-lg font-medium">Organization required</h2><p className="mt-2 text-xs leading-5 text-[#8a97a8]">Create and admit your organization before requesting protected services.</p><a href="/register" className="mt-5 inline-block border border-[#00d9ff] px-4 py-2 text-[11px] text-[#00d9ff]">Create organization →</a></div> :
+      {loading ? <div className="mt-8 border border-white/10 bg-[#06181e]/70 p-8 text-center text-xs text-[#688487]">Loading your services…</div> :
+      !org ? <div className="mt-8 rounded-[2rem] border border-dashed border-white/10 bg-[#06181e]/70 p-8"><h2 className="text-lg font-medium">Organization required</h2><p className="mt-2 text-xs leading-5 text-[#91aaab]">Create and admit your organization before requesting protected services.</p><a href="/register" className="mt-5 inline-block border border-[#5ccbc3] px-4 py-2 text-[11px] text-[#5ccbc3]">Create organization →</a></div> :
       <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {SERVICES.map(service => {
           const count = requestCounts[service.key] ?? 0;
           const serviceCases = caseCounts[service.key] ?? 0;
           const latest = requests.filter(r => r.service_key === service.key).sort((a,b) => String(b.created_at).localeCompare(String(a.created_at)))[0];
-          return <article key={service.key} className="flex min-h-[245px] flex-col border border-[#1a2330] bg-[#0a0e14] p-5">
+          return <article key={service.key} className="group flex min-h-[245px] flex-col rounded-[2rem] border border-white/10 bg-[#06181e]/65 p-5 shadow-[0_24px_80px_rgba(0,0,0,.24)] backdrop-blur-xl transition hover:-translate-y-1 hover:border-[#4fc4bd]/25">
             <div className="flex items-start justify-between gap-3">
               <h2 className="font-medium">{service.name}</h2>
-              {latest && <span className={"rounded border px-2 py-1 text-[9px] "+(statusTone[latest.status] ?? "border-[#2a3646] text-[#8a97a8]")}>{latest.status}</span>}
+              {latest && <span className={"rounded border px-2 py-1 text-[9px] "+(statusTone[latest.status] ?? "border-white/10 text-[#91aaab]")}>{latest.status}</span>}
             </div>
-            <p className="mt-3 text-xs leading-5 text-[#8a97a8]">{service.description}</p>
-            <div className="mt-4 border-t border-[#1a2330] pt-3">
-              <div className="text-[9px] uppercase tracking-[.12em] text-[#5a6675]">Customer outcome</div>
-              <div className="mt-1 text-[11px] text-[#c4cedb]">{service.outcome}</div>
+            <p className="mt-3 text-xs leading-5 text-[#91aaab]">{service.description}</p>
+            <div className="mt-4 border-t border-white/10 pt-3">
+              <div className="text-[9px] uppercase tracking-[.12em] text-[#688487]">Customer outcome</div>
+              <div className="mt-1 text-[11px] text-[#c7d8d6]">{service.outcome}</div>
             </div>
             <div className="mt-auto flex items-center justify-between gap-3 pt-5">
-              <div className="text-[10px] text-[#5a6675]">{count} request{count===1?"":"s"} · {serviceCases} case{serviceCases===1?"":"s"}</div>
-              <a href={"/customer/services/"+encodeURIComponent(service.key)} className="border border-[#00d9ff] px-3 py-2 text-[10px] text-[#00d9ff]">Request</a>
+              <div className="text-[10px] text-[#688487]">{count} request{count===1?"":"s"} · {serviceCases} case{serviceCases===1?"":"s"}</div>
+              <a href={"/customer/services/"+encodeURIComponent(service.key)} className="border border-[#5ccbc3] px-3 py-2 text-[10px] text-[#5ccbc3]">Request</a>
             </div>
           </article>;
         })}
