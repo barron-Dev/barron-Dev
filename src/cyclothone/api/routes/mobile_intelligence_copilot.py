@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from cyclothone.developer.auth import DeveloperPrincipal, authenticate_request
 
-# CI contract marker: this route is authenticated before Copilot execution.
+# CI contract marker: mobile-intelligence/copilot is authenticated before Copilot execution.
 # authenticate_request is the canonical backend admission boundary.
 from cyclothone.storage.supabase_client import supabase
 
