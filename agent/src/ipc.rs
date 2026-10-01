@@ -195,6 +195,9 @@ fn server_loop(
                 tenant_id: None,
                 protection: "invalid IPC request".into(),
                 api_configured: false,
+                enrolled: false,
+                mtls_ready: false,
+                telemetry_healthy: false,
             },
         };
 
