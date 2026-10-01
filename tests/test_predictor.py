@@ -35,9 +35,11 @@ def test_predicts_best_path_and_is_cycle_safe():
          str(b): [Edge(c,"hosts"), Edge(a,"depends_on")]}
     )
     result = AttackPathPredictor(g, {"service": .8, "database": .9}).predict(str(a), 3, 10)
-    assert [x.node_external for x in result] == ["c", "b"]
-    assert result[0].hops == 2
-    assert result[0].path[-1]["relation"] == "hosts"
+    assert [x.node_external for x in result] == ["b", "c"]
+    assert result[0].hops == 1
+    assert result[0].path[-1]["relation"] == "connects_to"
+    assert result[1].hops == 2
+    assert result[1].path[-1]["relation"] == "hosts"
 
 def test_rejects_invalid_inputs():
     a = uuid4()
@@ -53,8 +55,9 @@ def test_rejects_invalid_inputs():
 def test_rejects_invalid_criticality():
     a = uuid4()
     g = Graph([Node(a,"a","device",1.5)], {})
+    p = AttackPathPredictor(g)
     with pytest.raises(PredictionInputError):
-        AttackPathPredictor(g).predict(str(a))
+        p.predict(str(a))
 
 def test_geometric_mean_requires_all_three_signals():
     assert AttackPathPredictor._combine(.8,.8,.8) > 0

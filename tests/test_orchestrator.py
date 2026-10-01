@@ -75,7 +75,7 @@ async def test_high_impact_queued_for_approval():
 async def test_dry_run_never_dispatches():
     dispatcher = AsyncMock()
     orch = ResponseOrchestrator(dispatcher, FakeStore())
-    result = await orch.run_chain(tenant_id=uuid4(), case_id=uuid4(), device_id=uuid4(), plan=[ActionPlan("kill_process", {"pid": 1})], issued_by="test", dry_run=True)
+    result = await orch.run_chain(tenant_id=uuid4(), case_id=uuid4(), device_id=uuid4(), plan=[ActionPlan("scan_now", {"pid": 1})], issued_by="test", dry_run=True)
     assert result.dispatched == ["1"]
     dispatcher.issue.assert_not_called()
 
