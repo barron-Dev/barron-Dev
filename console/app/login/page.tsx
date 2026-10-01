@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabase-public";
 
 const INVITATION_TOKEN_KEY="cyclothone_invitation_token";
+const PENDING_PROFILE_KEY="cyclothone_pending_profile";
 
 async function finishPendingOrganization(accessToken:string){
   const pending=sessionStorage.getItem("cyclothone_pending_organization");
@@ -19,8 +20,36 @@ async function finishPendingOrganization(accessToken:string){
 }
 
 export default function Login(){
- const router=useRouter();const [email,setEmail]=useState(""),[password,setPassword]=useState(""),[busy,setBusy]=useState(false),[error,setError]=useState<string|null>(null);
- useEffect(()=>{const token=new URLSearchParams(window.location.search).get("token");if(token)sessionStorage.setItem(INVITATION_TOKEN_KEY,token)},[]);
+ const router=useRouter();
+ const [email,setEmail]=useState("");
+ const [password,setPassword]=useState("");
+ const [busy,setBusy]=useState(false);
+ const [error,setError]=useState<string|null>(null);
+
+ useEffect(()=>{
+   const params=new URLSearchParams(window.location.search);
+   const token=params.get("token");
+   if(token) sessionStorage.setItem(INVITATION_TOKEN_KEY,token);
+   if(params.get("confirmed")!=="1") return;
+
+   let active=true;
+   (async()=>{
+     const {data,error}=await supabase.auth.getSession();
+     if(!active) return;
+     if(error){setError(error.message);return;}
+     if(!data.session){setError("Verification completed, but no session was returned. Please use the verification link again.");return;}
+     sessionStorage.setItem("cyclothone_access_token",data.session.access_token);
+     if(data.session.refresh_token) sessionStorage.setItem("cyclothone_refresh_token",data.session.refresh_token);
+     try{
+       await finishPendingOrganization(data.session.access_token);
+       const invitationToken=sessionStorage.getItem(INVITATION_TOKEN_KEY);
+       const pendingProfile=sessionStorage.getItem(PENDING_PROFILE_KEY);
+       router.replace(invitationToken?"/invitations/accept":pendingProfile?"/customer/workspace?onboarding=1":"/customer/workspace");
+     }catch(x){setError(x instanceof Error?x.message:"Unable to finish registration");}
+   })();
+   return()=>{active=false};
+ },[router]);
+
  async function submit(e:FormEvent){
   e.preventDefault();setBusy(true);setError(null);
   try{
