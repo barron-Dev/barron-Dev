@@ -70,7 +70,7 @@ pub async fn enroll_with_token(
     platform: String,
     platform_version: Option<String>,
 ) -> Result<()> {
-    let (_, key, _, _) = identity_paths(state_dir);
+    let (cert, key, ca, _) = identity_paths(state_dir);
     let key_pair = KeyPair::generate()?;
     let mut params = CertificateParams::new(Vec::new())?;
     params.distinguished_name.push(DnType::CommonName, name.clone());
@@ -83,7 +83,7 @@ pub async fn enroll_with_token(
         "name": name,
         "hostname": hostname,
         "os": os,
-        "os_version": platform_version,
+        "os_version": os_version,
         "arch": arch,
         "platform": platform,
         "platform_version": platform_version,
