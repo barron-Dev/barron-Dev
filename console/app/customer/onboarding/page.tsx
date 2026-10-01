@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
+import { SUPABASE_URL } from "../../lib/supabase-public";
 import { supabase } from "../../lib/supabase-public";
 
 export default function CustomerOnboarding() {
@@ -9,7 +10,7 @@ export default function CustomerOnboarding() {
  useEffect(()=>{const raw=sessionStorage.getItem("cyclothone_pending_profile");if(raw){try{const p=JSON.parse(raw);setName(p.account_name||"");setEmail(p.email||"");setPhone(p.phone_number||"")}catch{}}},[]);
  async function submit(e:FormEvent){e.preventDefault();setBusy(true);setError(null);try{
   const {data:{session}}=await supabase.auth.getSession(); if(!session) throw new Error("Authentication required. Please sign in again.");
-  const base=process.env.NEXT_PUBLIC_SUPABASE_URL||"https://whcomikcftbousoqzeal.supabase.co";
+  const base=SUPABASE_URL;
   const response=await fetch(base+"/functions/v1/giril-onboard",{method:"POST",headers:{Authorization:"Bearer "+session.access_token,"Content-Type":"application/json"},body:JSON.stringify({name,email,phone,subject_kind:kind||null,country:country||null,lei:lei.trim()||null})});
   const payload=await response.json(); if(!response.ok) throw new Error(payload.error||"Unable to complete onboarding");
   sessionStorage.removeItem("cyclothone_pending_profile"); setResult(payload);
