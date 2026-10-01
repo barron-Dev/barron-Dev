@@ -42,13 +42,16 @@ impl TelemetryClient {
         })
     }
 
-    pub async fn send(&self, event: &EndpointEvent) -> Result<()> {
+    pub async fn send(&self, event: &EndpointEvent, health: &crate::ipc::SharedHealth) -> Result<()> {
         let url = format!("{}/api/v1/agent/events", self.api_url);
         let mut delay = Duration::from_secs(1);
 
         for attempt in 1..=MAX_ATTEMPTS {
             match self.client.post(&url).json(event).send().await {
-                Ok(response) if response.status().is_success() => return Ok(()),
+                Ok(response) if response.status().is_success() => {
+                        health.telemetry_healthy.store(true, std::sync::atomic::Ordering::Release);
+                        return Ok(());
+                    },
                 Ok(response) => {
                     let status = response.status();
                     if attempt == MAX_ATTEMPTS {
@@ -78,16 +81,18 @@ impl TelemetryClient {
 
 pub fn spawn(
     config: &crate::config::AgentConfig,
+    health: crate::ipc::SharedHealth,
 ) -> Result<(
     tokio::sync::mpsc::Sender<EndpointEvent>,
     tokio::task::JoinHandle<()>,
 )> {
     let client = TelemetryClient::from_config(config)?;
+    health.mtls_ready.store(true, std::sync::atomic::Ordering::Release);
     let (tx, mut rx) = tokio::sync::mpsc::channel::<EndpointEvent>(QUEUE_CAPACITY);
 
     let task = tokio::spawn(async move {
         while let Some(event) = rx.recv().await {
-            if let Err(error) = client.send(&event).await {
+            if let Err(error) = client.send(&event, &health).await {
                 warn!(%error, event_id = %event.event_id, "telemetry delivery failed");
             }
         }
