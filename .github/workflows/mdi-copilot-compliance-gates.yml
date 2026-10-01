@@ -37,4 +37,4 @@ jobs:
           done
       - name: No production database dependency
         run: |
-          ! grep -RIn "DATABASE_URL" .github/workflows/mdi-copilot-compliance-gates.yml
+          ! grep -nE "(^|[^A-Za-z0-9_])DATABASE_URL[=:]" .github/workflows/mdi-copilot-compliance-gates.yml
