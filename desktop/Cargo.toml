@@ -1,0 +1,12 @@
+[package]
+name = "cyclothone-desktop"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Cyclothone Windows security workstation"
+
+[dependencies]
+anyhow = "1"
+eframe = "0.33"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
