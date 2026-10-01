@@ -52,19 +52,29 @@ class MainActivity : Activity() {
         val sub=TextView(this).apply{text="Secure mobile access";textSize=14f;setTextColor(Color.LTGRAY);gravity=Gravity.CENTER;setPadding(0,12,0,24)}
         status=TextView(this).apply{text="Sign in to continue.";textSize=13f;setTextColor(Color.LTGRAY);gravity=Gravity.CENTER;setPadding(0,0,0,20)}
         signIn=Button(this).apply{text="Sign in with Google";setOnClickListener{startGoogle()}}
-        root.addView(title,LinearLayout.LayoutParams(-1,-2));root.addView(sub,LinearLayout.LayoutParams(-1,-2));root.addView(status,LinearLayout.LayoutParams(-1,-2));root.addView(signIn,LinearLayout.LayoutParams(-1,-2));setContentView(root)
+        val github=Button(this).apply{text="Continue with GitHub";setOnClickListener{startGithub()}}
+        val email=Button(this).apply{text="Email / Magic link";setOnClickListener{openWeb("/login")}}
+        val register=Button(this).apply{text="Create account / Registration";setOnClickListener{openWeb("/register")}}
+        val password=Button(this).apply{text="Email + Password";setOnClickListener{openWeb("/login")}}
+        root.addView(title,LinearLayout.LayoutParams(-1,-2));root.addView(sub,LinearLayout.LayoutParams(-1,-2));root.addView(status,LinearLayout.LayoutParams(-1,-2))
+        root.addView(signIn,LinearLayout.LayoutParams(-1,-2));root.addView(github,LinearLayout.LayoutParams(-1,-2))
+        root.addView(email,LinearLayout.LayoutParams(-1,-2));root.addView(register,LinearLayout.LayoutParams(-1,-2));root.addView(password,LinearLayout.LayoutParams(-1,-2));setContentView(root)
     }
 
-    private fun startGoogle(){
+    private fun startOAuth(provider:String){
         val v=verifier();val state=UUID.randomUUID().toString();prefs.edit().putString(CODE_VERIFIER,v).putString(STATE,state).apply()
         val url=buildString{
-            append("$SUPABASE_URL/auth/v1/authorize?provider=google")
+            append("$SUPABASE_URL/auth/v1/authorize?provider=").append(enc(provider))
             append("&redirect_to=").append(enc(REDIRECT_URI));append("&code_challenge=").append(enc(challenge(v)))
             append("&code_challenge_method=S256");append("&state=").append(enc(state));append("&prompt=select_account")
         }
-        status.text="Opening Google securely…";signIn.isEnabled=false
+        status.text="Opening ${provider.replaceFirstChar { it.uppercase() }} securely…";signIn.isEnabled=false
         runCatching{startActivity(Intent(Intent.ACTION_VIEW,Uri.parse(url)))}.onFailure{status.text="Unable to open the secure sign-in browser.";signIn.isEnabled=true}
     }
+
+    private fun startGoogle()=startOAuth("google")
+    private fun startGithub()=startOAuth("github")
+    private fun openWeb(path:String){ startActivity(Intent(Intent.ACTION_VIEW,Uri.parse("https://customers.cyclothone.online$path"))) }
 
     private fun handleCallback(uri:Uri){
         if(uri.scheme!="cyclothone"||uri.host!="auth"||uri.path!="/callback")return
