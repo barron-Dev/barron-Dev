@@ -1,4 +1,4 @@
-use crate::ipc::{query_status, AgentStatus};
+use crate::ipc::{enroll, query_status, AgentStatus};
 use eframe::egui;
 use std::time::{Duration, Instant};
 
@@ -6,6 +6,7 @@ pub struct CyclothoneApp {
     status: Option<AgentStatus>,
     last_poll: Instant,
     message: String,
+    enrollment_result: Option<String>,
 }
 
 impl CyclothoneApp {
@@ -14,6 +15,22 @@ impl CyclothoneApp {
             status: None,
             last_poll: Instant::now() - Duration::from_secs(10),
             message: "Connecting to Cyclothone Agent…".into(),
+            enrollment_result: std::env::args().find_map(|arg| arg.strip_prefix("cyclothone://enroll?token=").map(str::to_owned)),
+        }
+    }
+
+    fn try_enrollment(&mut self) {
+        let Some(token) = self.enrollment_result.take() else { return; };
+        match enroll(&token) {
+            Ok(status) if status.status == "enrollment-complete" => {
+                self.message = "Device enrollment confirmed".into();
+            }
+            Ok(status) => {
+                self.message = format!("Device enrollment: {}", status.status);
+            }
+            Err(error) => {
+                self.message = format!("Enrollment failed: {error:#}");
+            }
         }
     }
 
@@ -34,6 +51,7 @@ impl CyclothoneApp {
 
 impl eframe::App for CyclothoneApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.try_enrollment();
         if self.last_poll.elapsed() >= Duration::from_secs(2) {
             self.refresh();
         }
