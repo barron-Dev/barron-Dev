@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { getCustomerOrganizations, getCustomerServiceRequests, getCustomerVerification, submitCustomerVerification, requestCustomerAdmission, getOrganizationMembers, getOrganizationInvitations, createOrganizationInvitation, revokeOrganizationInvitation, setApiToken, type CustomerOrganization, type CustomerServiceRequest, type OrganizationMember, type OrganizationInvitation } from "../../../lib/api";
+import { getCustomerOrganizations, getCustomerServiceRequests, getCustomerVerification, submitCustomerVerification, requestCustomerAdmission, getOrganizationMembers, getOrganizationInvitations, createOrganizationInvitation, revokeOrganizationInvitation, createCustomerDeviceEnrollmentToken, setApiToken, type CustomerOrganization, type CustomerServiceRequest, type OrganizationMember, type OrganizationInvitation } from "../../../lib/api";
 
 const labels: Record<string,string> = {
   cybersecurity_assessment:"Cybersecurity Assessment", incident_response:"Incident Response", threat_intelligence:"Threat Intelligence",
@@ -32,6 +32,7 @@ export default function CustomerWorkspace() {
   const [inviteRole,setInviteRole]=useState("requester");
   const [inviteToken,setInviteToken]=useState<string|null>(null);
   const [memberBusy,setMemberBusy]=useState(false);
+  const [deviceBusy,setDeviceBusy]=useState(false);
   const [loading,setLoading]=useState(true);
   const [error,setError]=useState<string|null>(null);
 
@@ -92,6 +93,16 @@ export default function CustomerWorkspace() {
     } catch(e) { setError(e instanceof Error ? e.message : "Unable to create invitation"); }
     finally { setMemberBusy(false); }
   }
+  async function enrollDevice() {
+    if(!selected || !org?.tenant_id || org.admission_status !== "approved") return;
+    setDeviceBusy(true); setError(null);
+    try {
+      const result=await createCustomerDeviceEnrollmentToken(selected);
+      window.location.href=`cyclothone://enroll?token=${encodeURIComponent(result.token)}`;
+    } catch(e) { setError(e instanceof Error ? e.message : "Unable to start device enrollment"); }
+    finally { setDeviceBusy(false); }
+  }
+
   async function revokeInvitation(id:string) {
     setMemberBusy(true); setError(null);
     try { await revokeOrganizationInvitation(selected,id); const i=await getOrganizationInvitations(selected); setInvitations(i.invitations); }
@@ -137,6 +148,13 @@ export default function CustomerWorkspace() {
               <div className="border border-white/10 p-3"><div className="font-mono text-2xl">{counts.resolved}</div><div className="text-[10px] uppercase tracking-[.12em] text-[#5a6675]">Resolved</div></div>
             </div>
           </div>
+
+          {org?.admission_status === "approved" && org?.tenant_id && <div className="rounded-[1.75rem] border border-[#4fc4bd]/20 bg-[#06181e]/65 p-5 backdrop-blur-xl">
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div><div className="text-[9px] uppercase tracking-[.16em] text-[#5a6675]">Endpoint protection</div><h2 className="mt-1 text-lg font-semibold">Protect this device</h2><p className="mt-1 max-w-xl text-[11px] text-[#8a97a8]">Open the Cyclothone Desktop app and complete one-time secure enrollment. The private device key stays on the computer.</p></div>
+              <button disabled={deviceBusy} onClick={()=>void enrollDevice()} className="rounded-full border border-[#4fc4bd]/45 bg-[#0b242a] px-4 py-2 text-[11px] text-[#70d3ca] disabled:opacity-40">{deviceBusy ? "Starting…" : "Open Cyclothone Desktop"}</button>
+            </div>
+          </div>}
 
           <div className="grid gap-5 xl:grid-cols-2">
             <div className="rounded-[1.75rem] border border-white/10 bg-[#06181e]/65 p-4 backdrop-blur-xl">
