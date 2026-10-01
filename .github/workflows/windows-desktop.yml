@@ -1,4 +1,5 @@
 name: Windows Desktop
+# Installer and desktop enrollment gate
 
 on:
   push:
