@@ -81,7 +81,7 @@ fn server_loop(api_configured: bool, device_id: Option<String>, tenant_id: Optio
         };
 
         unsafe {
-            LocalFree(Some(HLOCAL(security_descriptor.0 as *mut _)));
+            LocalFree(HLOCAL(security_descriptor.0 as *mut _));
         }
 
         if pipe == INVALID_HANDLE_VALUE {
