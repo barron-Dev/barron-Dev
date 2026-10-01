@@ -25,7 +25,7 @@ if ($service) {
     Start-Sleep -Milliseconds 500
 }
 
-& sc.exe create $serviceName binPath= "`"$BinaryPath`" --service" start= auto type= own DisplayName= $displayName | Out-Null
+& sc.exe create $serviceName binPath= "`"$BinaryPath`" --service" start= demand type= own DisplayName= $displayName | Out-Null
 
 if ($LASTEXITCODE -ne 0) {
     throw "Failed to create $serviceName service"
@@ -41,5 +41,4 @@ if ($LASTEXITCODE -ne 0) {
     throw "Failed to configure service recovery"
 }
 
-Start-Service -Name $serviceName
-Write-Host "$serviceName installed and started."
+Write-Host "$serviceName installed. Start is deferred until the endpoint has completed real enrollment/configuration."
