@@ -4,16 +4,15 @@ use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
 use std::os::windows::io::FromRawHandle;
 use windows::core::PCWSTR;
-use windows::Win32::Foundation::{CloseHandle, GetLastError, HLOCAL, INVALID_HANDLE_VALUE};
-use windows::Win32::Security::{
-    ConvertStringSecurityDescriptorToSecurityDescriptorW, PSECURITY_DESCRIPTOR, SECURITY_ATTRIBUTES,
-    SDDL_REVISION_1,
+use windows::Win32::Foundation::{CloseHandle, GetLastError, HLOCAL, INVALID_HANDLE_VALUE, ERROR_PIPE_CONNECTED, LocalFree};
+use windows::Win32::Security::{PSECURITY_DESCRIPTOR, SECURITY_ATTRIBUTES};
+use windows::Win32::Security::Authorization::{
+    ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1,
 };
 use windows::Win32::System::Pipes::{
     ConnectNamedPipe, CreateNamedPipeW, PIPE_ACCESS_DUPLEX, PIPE_READMODE_BYTE, PIPE_TYPE_BYTE,
     PIPE_WAIT,
 };
-use windows::Win32::System::Memory::LocalFree;
 
 pub const PIPE_NAME: &str = r"\\.\pipe\CyclothoneAgent";
 
@@ -81,16 +80,21 @@ fn server_loop(api_configured: bool, device_id: Option<String>, tenant_id: Optio
         };
 
         unsafe {
-            LocalFree(HLOCAL(security_descriptor.0 as *mut _));
+            LocalFree(Some(HLOCAL(security_descriptor.0 as *mut _)));
         }
 
         if pipe == INVALID_HANDLE_VALUE {
             anyhow::bail!("CreateNamedPipeW failed: {}", unsafe { GetLastError().0 });
         }
 
-        if unsafe { ConnectNamedPipe(pipe, None) }.is_err() {
-            unsafe { CloseHandle(pipe) };
-            continue;
+        let connected = unsafe { ConnectNamedPipe(pipe, None) };
+        if let Err(error) = connected {
+            let last_error = unsafe { GetLastError() };
+            if last_error != ERROR_PIPE_CONNECTED {
+                unsafe { CloseHandle(pipe) };
+                tracing::debug!(%error, code = last_error.0, "agent IPC client connection failed");
+                continue;
+            }
         }
 
         let mut file = unsafe { File::from_raw_handle(pipe.0 as *mut _) };
