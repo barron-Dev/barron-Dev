@@ -246,7 +246,7 @@ drop policy if exists giril_ref_id_doc_rules_read on public.giril_ref_id_doc_rul
 create policy giril_ref_id_doc_rules_read on public.giril_ref_id_doc_rules for select to authenticated using(true);
 drop policy if exists giril_ref_numbering_plans_read on public.giril_ref_numbering_plans;
 create policy giril_ref_numbering_plans_read on public.giril_ref_numbering_plans for select to authenticated using(true);
-drop policy if not exists giril_ref_email_domains_read on public.giril_ref_email_domains;
+drop policy if exists giril_ref_email_domains_read on public.giril_ref_email_domains;
 create policy giril_ref_email_domains_read on public.giril_ref_email_domains for select to authenticated using(true);
 drop policy if exists giril_ref_domain_rules_read on public.giril_ref_domain_rules;
 create policy giril_ref_domain_rules_read on public.giril_ref_domain_rules for select to authenticated using(true);
