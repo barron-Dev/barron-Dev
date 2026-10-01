@@ -28,6 +28,9 @@ pub struct AgentStatus {
     pub tenant_id: Option<String>,
     pub protection: String,
     pub api_configured: bool,
+    pub enrolled: bool,
+    pub mtls_ready: bool,
+    pub telemetry_healthy: bool,
 }
 
 static REQUEST_SEQUENCE: AtomicU64 = AtomicU64::new(1);
