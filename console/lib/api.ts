@@ -273,6 +273,13 @@ export type CustomerServiceRequest = {
   updated_at: string;
 };
 
+export function createCustomerDeviceEnrollmentToken(organizationId:string) {
+  return apiFetch<{token:string;token_id:string;tenant_id:string;expires_at:string}>(
+    `/api/v1/customer/organizations/${encodeURIComponent(organizationId)}/device-enrollment-token`,
+    {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({expires_in_seconds:900})}
+  );
+}
+
 export function getCustomerOrganizations() {
   return apiFetch<{ organizations: CustomerOrganization[] }>("/api/v1/customer/organizations");
 }
