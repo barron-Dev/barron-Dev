@@ -158,9 +158,6 @@ class ResponseOrchestrator:
                 action_class = ACTION_CLASS.get(step.action, ActionClass.MEDIUM)
                 approval_required = step.requires_approval or action_class in (ActionClass.HIGH, ActionClass.CRITICAL)
 
-                if action_class in (ActionClass.MEDIUM, ActionClass.HIGH, ActionClass.CRITICAL) and not dry_run and step.run_id is None:
-                    raise RuntimeError("canonical AI run binding is required for executable response actions")
-
                 if blast_rule_id and device_id and not await self.store.blast_allowed(blast_rule_id, blast_limit, tenant_id=tenant_id, device_id=device_id):
                     row_id = await self.store.create(
                         tenant_id=tenant_id, case_id=case_id, device_id=device_id,
@@ -172,6 +169,9 @@ class ResponseOrchestrator:
                     rejected.append(row_id)
                     reasons[row_id] = "blast radius exceeded"
                     continue
+
+                if action_class in (ActionClass.MEDIUM, ActionClass.HIGH, ActionClass.CRITICAL) and not dry_run and step.run_id is None:
+                    raise RuntimeError("canonical AI run binding is required for executable response actions")
 
                 if action_class in (ActionClass.MEDIUM, ActionClass.HIGH, ActionClass.CRITICAL) and not dry_run:
                     if self.execution_gate is None or self.envelope_issuer is None:
