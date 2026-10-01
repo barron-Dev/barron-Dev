@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabase-public";
 
@@ -7,7 +7,7 @@ export default function CustomerOnboarding() {
  const router=useRouter(); const [name,setName]=useState(""); const [email,setEmail]=useState(""); const [phone,setPhone]=useState("");
  const [kind,setKind]=useState(""); const [country,setCountry]=useState(""); const [lei,setLei]=useState(""); const [busy,setBusy]=useState(false); const [result,setResult]=useState<any>(null); const [error,setError]=useState<string|null>(null);
  useEffect(()=>{const raw=sessionStorage.getItem("cyclothone_pending_profile");if(raw){try{const p=JSON.parse(raw);setName(p.account_name||"");setEmail(p.email||"");setPhone(p.phone_number||"")}catch{}}},[]);
- async function submit(e:React.FormEvent){e.preventDefault();setBusy(true);setError(null);try{
+ async function submit(e:FormEvent){e.preventDefault();setBusy(true);setError(null);try{
   const {data:{session}}=await supabase.auth.getSession(); if(!session) throw new Error("Authentication required. Please sign in again.");
   const base=process.env.NEXT_PUBLIC_SUPABASE_URL||"https://whcomikcftbousoqzeal.supabase.co";
   const response=await fetch(base+"/functions/v1/giril-onboard",{method:"POST",headers:{Authorization:"Bearer "+session.access_token,"Content-Type":"application/json"},body:JSON.stringify({name,email,phone,subject_kind:kind||null,country:country||null,lei:lei.trim()||null})});
