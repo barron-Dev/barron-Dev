@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
 use std::os::windows::io::FromRawHandle;
-use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
+use std::sync::{Arc, Mutex, atomic::{AtomicBool, Ordering}};
 use windows::core::PCWSTR;
 use windows::Win32::Foundation::{
     CloseHandle, GetLastError, HLOCAL, LocalFree, ERROR_PIPE_CONNECTED, INVALID_HANDLE_VALUE,
@@ -27,6 +27,7 @@ pub struct IpcRequest {
     pub version: u16,
     pub request_id: String,
     pub operation: String,
+    pub enrollment_token: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -76,17 +77,19 @@ impl HealthState {
 }
 
 pub type SharedHealth = Arc<HealthState>;
+pub type SharedIdentity = Arc<Mutex<Option<(String, String)>>>;
 
 pub fn spawn_status_server(
+    api_url: String,
+    state_dir: std::path::PathBuf,
     api_configured: bool,
-    device_id: Option<String>,
-    tenant_id: Option<String>,
+    identity: SharedIdentity,
     health: SharedHealth,
 ) {
     std::thread::Builder::new()
         .name("cyclothone-ipc".into())
         .spawn(move || {
-            if let Err(error) = server_loop(api_configured, device_id, tenant_id, health) {
+            if let Err(error) = server_loop(api_url, state_dir, api_configured, identity, health) {
                 tracing::error!(%error, "agent IPC server stopped");
             }
         })
@@ -94,9 +97,10 @@ pub fn spawn_status_server(
 }
 
 fn server_loop(
+    api_url: String,
+    state_dir: std::path::PathBuf,
     api_configured: bool,
-    device_id: Option<String>,
-    tenant_id: Option<String>,
+    identity: SharedIdentity,
     health: SharedHealth,
 ) -> Result<()> {
     loop {
@@ -159,17 +163,56 @@ fn server_loop(
         };
 
         let response = match request {
-            Ok(req) if valid_request(&req) && req.operation == "GetStatus" => AgentStatus {
-                version: 1,
-                request_id: req.request_id,
-                status: health.protection().into(),
-                device_id: device_id.clone(),
-                tenant_id: tenant_id.clone(),
-                protection: health.protection().into(),
-                api_configured,
-                enrolled: health.enrolled.load(Ordering::Acquire),
-                mtls_ready: health.mtls_ready.load(Ordering::Acquire),
-                telemetry_healthy: health.telemetry_healthy.load(Ordering::Acquire),
+            Ok(req) if valid_request(&req) && req.operation == "GetStatus" => {
+                let ids = identity.lock().ok().and_then(|value| value.clone());
+                AgentStatus {
+                    version: 1,
+                    request_id: req.request_id,
+                    status: health.protection().into(),
+                    device_id: ids.as_ref().map(|v| v.0.clone()),
+                    tenant_id: ids.as_ref().map(|v| v.1.clone()),
+                    protection: health.protection().into(),
+                    api_configured,
+                    enrolled: health.enrolled.load(Ordering::Acquire),
+                    mtls_ready: health.mtls_ready.load(Ordering::Acquire),
+                    telemetry_healthy: health.telemetry_healthy.load(Ordering::Acquire),
+                }
+            },
+            Ok(req) if valid_request(&req) && req.operation == "Enroll" => {
+                let result = if let Some(token) = req.enrollment_token.as_deref().filter(|v| !v.trim().is_empty()) {
+                    let hostname = std::env::var("COMPUTERNAME").unwrap_or_else(|_| "cyclothone-device".to_string());
+                    let name = hostname.clone();
+                    let os = std::env::consts::OS.to_string();
+                    let arch = std::env::consts::ARCH.to_string();
+                    let platform = "windows".to_string();
+                    let version = std::env::var("OS").ok();
+                    match tokio::runtime::Builder::new_current_thread().enable_all().build() {
+                        Ok(runtime) => runtime.block_on(crate::enrollment::enroll_with_token(
+                            &api_url, &state_dir, token, name, hostname, os, version.clone(), arch, platform, version,
+                        )),
+                        Err(error) => Err(anyhow::anyhow!(error)),
+                    }
+                } else {
+                    Err(anyhow::anyhow!("enrollment token required"))
+                };
+                if let Err(error) = result {
+                    tracing::warn!(%error, "agent enrollment request failed");
+                    AgentStatus {
+                        version: 1, request_id: req.request_id, status: "enrollment-failed".into(),
+                        device_id: None, tenant_id: None, protection: "enrollment-required".into(),
+                        api_configured, enrolled: false, mtls_ready: false, telemetry_healthy: false,
+                    }
+                } else {
+                    let loaded = crate::enrollment::load_identity(&state_dir).ok().flatten();
+                    if let Ok(mut value) = identity.lock() { *value = loaded.clone(); }
+                    health.enrolled.store(true, Ordering::Release);
+                    AgentStatus {
+                        version: 1, request_id: req.request_id, status: "enrollment-complete".into(),
+                        device_id: loaded.as_ref().map(|v| v.0.clone()), tenant_id: loaded.as_ref().map(|v| v.1.clone()),
+                        protection: health.protection().into(), api_configured, enrolled: true,
+                        mtls_ready: false, telemetry_healthy: false,
+                    }
+                }
             },
             Ok(req) => AgentStatus {
                 version: 1,
@@ -253,6 +296,7 @@ mod tests {
             version: 1,
             request_id: "test".into(),
             operation: "GetStatus".into(),
+            enrollment_token: None,
         };
         let encoded = serde_json::to_string(&request).unwrap();
         assert!(encoded.contains("GetStatus"));
