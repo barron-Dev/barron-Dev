@@ -53,6 +53,7 @@ class MainActivity : Activity() {
     private lateinit var signIn:Button
     private var emailInput: EditText? = null
     private var passwordInput: EditText? = null
+    private var magicEmailInput: EditText? = null
 
     override fun onCreate(state:Bundle?){
         super.onCreate(state); showEntry()
@@ -67,7 +68,7 @@ class MainActivity : Activity() {
         status=TextView(this).apply{text="Sign in to continue.";textSize=13f;setTextColor(Color.LTGRAY);gravity=Gravity.CENTER;setPadding(0,0,0,20)}
         signIn=Button(this).apply{text="Sign in with Google";setOnClickListener{startGoogle()}}
         val github=Button(this).apply{text="Continue with GitHub";setOnClickListener{startGithub()}}
-        val email=Button(this).apply{text="Email / Magic link";setOnClickListener{openWeb("/login")}}
+        val email=Button(this).apply{text="Email / Magic link";setOnClickListener{showMagicLink()}}
         val register=Button(this).apply{text="Create account / Registration";setOnClickListener{showRegistration()}}
         val password=Button(this).apply{text="Email + Password";setOnClickListener{showPasswordLogin()}}
         root.addView(title,LinearLayout.LayoutParams(-1,-2));root.addView(sub,LinearLayout.LayoutParams(-1,-2));root.addView(status,LinearLayout.LayoutParams(-1,-2))
@@ -75,6 +76,30 @@ class MainActivity : Activity() {
         root.addView(email,LinearLayout.LayoutParams(-1,-2));root.addView(register,LinearLayout.LayoutParams(-1,-2));root.addView(password,LinearLayout.LayoutParams(-1,-2));setContentView(root)
     }
 
+    private fun showMagicLink() {
+        val root = LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; gravity=Gravity.CENTER; setPadding(48,48,48,48); setBackgroundColor(Color.rgb(4,16,27)) }
+        val title=TextView(this).apply{text="Email sign-in";textSize=24f;setTextColor(Color.WHITE);gravity=Gravity.CENTER}
+        status=TextView(this).apply{text="We will send a secure sign-in link.";textSize=13f;setTextColor(Color.LTGRAY);gravity=Gravity.CENTER;setPadding(0,12,0,20)}
+        magicEmailInput=EditText(this).apply{hint="Email";setTextColor(Color.WHITE);setHintTextColor(Color.GRAY);inputType=android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS}
+        val submit=Button(this).apply{text="Send secure link";setOnClickListener{sendMagicLink()}}
+        val back=Button(this).apply{text="Back";setOnClickListener{showEntry()}}
+        root.addView(title);root.addView(status);root.addView(magicEmailInput);root.addView(submit);root.addView(back);setContentView(root)
+    }
+
+    private fun sendMagicLink() {
+        val email=magicEmailInput?.text?.toString()?.trim()?.lowercase().orEmpty()
+        if(email.isBlank()){status.text="Enter your email address.";return}
+        status.text="Sending secure link…"
+        thread { try {
+            val body=JSONObject().apply{put("email",email);put("create_user",false)}.toString()
+            val c=(URL("$SUPABASE_URL/auth/v1/otp?redirect_to="+enc(REDIRECT_URI)).openConnection() as HttpURLConnection).apply{requestMethod="POST";doOutput=true;connectTimeout=15000;readTimeout=15000;setRequestProperty("apikey",SUPABASE_KEY);setRequestProperty("Content-Type","application/json");setRequestProperty("Accept","application/json")}
+            c.outputStream.use{it.write(body.toByteArray(Charsets.UTF_8))}
+            val input=if(c.responseCode in 200..299)c.inputStream else c.errorStream;val text=input.bufferedReader().use{it.readText()}
+            if(c.responseCode !in 200..299) throw IllegalStateException(runCatching{JSONObject(text).optString("msg")}.getOrNull().orEmpty().ifBlank{"Unable to send sign-in link (${c.responseCode})."})
+            runOnUiThread{status.text="Secure link sent. Open it from this device to finish sign-in."}
+        } catch(e:Exception){runOnUiThread{status.text=e.message?:"Unable to send sign-in link."}}
+        }
+    }
     private fun showPasswordLogin() {
         val root = LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; gravity=Gravity.CENTER; setPadding(48,48,48,48); setBackgroundColor(Color.rgb(4,16,27)) }
         val title=TextView(this).apply{text="Email + Password";textSize=24f;setTextColor(Color.WHITE);gravity=Gravity.CENTER}
@@ -119,7 +144,7 @@ class MainActivity : Activity() {
 
     private fun signup(email:String,password:String,name:String,phone:String):Pair<String?,String?>{
         val body=JSONObject().apply{put("email",email);put("password",password);put("data",JSONObject().apply{put("account_name",name);put("phone_number",phone);put("onboarding_stage","registered")})}.toString()
-        val c=(URL("$SUPABASE_URL/auth/v1/signup").openConnection() as HttpURLConnection).apply{requestMethod="POST";doOutput=true;connectTimeout=15000;readTimeout=15000;setRequestProperty("apikey",SUPABASE_KEY);setRequestProperty("Content-Type","application/json");setRequestProperty("Accept","application/json")}
+        val c=(URL("$SUPABASE_URL/auth/v1/signup?redirect_to="+enc(REDIRECT_URI)).openConnection() as HttpURLConnection).apply{requestMethod="POST";doOutput=true;connectTimeout=15000;readTimeout=15000;setRequestProperty("apikey",SUPABASE_KEY);setRequestProperty("Content-Type","application/json");setRequestProperty("Accept","application/json")}
         c.outputStream.use{it.write(body.toByteArray(Charsets.UTF_8))}
         val input=if(c.responseCode in 200..299)c.inputStream else c.errorStream;val text=input.bufferedReader().use{it.readText()}
         if(c.responseCode !in 200..299) throw IllegalStateException(runCatching{JSONObject(text).optString("msg")}.getOrNull().orEmpty().ifBlank{"Registration failed (${c.responseCode})."})
@@ -151,14 +176,17 @@ class MainActivity : Activity() {
 
     private fun handleCallback(uri:Uri){
         if(uri.scheme!="cyclothone"||uri.host!="auth"||uri.path!="/callback")return
-        uri.getQueryParameter("error")?.let{status.text=uri.getQueryParameter("error_description")?:"Google sign-in was cancelled.";signIn.isEnabled=true;clearPkce();return}
+        uri.getQueryParameter("error")?.let{status.text=uri.getQueryParameter("error_description")?:"Authentication was cancelled.";signIn.isEnabled=true;clearPkce();return}
+        val fragment=uri.fragment.orEmpty()
+        val fragmentParams=fragment.split("&").mapNotNull{part->part.split("=",limit=2).takeIf{it.size==2}?.let{it[0] to java.net.URLDecoder.decode(it[1],"UTF-8")}}.toMap()
+        val access=fragmentParams["access_token"];val refresh=fragmentParams["refresh_token"]
+        if(!access.isNullOrBlank()&&!refresh.isNullOrBlank()){saveSession(access,refresh);clearPkce();runOnUiThread{openWorkspace()};return}
         val code=uri.getQueryParameter("code");val returned=uri.getQueryParameter("state");val expected=prefs.getString(STATE,null);val v=prefs.getString(CODE_VERIFIER,null)
         if(code.isNullOrBlank()||v.isNullOrBlank()||expected.isNullOrBlank()||returned!=expected){status.text="Secure sign-in could not be verified. Please try again.";signIn.isEnabled=true;clearPkce();return}
         status.text="Completing secure sign-in…";signIn.isEnabled=false
         thread{try{val s=exchange(code,v);saveSession(s.first,s.second);clearPkce();runOnUiThread{openWorkspace()}}
         catch(e:Exception){clearPkce();runOnUiThread{status.text=e.message?:"Unable to complete sign-in.";signIn.isEnabled=true}}}
     }
-
     private fun exchange(code:String,v:String):Pair<String,String>{
         val c=(URL("$SUPABASE_URL/auth/v1/token?grant_type=pkce").openConnection() as HttpURLConnection).apply{
             requestMethod="POST";doOutput=true;connectTimeout=15000;readTimeout=15000;setRequestProperty("apikey",SUPABASE_KEY);setRequestProperty("Content-Type","application/x-www-form-urlencoded");setRequestProperty("Accept","application/json")}
