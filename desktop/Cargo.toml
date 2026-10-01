@@ -6,6 +6,7 @@ license = "MIT"
 description = "Cyclothone Windows security workstation"
 
 [dependencies]
+windows = { version = "0.62.2", features = ["Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_Memory", "Win32_System_Pipes"] }
 anyhow = "1"
 eframe = "0.33"
 serde = { version = "1", features = ["derive"] }
