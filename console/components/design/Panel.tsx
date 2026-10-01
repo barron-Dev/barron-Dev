@@ -1,2 +1,0 @@
-import { C } from "@/lib/design/tokens";
-export function Panel({children,glow=false,accent=C.glowCyan,className=""}:{children:React.ReactNode;glow?:boolean;accent?:string;className?:string}){return <div className={"border bg-[#0a0e14] p-5 "+className} style={{borderColor:glow?accent+"55":C.line,boxShadow:glow?"0 0 24px -8px "+accent+"66, inset 0 0 0 1px "+accent+"22":"none"}}>{children}</div>}

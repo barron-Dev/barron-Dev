@@ -1,2 +1,0 @@
-import { C } from "@/lib/design/tokens";
-export function DepthMeter({value,label}:{value:number;label:string}){const v=Math.max(0,Math.min(1,value));return <div className="flex items-center gap-3"><span className="type-label">{label}</span><div className="relative h-1 w-24 bg-[#1a2330]"><div className="absolute top-0 h-1" style={{width:v*100+"%",background:"linear-gradient(90deg,"+C.glowCyan+","+C.twilightPurple+")",boxShadow:"0 0 8px "+C.glowCyan+"88"}}/></div><span className="type-code text-[#8a97a8]">{(v*100).toFixed(0)}%</span></div>}

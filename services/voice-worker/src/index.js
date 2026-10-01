@@ -1,2 +1,0 @@
-import http from "node:http";const port=Number(process.env.PORT||8080);
-const s=http.createServer((req,res)=>{res.writeHead(req.url==="/health"?200:404,{"content-type":"application/json"});res.end(JSON.stringify(req.url==="/health"?{status:"ok",service:"mdi-voice-worker"}:{error:"not_found"}));});s.listen(port,"0.0.0.0");

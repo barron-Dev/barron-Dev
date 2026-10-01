@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::fs::File;
-use std::io::{BufRead as _, BufReader, Write};
+use std::io::{BufReader, Write};
 use std::os::windows::io::FromRawHandle;
 use std::sync::{Arc, Mutex, atomic::{AtomicBool, Ordering}};
 use windows::core::PCWSTR;
@@ -148,7 +148,7 @@ fn server_loop(
         if let Err(error) = connected {
             let last_error = unsafe { GetLastError() };
             if last_error != ERROR_PIPE_CONNECTED {
-                unsafe { let _ = CloseHandle(pipe) };
+                unsafe { let _ = CloseHandle(pipe); }
                 tracing::debug!(%error, code = last_error.0, "agent IPC client connection failed");
                 continue;
             }

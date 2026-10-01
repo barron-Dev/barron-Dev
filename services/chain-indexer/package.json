@@ -1,1 +1,0 @@
-{"name":"cyclothone-mdi-chain-indexer","private":true,"version":"1.0.0","type":"module","scripts":{"start":"node src/index.js"},"dependencies":{}}

@@ -1,1 +1,0 @@
-"""Digital Twin simulation subsystem."""

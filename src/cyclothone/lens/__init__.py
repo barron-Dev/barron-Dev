@@ -1,1 +1,0 @@
-"""Cyclothone Lens identity monitoring."""
