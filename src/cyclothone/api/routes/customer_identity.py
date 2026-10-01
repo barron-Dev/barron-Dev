@@ -10,6 +10,9 @@ from cyclothone.storage.supabase_client import supabase
 
 router=APIRouter(tags=["customer-identity"])
 
+class DeviceEnrollmentTokenRequest(BaseModel):
+    expires_in_seconds: int = Field(default=900, ge=300, le=1800)
+
 async def principal(authorization: str | None = Header(None)) -> DeveloperPrincipal:
     """Authenticate developer credentials or a Supabase customer session."""
     if not authorization:
@@ -344,6 +347,44 @@ async def create_invitation(organization_id: str, body: InvitationRequest, p: De
     expires=(datetime.now(UTC)+timedelta(hours=72)).isoformat()
     row=await supabase.insert_one("organization_invitations",{"organization_id":organization_id,"invited_by":p.user_id,"email":email,"role":body.role,"token_hash":token_hash,"expires_at":expires})
     return {"invitation":row,"invite_token":raw,"warning":"Deliver this one-time token through a trusted invitation channel; it is not stored in plaintext."}
+
+@router.post("/customer/organizations/{organization_id}/device-enrollment-token")
+async def create_customer_device_enrollment_token(
+    organization_id: str,
+    body: DeviceEnrollmentTokenRequest,
+    p: DeveloperPrincipal = Depends(principal),
+):
+    if not p.user_id:
+        raise HTTPException(403, detail="user_identity_required")
+    try:
+        token = secrets.token_urlsafe(32)
+        token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
+        expires_at = datetime.now(UTC) + timedelta(seconds=body.expires_in_seconds)
+        result = await supabase.rpc(
+            "create_customer_device_enrollment_token",
+            {
+                "p_user_id": p.user_id,
+                "p_organization_id": organization_id,
+                "p_token_hash": token_hash,
+                "p_expires_at": expires_at.isoformat(),
+            },
+        )
+    except Exception as exc:
+        detail = str(exc)
+        if "workspace_not_admitted" in detail:
+            raise HTTPException(403, detail="workspace_not_admitted") from exc
+        if "organization_admin_required" in detail:
+            raise HTTPException(403, detail="organization_admin_required") from exc
+        raise HTTPException(503, detail="device enrollment token issuance unavailable") from exc
+    row = result[0] if isinstance(result, list) and result else result
+    if not isinstance(row, dict) or not row.get("token_id") or not row.get("tenant_id"):
+        raise HTTPException(503, detail="device enrollment token issuance did not produce an identity")
+    return {
+        "token": token,
+        "token_id": str(row["token_id"]),
+        "tenant_id": str(row["tenant_id"]),
+        "expires_at": str(row["expires_at"]),
+    }
 
 @router.get("/customer/organizations")
 async def organizations(p:DeveloperPrincipal=Depends(principal)):
