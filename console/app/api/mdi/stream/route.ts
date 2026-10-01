@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { requireMdiClearance } from '@/lib/mdi/auth';
+import { requireMdiClearance } from '@/server/mdi/auth';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
