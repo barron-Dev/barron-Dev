@@ -44,7 +44,7 @@ export default function Login(){
        await finishPendingOrganization(data.session.access_token);
        const invitationToken=sessionStorage.getItem(INVITATION_TOKEN_KEY);
        const pendingProfile=sessionStorage.getItem(PENDING_PROFILE_KEY);
-       router.replace(invitationToken?"/invitations/accept":pendingProfile?"/customer/workspace?onboarding=1":"/customer/workspace");
+       router.replace(invitationToken?"/invitations/accept":pendingProfile?"/customer/onboarding":"/customer/workspace");
      }catch(x){setError(x instanceof Error?x.message:"Unable to finish registration");}
    })();
    return()=>{active=false};
