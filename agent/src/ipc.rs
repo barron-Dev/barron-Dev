@@ -311,6 +311,7 @@ mod tests {
             version: 1,
             request_id: String::new(),
             operation: "GetStatus".into(),
+            enrollment_token: None,
         };
         assert!(!valid_request(&empty));
 
