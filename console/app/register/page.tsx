@@ -79,15 +79,15 @@ export default function Register() {
     try {
       const cleanName = name.trim();
       const cleanEmail = email.trim().toLowerCase();
-      const cleanPhone = cleanPhone(phone);
+      const normalizedPhone = cleanPhone(phone);
       if (!cleanName) throw new Error("Enter your name or company name.");
       if (!cleanEmail) throw new Error("Enter your email address.");
-      if (!cleanPhone) throw new Error("Enter your phone number.");
+      if (!normalizedPhone) throw new Error("Enter your phone number.");
 
       const redirectTo = `${window.location.origin}/login?confirmed=1`;
       sessionStorage.setItem(
         "cyclothone_pending_profile",
-        JSON.stringify({ name: cleanName, email: cleanEmail, phone: cleanPhone })
+        JSON.stringify({ name: cleanName, email: cleanEmail, phone: normalizedPhone })
       );
       sessionStorage.setItem("cyclothone_auth_entry", "registration");
 
@@ -96,7 +96,7 @@ export default function Register() {
         options: {
           emailRedirectTo: redirectTo,
           shouldCreateUser: true,
-          data: { account_name: cleanName, phone_number: cleanPhone, onboarding_stage: "registered" },
+          data: { account_name: cleanName, phone_number: normalizedPhone, onboarding_stage: "registered" },
         },
       });
       if (error) throw new Error(error.message);
