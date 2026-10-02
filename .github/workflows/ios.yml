@@ -25,5 +25,8 @@ jobs:
       - name: Verify app bundle
         working-directory: ios/Cyclothone
         run: |
-          ls -la build/Build/Products/Debug-iphonesimulator/
-          test -d build/Build/Products/Debug-iphonesimulator/Cyclothone.app
+          set -euo pipefail
+          APP_PATH="$(find build -type d -name 'Cyclothone.app' -print -quit)"
+          test -n "$APP_PATH"
+          test -f "$APP_PATH/Info.plist"
+          echo "Verified iOS app bundle: $APP_PATH"
