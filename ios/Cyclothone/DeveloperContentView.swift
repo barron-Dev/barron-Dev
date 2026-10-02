@@ -87,7 +87,8 @@ private struct DeveloperPortalView: View {
                 }
 
                 if let app = model.selectedApp {
-                    Section("API credentials · (app.name)") {
+                    Section("API credentials") {
+                        Text(app.name).font(.caption).foregroundStyle(.secondary)
                         if model.keys.isEmpty {
                             Text("No credentials found.")
                                 .foregroundStyle(.secondary)
@@ -228,7 +229,7 @@ private final class DeveloperPortalModel: ObservableObject {
             }
             error = nil
         } catch {
-            error = error.localizedDescription
+            self.error = error.localizedDescription
         }
     }
 
@@ -243,7 +244,7 @@ private final class DeveloperPortalModel: ObservableObject {
             keys = try await DeveloperAPI.keys(appID: selectedApp.id, token: token)
             error = nil
         } catch {
-            error = error.localizedDescription
+            self.error = error.localizedDescription
         }
     }
 
@@ -263,7 +264,7 @@ private final class DeveloperPortalModel: ObservableObject {
             showCreate = false
             error = nil
         } catch {
-            error = error.localizedDescription
+            self.error = error.localizedDescription
         }
     }
 
@@ -276,7 +277,7 @@ private final class DeveloperPortalModel: ObservableObject {
             keys = try await DeveloperAPI.keys(appID: selectedApp.id, token: token)
             error = nil
         } catch {
-            error = error.localizedDescription
+            self.error = error.localizedDescription
         }
     }
 
