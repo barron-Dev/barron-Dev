@@ -166,7 +166,7 @@ private struct DeveloperPortalView: View {
             }
         }
     }
-
+}
 
 private struct ApplicationRow: View {
     let app: DeveloperApp
