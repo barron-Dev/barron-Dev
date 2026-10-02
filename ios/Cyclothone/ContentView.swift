@@ -249,7 +249,7 @@ final class MobileWorkspaceModel: ObservableObject {
 
     func pause() { timer?.cancel(); timer = nil }
 
-    private var isActiveScene:Bool { true }
+    private var isActiveScene:Bool { !Task.isCancelled }
 
     func refresh(token:String?) async {
         guard let token, !token.isEmpty else { error = "Authentication session is missing."; return }
@@ -281,7 +281,24 @@ struct MobileRequest: Decodable, Hashable {
     let id:String; let service_key:String; let status:String; let urgency:String; let updated_at:String?
 }
 struct MobileCase: Decodable, Hashable {
-    let id:String; let case_number:String; let status:String; let severity:String; let title:String; let updated_at:String
+    let id:String
+    let organization_id:String
+    let service_request_id:String
+    let case_id:String
+    let created_at:String
+    let case_detail:CaseDetail
+    enum CodingKeys:String,CodingKey { case id,organization_id,service_request_id,case_id,created_at,case_detail = "case" }
+    struct CaseDetail:Decodable,Hashable {
+        let id:String
+        let case_number:String
+        let category:String
+        let severity:String
+        let status:String
+        let title:String
+        let summary:String
+        let created_at:String
+        let updated_at:String
+    }
 }
 
 private struct MobileState {
@@ -302,10 +319,16 @@ private enum MobileAPI {
         async let cases: [MobileCase] = get("/api/v1/customer/cases",token:token)
         let (o,r,c) = try await (orgs,requests,cases)
         let org = o.first
-        let activities = r.sorted { ($0.updated_at ?? "") > ($1.updated_at ?? "") }.prefix(8).map {
-            ActivityItem(id:$0.id,title:$0.service_key.replacingOccurrences(of:"_",with:" ").capitalized,detail:"\($0.status) · \($0.urgency)")
+        let requestActivity = r.map {
+            ActivityItem(id:"request:\($0.id)",title:$0.service_key.replacingOccurrences(of:"_",with:" ").capitalized,detail:"Request · \($0.status) · \($0.urgency)")
         }
-        let fingerprint = (o.map { "\($0.id):\($0.updated_at)" }.joined() + r.map { "\($0.id):\($0.status):\($0.updated_at ?? "")" }.joined() + c.map { "\($0.id):\($0.status):\($0.updated_at)" }.joined()).data(using:.utf8).map { SHA256Digest.hex($0) } ?? ""
+        let caseActivity = c.map {
+            ActivityItem(id:"case:\($0.id)",title:$0.case_detail.title,detail:"Case \($0.case_detail.case_number) · \($0.case_detail.status) · \($0.case_detail.severity)")
+        }
+        let activities = Array((requestActivity + caseActivity).sorted { $0.detail > $1.detail }.prefix(10))
+        let fingerprint = (o.map { "\($0.id):\($0.admission_status):\($0.updated_at)" }.joined()
+            + r.map { "\($0.id):\($0.status):\($0.updated_at ?? "")" }.joined()
+            + c.map { "\($0.id):\($0.case_detail.status):\($0.case_detail.updated_at)" }.joined()).data(using:.utf8).map { SHA256Digest.hex($0) } ?? ""
         return MobileState(organizationName:org?.legal_name,admissionStatus:org?.admission_status,requests:r,cases:c,activity:Array(activities),fingerprint:fingerprint)
     }
 
