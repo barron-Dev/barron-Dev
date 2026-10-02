@@ -145,7 +145,7 @@ struct MobileWorkspace: View {
             }
             .navigationBarTitleDisplayMode(.inline)
             .refreshable { await model.refresh(token:auth.accessToken) }
-            .task { await model.start(token:auth.accessToken) }
+            .task { await model.start(token:auth.accessToken); await LocalNotice.requestPermission() }
             .onChange(of: scenePhase) { _, phase in
                 if phase == .active { model.resume(token:auth.accessToken) } else { model.pause() }
             }
@@ -228,7 +228,7 @@ final class MobileWorkspaceModel: ObservableObject {
         await refresh(token:token)
         timer = Task { [weak self] in
             while !Task.isCancelled {
-                try? await Task.sleep(for:.seconds(5))
+                try? await Task.sleep(nanoseconds:5_000_000_000)
                 guard !Task.isCancelled else { break }
                 if let self, self.isActiveScene { await self.refresh(token:self.token) }
             }
