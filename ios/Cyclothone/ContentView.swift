@@ -353,7 +353,10 @@ private enum MobileAPI {
         let (data,response)=try await URLSession.shared.data(for:request)
         guard let http=response as? HTTPURLResponse else { throw MobileAPIError.invalidResponse }
         guard (200..<300).contains(http.statusCode) else {
-            if http.statusCode == 401 { throw MobileAPIError.auth }
+            if http.statusCode == 401 {
+                NotificationCenter.default.post(name:.cyclothoneAuthRequired,object:nil)
+                throw MobileAPIError.auth
+            }
             throw MobileAPIError.server(http.statusCode)
         }
         return try JSONDecoder().decode(T.self,from:data)
