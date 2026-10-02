@@ -1,0 +1,75 @@
+// !$*UTF8*$!
+{
+archiveVersion = 1;
+classes = {};
+objectVersion = 56;
+objects = {
+
+/* Begin PBXBuildFile section */
+1 = {isa = PBXBuildFile; fileRef = 2; };
+3 = {isa = PBXBuildFile; fileRef = 4; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+2 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CyclothoneApp.swift; sourceTree = "<group>"; };
+4 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+5 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthStore.swift; sourceTree = "<group>"; };
+6 = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+7 = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Cyclothone.app; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+8 = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+9 = {isa = PBXGroup; children = (2,3,5,6); name = Cyclothone; path = .; sourceTree = "<group>"; };
+10 = {isa = PBXGroup; children = (9); sourceTree = "<group>"; };
+11 = {isa = PBXGroup; children = (7); name = Products; sourceTree = "<group>"; };
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+12 = {isa = PBXNativeTarget; buildConfigurationList = 13; buildPhases = (14,8,15); buildRules = (); dependencies = (); name = Cyclothone; productName = Cyclothone; productReference = 7; productType = "com.apple.product-type.application"; };
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+16 = {isa = PBXProject; buildConfigurationList = 17; compatibilityVersion = "Xcode 14.0"; developmentRegion = en; hasScannedForEncodings = 0; knownRegions = (en); mainGroup = 10; productRefGroup = 11; projectDirPath = ""; projectRoot = ""; targets = (12); };
+/* End PBXProject section */
+
+/* Begin PBXSourcesBuildPhase section */
+14 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (1,3); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXResourcesBuildPhase section */
+15 = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXResourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+18 = {isa = XCBuildConfiguration; buildSettings = {
+IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+PRODUCT_BUNDLE_IDENTIFIER = online.cyclothone.mobile;
+PRODUCT_NAME = Cyclothone;
+SWIFT_VERSION = 5.0;
+INFOPLIST_FILE = Cyclothone/Info.plist;
+TARGETED_DEVICE_FAMILY = "1,2";
+};
+name = Debug; };
+19 = {isa = XCBuildConfiguration; buildSettings = {
+IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+PRODUCT_BUNDLE_IDENTIFIER = online.cyclothone.mobile;
+PRODUCT_NAME = Cyclothone;
+SWIFT_VERSION = 5.0;
+INFOPLIST_FILE = Cyclothone/Info.plist;
+TARGETED_DEVICE_FAMILY = "1,2";
+};
+name = Release; };
+20 = {isa = XCBuildConfiguration; buildSettings = { }; name = Debug; };
+21 = {isa = XCBuildConfiguration; buildSettings = { }; name = Release; };
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+13 = {isa = XCConfigurationList; buildConfigurations = (18,19); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+17 = {isa = XCConfigurationList; buildConfigurations = (20,21); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+/* End XCConfigurationList section */
+rootObject = 16;
+}
