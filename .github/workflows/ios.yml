@@ -8,35 +8,51 @@ on:
     paths: ["ios/**", ".github/workflows/ios.yml"]
   workflow_dispatch:
 
+concurrency:
+  group: cyclothone-ios-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   ios:
-    runs-on: macos-latest
+    runs-on: macos-15
     permissions:
       contents: read
     steps:
       - uses: actions/checkout@v4
 
-      - name: Diagnose iOS scheme
+      - name: Diagnose iOS schemes
         working-directory: ios/Cyclothone
         run: |
+          set -euo pipefail
           xcodebuild -list -project Cyclothone.xcodeproj
-          xcodebuild -showdestinations -project Cyclothone.xcodeproj -scheme Cyclothone || true
+          xcodebuild -showdestinations -project Cyclothone.xcodeproj -scheme Cyclothone
+          xcodebuild -showdestinations -project Cyclothone.xcodeproj -scheme CyclothoneDeveloper
           grep -nE "SDKROOT|SUPPORTED_PLATFORMS|IPHONEOS_DEPLOYMENT_TARGET|MACOSX_DEPLOYMENT_TARGET" Cyclothone.xcodeproj/project.pbxproj
 
       - name: List simulators
         run: xcrun simctl list devices available
 
-      - name: Build (iOS Simulator)
+      - name: Build Customer app
         working-directory: ios/Cyclothone
         run: |
           set -o pipefail
-          xcodebuild             -project Cyclothone.xcodeproj             -scheme Cyclothone             -sdk iphonesimulator             -configuration Debug             -destination 'generic/platform=iOS Simulator'             -derivedDataPath build             CODE_SIGNING_ALLOWED=NO             build
+          xcodebuild             -project Cyclothone.xcodeproj             -scheme Cyclothone             -sdk iphonesimulator             -configuration Debug             -destination 'generic/platform=iOS Simulator'             -derivedDataPath build/customer             CODE_SIGNING_ALLOWED=NO             build
 
-      - name: Verify app bundle
+      - name: Build Developer app
+        working-directory: ios/Cyclothone
+        run: |
+          set -o pipefail
+          xcodebuild             -project Cyclothone.xcodeproj             -scheme CyclothoneDeveloper             -sdk iphonesimulator             -configuration Debug             -destination 'generic/platform=iOS Simulator'             -derivedDataPath build/developer             CODE_SIGNING_ALLOWED=NO             build
+
+      - name: Verify app bundles
         working-directory: ios/Cyclothone
         run: |
           set -euo pipefail
-          APP_PATH="$(find build -type d -name 'Cyclothone.app' -print -quit)"
-          test -n "$APP_PATH"
-          test -f "$APP_PATH/Info.plist"
-          echo "Verified iOS app bundle: $APP_PATH"
+          CUSTOMER_APP="$(find build/customer -type d -name 'Cyclothone.app' -print -quit)"
+          DEVELOPER_APP="$(find build/developer -type d -name 'CyclothoneDeveloper.app' -print -quit)"
+          test -n "$CUSTOMER_APP"
+          test -f "$CUSTOMER_APP/Info.plist"
+          test -n "$DEVELOPER_APP"
+          test -f "$DEVELOPER_APP/Info.plist"
+          echo "Verified Customer app: $CUSTOMER_APP"
+          echo "Verified Developer app: $DEVELOPER_APP"
