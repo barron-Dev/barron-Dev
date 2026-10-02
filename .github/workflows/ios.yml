@@ -20,7 +20,7 @@ jobs:
         working-directory: ios/Cyclothone
         run: |
           set -o pipefail
-          xcodebuild             -project Cyclothone.xcodeproj             -target Cyclothone             -sdk iphonesimulator             -configuration Debug             -destination 'generic/platform=iOS Simulator'             CODE_SIGNING_ALLOWED=NO             build
+          xcodebuild             -project Cyclothone.xcodeproj             -scheme Cyclothone             -sdk iphonesimulator             -configuration Debug             -destination 'generic/platform=iOS Simulator'             -derivedDataPath build             CODE_SIGNING_ALLOWED=NO             build
 
       - name: Verify app bundle
         working-directory: ios/Cyclothone
