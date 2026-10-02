@@ -72,6 +72,7 @@ struct ContentView: View {
 struct MobileWorkspace: View {
     @ObservedObject var auth: AuthStore
     @StateObject private var model = MobileWorkspaceModel()
+    @State private var showRequestForm = false
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
@@ -106,6 +107,8 @@ struct MobileWorkspace: View {
                         HStack {
                             Button("Open full workspace") { UIApplication.shared.open(auth.openWorkspaceURL()) }
                                 .buttonStyle(.borderedProminent)
+                            Button("Request service") { showRequestForm = true }
+                                .buttonStyle(.bordered)
                             Button("Sign out") { auth.signOut(); model.pause() }
                                 .buttonStyle(.bordered)
                         }
@@ -193,6 +196,11 @@ struct MobileWorkspace: View {
                 }.padding(16)
             }
             .navigationBarTitleDisplayMode(.inline)
+            .sheet(isPresented: $showRequestForm) {
+                ServiceRequestView(token: auth.accessToken, organizationID: model.organizationID) {
+                    await model.refresh(token: auth.accessToken)
+                }
+            }
             .refreshable { await model.refresh(token:auth.accessToken) }
             .task { await model.start(token:auth.accessToken); await LocalNotice.requestPermission() }
             .onReceive(NotificationCenter.default.publisher(for: .cyclothoneAuthRequired)) { _ in auth.signOut(); model.pause() }
@@ -287,6 +295,55 @@ private struct CaseDetailView: View {
     }
 }
 
+private struct ServiceRequestView: View {
+    let token: String?
+    let organizationID: String?
+    let onCreated: () async -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var serviceKey = "threat_intelligence"
+    @State private var urgency = "normal"
+    @State private var description = ""
+    @State private var sending = false
+    @State private var error: String?
+    private let services = [
+        ("threat_intelligence","Threat Intelligence"), ("dark_web_monitoring","Dark Web Monitoring"),
+        ("brand_protection","Brand Protection"), ("physical_security","Physical Security"),
+        ("compliance","Compliance"), ("cybersecurity_assessment","Threat Hunting"),
+        ("incident_response","Incident Response"), ("recovery","Recovery"),
+        ("mobile_digital_intelligence","MDI"), ("soc_mdr","SOC / MDR"), ("ai_security","AI Security"), ("other","Other")
+    ]
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Service") {
+                    Picker("Service", selection: $serviceKey) { ForEach(services, id: \.0) { Text($0.1).tag($0.0) } }
+                    Picker("Urgency", selection: $urgency) { Text("Low").tag("low"); Text("Normal").tag("normal"); Text("High").tag("high"); Text("Critical").tag("critical") }
+                }
+                Section("Request") {
+                    TextField("Describe what you need", text: $description, axis: .vertical).lineLimit(5...10)
+                    Text("Minimum 10 characters. Your request is sent to the live customer service workflow.").font(.caption).foregroundStyle(.secondary)
+                }
+                if let error { Section { Text(error).foregroundStyle(.red) } }
+                Section {
+                    Button(sending ? "Submitting…" : "Submit service request") { Task { await submit() } }
+                        .disabled(sending || description.trimmingCharacters(in: .whitespacesAndNewlines).count < 10 || organizationID == nil || token == nil)
+                }
+            }
+            .navigationTitle("Request service")
+            .toolbar { ToolbarItem(placement: .topBarLeading) { Button("Cancel") { dismiss() } } }
+        }
+    }
+    private func submit() async {
+        guard let token, let organizationID else { error = "Your approved workspace is not available yet."; return }
+        sending = true; error = nil
+        do {
+            try await MobileAPI.createServiceRequest(organizationID: organizationID, serviceKey: serviceKey, urgency: urgency, description: description.trimmingCharacters(in: .whitespacesAndNewlines), token: token)
+            await onCreated(); dismiss()
+        } catch { error = error.localizedDescription }
+        sending = false
+    }
+}
+
 private struct MobileCaseActivity: Decodable, Hashable {
     let id:String
     let event_type:String
@@ -346,6 +403,7 @@ struct ActivityItem {
 
 @MainActor
 final class MobileWorkspaceModel: ObservableObject {
+    @Published private(set) var organizationID:String?
     @Published private(set) var organizationName:String?
     @Published private(set) var admissionStatus:String?
     @Published private(set) var requests:[MobileRequest] = []
@@ -432,6 +490,7 @@ final class MobileWorkspaceModel: ObservableObject {
             let previousRequests = requests
             let previousCases = cases
             snapshotFingerprint = fingerprint
+            organizationID = state.organizationID
             organizationName = state.organizationName
             admissionStatus = state.admissionStatus
             requests = state.requests
@@ -496,6 +555,7 @@ struct MobileCase: Decodable, Hashable {
 }
 
 private struct MobileState {
+    let organizationID:String?
     let organizationName:String?
     let admissionStatus:String?
     let requests:[MobileRequest]
@@ -523,7 +583,7 @@ private enum MobileAPI {
         let fingerprint = (o.map { "\($0.id):\($0.admission_status):\($0.updated_at)" }.joined()
             + r.map { "\($0.id):\($0.status):\($0.updated_at ?? "")" }.joined()
             + c.map { "\($0.id):\($0.case_detail.status):\($0.case_detail.updated_at)" }.joined()).data(using:.utf8).map { SHA256Digest.hex($0) } ?? ""
-        return MobileState(organizationName:org?.legal_name,admissionStatus:org?.admission_status,requests:r,cases:c,activity:Array(activities),fingerprint:fingerprint)
+        return MobileState(organizationID:org?.id,organizationName:org?.legal_name,admissionStatus:org?.admission_status,requests:r,cases:c,activity:Array(activities),fingerprint:fingerprint)
     }
 
     static func getCaseActivity(_ caseID:String,token:String) async throws -> [MobileCaseActivity] {
@@ -536,6 +596,10 @@ private enum MobileAPI {
 
     static func addCaseActivity(_ caseID:String,message:String,token:String) async throws {
         try await post("/api/v1/customer/cases/\(caseID)/activity",body:["message":message],token:token)
+    }
+
+    static func createServiceRequest(organizationID:String,serviceKey:String,urgency:String,description:String,token:String) async throws {
+        try await post("/api/v1/customer/service-requests",body:["organization_id":organizationID,"service_key":serviceKey,"urgency":urgency,"description":description],token:token)
     }
 
     private static func post(_ path:String,body:[String:String],token:String) async throws {
