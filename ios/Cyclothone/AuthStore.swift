@@ -1,0 +1,136 @@
+import Foundation
+import AuthenticationServices
+import Security
+
+@MainActor
+final class AuthStore: NSObject, ObservableObject, ASWebAuthenticationPresentationContextProviding {
+    static let supabaseURL = URL(string: "https://whcomikcftbousoqzeal.supabase.co")!
+    static let redirectURI = "cyclothone-ios://auth/callback"
+    static let workspaceURL = URL(string: "https://customers.cyclothone.online/mobile-auth")!
+    static let publicKey = "sb_publishable_3qKBAIdxxrDuE8gEGwJICg_5NEH3CVU"
+
+    @Published var message = "Sign in to continue."
+    @Published var authenticated = false
+    private var session: ASWebAuthenticationSession?
+    private let keychain = KeychainStore()
+
+    override init() {
+        super.init()
+        authenticated = keychain.accessToken != nil
+    }
+
+    func signIn(provider: String) {
+        var components = URLComponents(url: Self.supabaseURL.appendingPathComponent("auth/v1/authorize"), resolvingAgainstBaseURL: false)!
+        components.queryItems = [
+            URLQueryItem(name: "provider", value: provider),
+            URLQueryItem(name: "redirect_to", value: Self.redirectURI),
+            URLQueryItem(name: "flow_type", value: "pkce")
+        ]
+        guard let url = components.url else { message = "Unable to start secure sign-in."; return }
+        message = "Opening secure sign-in…"
+        session = ASWebAuthenticationSession(url: url, callbackURLScheme: "cyclothone-ios") { [weak self] callback, error in
+            Task { @MainActor in
+                guard let self else { return }
+                if let error { self.message = error.localizedDescription; return }
+                guard let callback, let components = URLComponents(url: callback, resolvingAgainstBaseURL: false),
+                      let code = components.queryItems?.first(where: { $0.name == "code" })?.value else {
+                    self.message = "Secure sign-in callback was not valid."; return
+                }
+                do {
+                    let tokens = try await self.exchangePKCE(code: code)
+                    self.keychain.accessToken = tokens.access
+                    self.keychain.refreshToken = tokens.refresh
+                    self.authenticated = true
+                    self.message = "Signed in securely."
+                } catch { self.message = error.localizedDescription }
+            }
+        }
+        session?.presentationContextProvider = self
+        session?.prefersEphemeralWebBrowserSession = false
+        session?.start()
+    }
+
+    func passwordSignIn(email: String, password: String) async {
+        do {
+            let tokens = try await tokenRequest(body: "grant_type=password&email=\(enc(email))&password=\(enc(password))")
+            keychain.accessToken = tokens.access; keychain.refreshToken = tokens.refresh; authenticated = true
+            message = "Signed in securely."
+        } catch { message = error.localizedDescription }
+    }
+
+    func register(name: String, email: String, phone: String, password: String) async {
+        do {
+            var request = URLRequest(url: Self.supabaseURL.appendingPathComponent("auth/v1/signup?redirect_to=\(enc(Self.redirectURI))"))
+            request.httpMethod = "POST"; request.setValue(Self.publicKey, forHTTPHeaderField: "apikey")
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = try JSONSerialization.data(withJSONObject: ["email":email,"password":password,"data":["account_name":name,"phone_number":phone,"onboarding_stage":"registered"]])
+            let (data,response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { throw AuthError.api(message: apiMessage(data) ?? "Registration failed.") }
+            if let obj = try JSONSerialization.jsonObject(with: data) as? [String:Any],
+               let access = obj["access_token"] as? String, let refresh = obj["refresh_token"] as? String {
+                keychain.accessToken = access; keychain.refreshToken = refresh; authenticated = true
+            } else { message = "Account created. Check your email to verify, then sign in." }
+        } catch { message = error.localizedDescription }
+    }
+
+    func sendMagicLink(email: String) async {
+        do {
+            var request = URLRequest(url: Self.supabaseURL.appendingPathComponent("auth/v1/otp?redirect_to=\(enc(Self.redirectURI))"))
+            request.httpMethod = "POST"; request.setValue(Self.publicKey, forHTTPHeaderField: "apikey")
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = try JSONSerialization.data(withJSONObject: ["email":email,"create_user":false])
+            let (data,response)=try await URLSession.shared.data(for: request)
+            guard let http=response as? HTTPURLResponse,(200..<300).contains(http.statusCode) else { throw AuthError.api(message: apiMessage(data) ?? "Unable to send sign-in link.") }
+            message = "Secure link sent. Open it on this device to finish sign-in."
+        } catch { message = error.localizedDescription }
+    }
+
+    private func exchangePKCE(code: String) async throws -> Tokens {
+        try await tokenRequest(body: "grant_type=pkce&auth_code=\(enc(code))")
+    }
+
+    private func tokenRequest(body: String) async throws -> Tokens {
+        var request=URLRequest(url: Self.supabaseURL.appendingPathComponent("auth/v1/token"))
+        request.httpMethod="POST"; request.setValue(Self.publicKey,forHTTPHeaderField:"apikey"); request.setValue("application/x-www-form-urlencoded",forHTTPHeaderField:"Content-Type"); request.httpBody=body.data(using:.utf8)
+        let (data,response)=try await URLSession.shared.data(for:request)
+        guard let http=response as? HTTPURLResponse,(200..<300).contains(http.statusCode) else { throw AuthError.api(message: apiMessage(data) ?? "Authentication failed.") }
+        let obj=try JSONDecoder().decode(TokenResponse.self,from:data)
+        return Tokens(access:obj.access_token,refresh:obj.refresh_token)
+    }
+
+    func openWorkspaceURL() -> URL {
+        var components=URLComponents(url:Self.workspaceURL,resolvingAgainstBaseURL:false)!
+        components.fragment="access_token=\(enc(keychain.accessToken ?? ""))&refresh_token=\(enc(keychain.refreshToken ?? ""))"
+        return components.url!
+    }
+
+    func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor { ASPresentationAnchor() }
+
+    private func enc(_ value:String)->String { value.addingPercentEncoding(withAllowedCharacters:.urlQueryAllowed) ?? value }
+    private func apiMessage(_ data:Data)->String? {
+        guard let obj=try? JSONSerialization.jsonObject(with:data) as? [String:Any] else { return nil }
+        return (obj["msg"] as? String) ?? (obj["message"] as? String) ?? (obj["error_description"] as? String)
+    }
+}
+
+struct TokenResponse: Decodable { let access_token:String; let refresh_token:String }
+struct Tokens { let access:String; let refresh:String }
+enum AuthError: LocalizedError { case api(message:String); var errorDescription:String? { if case .api(let message)=self { return message }; return nil } }
+
+final class KeychainStore {
+    private let service="online.cyclothone.mobile"
+    var accessToken:String? { get { read("access") } set { write("access",newValue) } }
+    var refreshToken:String? { get { read("refresh") } set { write("refresh",newValue) } }
+    private func write(_ key:String,_ value:String?) {
+        let q:[String:Any]=[kSecClass as String:kSecClassGenericPassword,kSecAttrService as String:service,kSecAttrAccount as String:key]
+        SecItemDelete(q as CFDictionary)
+        guard let value else { return }
+        var item=q; item[kSecValueData as String]=Data(value.utf8); item[kSecAttrAccessible as String]=kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+        SecItemAdd(item as CFDictionary,nil)
+    }
+    private func read(_ key:String)->String? {
+        var q:[String:Any]=[kSecClass as String:kSecClassGenericPassword,kSecAttrService as String:service,kSecAttrAccount as String:key,kSecReturnData as String:true,kSecMatchLimit as String:kSecMatchLimitOne]
+        guard let data=try? SecItemCopyMatching(q as CFDictionary,nil) else { return nil }
+        var result:CFTypeRef?; guard SecItemCopyMatching(q as CFDictionary,&result)==errSecSuccess,let data=result as? Data else { return nil }; return String(data:data,encoding:.utf8)
+    }
+}
