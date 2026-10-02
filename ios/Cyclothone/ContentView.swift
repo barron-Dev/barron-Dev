@@ -156,6 +156,7 @@ struct MobileWorkspace: View {
                                 .clipShape(RoundedRectangle(cornerRadius:10))
                             }
                         }
+                    }
 
                     VStack(alignment:.leading, spacing:10) {
                         Text("Recent activity").font(.headline)
@@ -345,7 +346,13 @@ final class MobileWorkspaceModel: ObservableObject {
 }
 
 struct MobileRequest: Decodable, Hashable {
-    let id:String; let service_key:String; let status:String; let urgency:String; let updated_at:String?
+    let id:String
+    let service_key:String
+    let status:String
+    let urgency:String
+    let description:String
+    let created_at:String
+    let updated_at:String?
 }
 struct MobileCase: Decodable, Hashable {
     let id:String
