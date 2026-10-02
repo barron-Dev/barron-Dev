@@ -270,9 +270,9 @@ final class MobileWorkspaceModel: ObservableObject {
                 notice = "Workspace updated. New activity is available now."
                 await LocalNotice.post(title:"Cyclothone workspace updated",body:"Your customer workspace has new activity.")
             }
-        } catch {
+        } catch let apiError {
             isFresh = false
-            error = error.localizedDescription
+            error = apiError.localizedDescription
         }
     }
 }
@@ -310,10 +310,10 @@ private enum MobileAPI {
     }
 
     private static func get<T:Decodable>(_ path:String,token:String) async throws -> T {
-        var request=URLRequest(url:base.appendingPathComponent(path.trimmingCharacters(in:"/")))
+        var request=URLRequest(url:base.appendingPathComponent(path.trimmingCharacters(in:CharacterSet(charactersIn:"/"))))
         request.setValue("application/json",forHTTPHeaderField:"Accept")
         request.setValue("Bearer \(token)",forHTTPHeaderField:"Authorization")
-        request.cachePolicy = .reloadIgnoringLocalCacheData
+        request.cachePolicy = URLRequest.CachePolicy.reloadIgnoringLocalCacheData
         let (data,response)=try await URLSession.shared.data(for:request)
         guard let http=response as? HTTPURLResponse else { throw MobileAPIError.invalidResponse }
         guard (200..<300).contains(http.statusCode) else {
@@ -346,6 +346,10 @@ private enum SHA256Digest {
 }
 
 private enum LocalNotice {
+    static func requestPermission() async {
+        _ = try? await UNUserNotificationCenter.current().requestAuthorization(options:[.alert,.sound,.badge])
+    }
+
     static func post(title:String,body:String) async {
         let center=UNUserNotificationCenter.current()
         let settings=await center.notificationSettings()
