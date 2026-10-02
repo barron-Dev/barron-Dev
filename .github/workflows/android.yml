@@ -40,3 +40,5 @@ jobs:
           name: cyclothone-android-debug
           path: android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
+
+# Android authentication changes must be validated by CI.
