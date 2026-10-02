@@ -1,6 +1,7 @@
 import SwiftUI
 import WebKit
 import UserNotifications
+import CryptoKit
 
 struct ContentView: View {
     @StateObject private var auth = AuthStore()
@@ -338,10 +339,7 @@ private enum MobileAPIError: LocalizedError {
 
 private enum SHA256Digest {
     static func hex(_ data:Data)->String {
-        importCrypto(data)
-    }
-    private static func importCrypto(_ data:Data)->String {
-        data.reduce(into:"") { $0 += String(format:"%02x",$1) }
+        SHA256.hash(data:data).map { String(format:"%02x",$0) }.joined()
     }
 }
 
