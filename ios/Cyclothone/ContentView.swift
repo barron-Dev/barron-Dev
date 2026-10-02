@@ -12,6 +12,7 @@ private extension Notification.Name {
 struct ContentView: View {
     @StateObject private var auth = AuthStore()
     @State private var mode: Mode = .entry
+    @State private var selectedCase: MobileCase?
     @State private var email = ""; @State private var password = ""; @State private var name = ""; @State private var phone = ""
 
     enum Mode { case entry, password, magic, register }
@@ -151,6 +152,7 @@ struct MobileWorkspace: View {
                             Text("No case result is available from the live customer API.").font(.caption).foregroundStyle(.secondary)
                         } else {
                             ForEach(model.cases.prefix(5), id:\.id) { item in
+                                Button { selectedCase = item } label: {
                                 VStack(alignment:.leading,spacing:4) {
                                     Text(item.case_detail.title).font(.caption)
                                     Text("\(item.case_detail.case_number) · \(item.case_detail.status) · \(item.case_detail.severity)").font(.caption2).foregroundStyle(.secondary)
@@ -160,7 +162,14 @@ struct MobileWorkspace: View {
                                 .frame(maxWidth:.infinity,alignment:.leading)
                                 .background(.white.opacity(0.04))
                                 .clipShape(RoundedRectangle(cornerRadius:10))
+                                }
+                                .buttonStyle(.plain)
                             }
+                        }
+                    }
+                    .sheet(item: $selectedCase) { item in
+                        CaseDetailView(caseItem:item, token:auth.accessToken) {
+                            await model.refresh(token:auth.accessToken)
                         }
                     }
 
@@ -201,6 +210,95 @@ struct MobileWorkspace: View {
     private static func timeText(_ date:Date) -> String {
         date.formatted(date:.omitted,time:.shortened)
     }
+}
+
+private struct CaseDetailView: View {
+    let caseItem: MobileCase
+    let token: String?
+    let onChanged: () async -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var activities:[MobileCaseActivity] = []
+    @State private var actions:[MobileCaseAction] = []
+    @State private var message = ""
+    @State private var sending = false
+    @State private var error:String?
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section("Case") {
+                    Text(caseItem.case_detail.title).font(.headline)
+                    LabeledContent("Case", value:caseItem.case_detail.case_number)
+                    LabeledContent("Status", value:caseItem.case_detail.status.replacingOccurrences(of:"_",with:" ").capitalized)
+                    LabeledContent("Severity", value:caseItem.case_detail.severity.capitalized)
+                    Text(caseItem.case_detail.summary).foregroundStyle(.secondary)
+                }
+                Section("Activity") {
+                    if activities.isEmpty { Text("No activity returned by the live case API.").foregroundStyle(.secondary) }
+                    ForEach(activities,id:\.id) { item in
+                        VStack(alignment:.leading,spacing:4) {
+                            Text(item.message)
+                            Text(item.event_type.replacingOccurrences(of:"_",with:" ").capitalized).font(.caption2).foregroundStyle(.secondary)
+                            Text(item.created_at).font(.caption2).foregroundStyle(.secondary)
+                        }
+                    }
+                    TextField("Add a case update",text:$message,axis:.vertical).lineLimit(3...6)
+                    Button(sending ? "Sending…" : "Add update") { Task { await addActivity() } }
+                        .disabled(sending || message.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty)
+                }
+                Section("Execution activity") {
+                    if actions.isEmpty { Text("No case actions returned by the live API.").foregroundStyle(.secondary) }
+                    ForEach(actions,id:\.id) { item in
+                        VStack(alignment:.leading,spacing:4) {
+                            Text(item.action.replacingOccurrences(of:"_",with:" ").capitalized)
+                            Text(item.status.replacingOccurrences(of:"_",with:" ").capitalized).font(.caption).foregroundStyle(.secondary)
+                            if let actionError=item.error, !actionError.isEmpty { Text(actionError).font(.caption2).foregroundStyle(.red) }
+                        }
+                    }
+                }
+                if let error { Text(error).foregroundStyle(.red) }
+            }
+            .navigationTitle("Case result")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement:.topBarLeading) { Button("Done") { dismiss() } } }
+            .task { await load() }
+        }
+    }
+
+    private func load() async {
+        guard let token, !token.isEmpty else { error="Authentication session is missing."; return }
+        do {
+            async let a:[MobileCaseActivity] = MobileAPI.getCaseActivity(caseItem.id,token:token)
+            async let x:[MobileCaseAction] = MobileAPI.getCaseActions(caseItem.id,token:token)
+            activities=try await a
+            actions=try await x
+        } catch { error=error.localizedDescription }
+    }
+
+    private func addActivity() async {
+        guard let token, !token.isEmpty else { error="Authentication session is missing."; return }
+        sending=true; defer { sending=false }
+        do {
+            try await MobileAPI.addCaseActivity(caseItem.id,message:message.trimmingCharacters(in:.whitespacesAndNewlines),token:token)
+            message=""
+            await load()
+            await onChanged()
+        } catch { error=error.localizedDescription }
+    }
+}
+
+private struct MobileCaseActivity: Decodable, Hashable {
+    let id:String
+    let event_type:String
+    let message:String
+    let created_at:String
+}
+
+private struct MobileCaseAction: Decodable, Hashable {
+    let id:String
+    let action:String
+    let status:String
+    let error:String?
 }
 
 private struct SectionCard<Content:View>: View {
@@ -426,6 +524,34 @@ private enum MobileAPI {
             + r.map { "\($0.id):\($0.status):\($0.updated_at ?? "")" }.joined()
             + c.map { "\($0.id):\($0.case_detail.status):\($0.case_detail.updated_at)" }.joined()).data(using:.utf8).map { SHA256Digest.hex($0) } ?? ""
         return MobileState(organizationName:org?.legal_name,admissionStatus:org?.admission_status,requests:r,cases:c,activity:Array(activities),fingerprint:fingerprint)
+    }
+
+    static func getCaseActivity(_ caseID:String,token:String) async throws -> [MobileCaseActivity] {
+        try await get("/api/v1/customer/cases/\(caseID)/activity",token:token)
+    }
+
+    static func getCaseActions(_ caseID:String,token:String) async throws -> [MobileCaseAction] {
+        try await get("/api/v1/customer/cases/\(caseID)/actions",token:token)
+    }
+
+    static func addCaseActivity(_ caseID:String,message:String,token:String) async throws {
+        try await post("/api/v1/customer/cases/\(caseID)/activity",body:["message":message],token:token)
+    }
+
+    private static func post(_ path:String,body:[String:String],token:String) async throws {
+        var request=URLRequest(url:base.appendingPathComponent(path.trimmingCharacters(in:CharacterSet(charactersIn:"/"))))
+        request.httpMethod="POST"
+        request.setValue("application/json",forHTTPHeaderField:"Accept")
+        request.setValue("application/json",forHTTPHeaderField:"Content-Type")
+        request.setValue("Bearer \(token)",forHTTPHeaderField:"Authorization")
+        request.cachePolicy = URLRequest.CachePolicy.reloadIgnoringLocalCacheData
+        request.httpBody=try JSONSerialization.data(withJSONObject:body)
+        let (_,response)=try await URLSession.shared.data(for:request)
+        guard let http=response as? HTTPURLResponse else { throw MobileAPIError.invalidResponse }
+        guard (200..<300).contains(http.statusCode) else {
+            if http.statusCode == 401 { NotificationCenter.default.post(name:.cyclothoneAuthRequired,object:nil); throw MobileAPIError.auth }
+            throw MobileAPIError.server(http.statusCode)
+        }
     }
 
     private static func get<T:Decodable>(_ path:String,token:String) async throws -> T {
