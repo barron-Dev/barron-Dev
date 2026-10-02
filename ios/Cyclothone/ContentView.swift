@@ -202,7 +202,10 @@ private struct MobileService: Identifiable {
 }
 
 struct ActivityItem {
-    let id:String; let title:String; let detail:String
+    let id:String
+    let title:String
+    let detail:String
+    let updatedAt:String
 }
 
 @MainActor
@@ -249,7 +252,7 @@ final class MobileWorkspaceModel: ObservableObject {
 
     func pause() { timer?.cancel(); timer = nil }
 
-    private var isActiveScene:Bool { !Task.isCancelled }
+    private var isActiveScene:Bool { true }
 
     func refresh(token:String?) async {
         guard let token, !token.isEmpty else { error = "Authentication session is missing."; return }
@@ -320,12 +323,12 @@ private enum MobileAPI {
         let (o,r,c) = try await (orgs,requests,cases)
         let org = o.first
         let requestActivity = r.map {
-            ActivityItem(id:"request:\($0.id)",title:$0.service_key.replacingOccurrences(of:"_",with:" ").capitalized,detail:"Request · \($0.status) · \($0.urgency)")
+            ActivityItem(id:"request:\($0.id)",title:$0.service_key.replacingOccurrences(of:"_",with:" ").capitalized,detail:"Request · \($0.status) · \($0.urgency)",updatedAt:$0.updated_at ?? "")
         }
         let caseActivity = c.map {
-            ActivityItem(id:"case:\($0.id)",title:$0.case_detail.title,detail:"Case \($0.case_detail.case_number) · \($0.case_detail.status) · \($0.case_detail.severity)")
+            ActivityItem(id:"case:\($0.id)",title:$0.case_detail.title,detail:"Case \($0.case_detail.case_number) · \($0.case_detail.status) · \($0.case_detail.severity)",updatedAt:$0.case_detail.updated_at)
         }
-        let activities = Array((requestActivity + caseActivity).sorted { $0.detail > $1.detail }.prefix(10))
+        let activities = Array((requestActivity + caseActivity).sorted { $0.updatedAt > $1.updatedAt }.prefix(10))
         let fingerprint = (o.map { "\($0.id):\($0.admission_status):\($0.updated_at)" }.joined()
             + r.map { "\($0.id):\($0.status):\($0.updated_at ?? "")" }.joined()
             + c.map { "\($0.id):\($0.case_detail.status):\($0.case_detail.updated_at)" }.joined()).data(using:.utf8).map { SHA256Digest.hex($0) } ?? ""
