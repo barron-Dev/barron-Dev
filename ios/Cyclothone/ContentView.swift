@@ -1,4 +1,5 @@
 import SwiftUI
+import Foundation
 import WebKit
 import UserNotifications
 import CryptoKit
