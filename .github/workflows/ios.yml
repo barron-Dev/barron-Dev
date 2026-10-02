@@ -16,11 +16,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build iOS simulator target
+      - name: Diagnose iOS scheme
+        working-directory: ios/Cyclothone
+        run: |
+          xcodebuild -list -project Cyclothone.xcodeproj
+          xcodebuild -showdestinations -project Cyclothone.xcodeproj -scheme Cyclothone || true
+          grep -nE "SDKROOT|SUPPORTED_PLATFORMS|IPHONEOS_DEPLOYMENT_TARGET|MACOSX_DEPLOYMENT_TARGET" Cyclothone.xcodeproj/project.pbxproj
+
+      - name: List simulators
+        run: xcrun simctl list devices available
+
+      - name: Build (iOS Simulator)
         working-directory: ios/Cyclothone
         run: |
           set -o pipefail
-          xcodebuild             -project Cyclothone.xcodeproj             -scheme Cyclothone             -sdk iphonesimulator             -configuration Debug             -destination 'generic/platform=iOS Simulator'             -derivedDataPath build             CODE_SIGNING_ALLOWED=NO             build
+          xcodebuild             -project Cyclothone.xcodeproj             -scheme Cyclothone             -sdk iphonesimulator             -configuration Debug             -destination 'platform=iOS Simulator,OS=latest,name=iPhone 16'             -derivedDataPath build             CODE_SIGNING_ALLOWED=NO             build
 
       - name: Verify app bundle
         working-directory: ios/Cyclothone
