@@ -7,7 +7,11 @@ import UIKit
 @MainActor
 final class AuthStore: NSObject, ObservableObject, ASWebAuthenticationPresentationContextProviding {
     static let supabaseURL = URL(string: "https://whcomikcftbousoqzeal.supabase.co")!
-    static let redirectURI = "cyclothone-ios://auth/callback"
+    static var callbackScheme: String {
+        let scheme = (Bundle.main.object(forInfoDictionaryKey: "CyclothoneAuthCallbackScheme") as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return scheme?.isEmpty == false ? scheme! : "cyclothone-ios"
+    }
+    static var redirectURI: String { "\(callbackScheme)://auth/callback" }
     static let workspaceURL = URL(string: "https://customers.cyclothone.online/mobile-auth")!
     static let publicKey = "sb_publishable_3qKBAIdxxrDuE8gEGwJICg_5NEH3CVU"
 
@@ -41,7 +45,7 @@ final class AuthStore: NSObject, ObservableObject, ASWebAuthenticationPresentati
         ]
         guard let url = components.url else { message = "Unable to start secure sign-in."; return }
         message = "Opening secure sign-in…"
-        session = ASWebAuthenticationSession(url: url, callbackURLScheme: "cyclothone-ios") { [weak self] callback, error in
+        session = ASWebAuthenticationSession(url: url, callbackURLScheme: Self.callbackScheme) { [weak self] callback, error in
             Task { @MainActor in
                 guard let self else { return }
                 defer { self.pkceVerifier = nil; self.oauthState = nil }
