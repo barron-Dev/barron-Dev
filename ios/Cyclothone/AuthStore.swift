@@ -116,6 +116,17 @@ final class AuthStore: NSObject, ObservableObject, ASWebAuthenticationPresentati
         return Tokens(access:obj.access_token,refresh:obj.refresh_token)
     }
 
+    func signOut() {
+        session?.cancel()
+        session = nil
+        pkceVerifier = nil
+        oauthState = nil
+        keychain.accessToken = nil
+        keychain.refreshToken = nil
+        authenticated = false
+        message = "Signed out securely."
+    }
+
     func openWorkspaceURL() -> URL {
         var components=URLComponents(url:Self.workspaceURL,resolvingAgainstBaseURL:false)!
         components.fragment="access_token=\(enc(keychain.accessToken ?? ""))&refresh_token=\(enc(keychain.refreshToken ?? ""))"
