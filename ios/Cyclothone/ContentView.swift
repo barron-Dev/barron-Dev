@@ -122,11 +122,14 @@ struct MobileWorkspace: View {
                             Button { UIApplication.shared.open(service.url) } label: {
                                 HStack {
                                     Image(systemName:service.icon).frame(width:24)
-                                    VStack(alignment:.leading) {
+                                    VStack(alignment:.leading, spacing:3) {
                                         Text(service.name).font(.subheadline)
-                                        Text("Open full workspace when required").font(.caption2).foregroundStyle(.secondary)
+                                        Text(model.serviceStatus(for: service.serviceKeys)).font(.caption2).foregroundStyle(.secondary)
                                     }
                                     Spacer()
+                                    Text(model.serviceStatusShort(for: service.serviceKeys))
+                                        .font(.caption2.bold())
+                                        .foregroundStyle(.secondary)
                                     Image(systemName:"chevron.right").font(.caption)
                                 }
                                 .padding(12)
@@ -135,6 +138,24 @@ struct MobileWorkspace: View {
                             }.buttonStyle(.plain)
                         }
                     }
+
+                    VStack(alignment:.leading, spacing:10) {
+                        Text("Case results").font(.headline)
+                        if model.cases.isEmpty {
+                            Text("No case result is available from the live customer API.").font(.caption).foregroundStyle(.secondary)
+                        } else {
+                            ForEach(model.cases.prefix(5), id:\.id) { item in
+                                VStack(alignment:.leading,spacing:4) {
+                                    Text(item.case_detail.title).font(.caption)
+                                    Text("\(item.case_detail.case_number) · \(item.case_detail.status) · \(item.case_detail.severity)").font(.caption2).foregroundStyle(.secondary)
+                                    Text(item.case_detail.summary).font(.caption2).foregroundStyle(.secondary).lineLimit(3)
+                                }
+                                .padding(10)
+                                .frame(maxWidth:.infinity,alignment:.leading)
+                                .background(.white.opacity(0.04))
+                                .clipShape(RoundedRectangle(cornerRadius:10))
+                            }
+                        }
 
                     VStack(alignment:.leading, spacing:10) {
                         Text("Recent activity").font(.headline)
@@ -196,18 +217,18 @@ private struct MetricCard: View {
 }
 
 private struct MobileService: Identifiable {
-    let id:String; let name:String; let icon:String; let url:URL
+    let id:String; let name:String; let icon:String; let serviceKeys:[String]; let url:URL
     static let all:[MobileService] = [
-        .init(id:"threat",name:"Threat Intelligence",icon:"eye",url:URL(string:"https://customers.cyclothone.online/customer/workspace")!),
-        .init(id:"darkweb",name:"Dark Web Monitoring",icon:"network",url:URL(string:"https://customers.cyclothone.online/customer/workspace")!),
-        .init(id:"brand",name:"Brand Protection",icon:"shield",url:URL(string:"https://customers.cyclothone.online/customer/workspace")!),
-        .init(id:"physical",name:"Physical Security",icon:"lock.shield",url:URL(string:"https://customers.cyclothone.online/customer/workspace")!),
-        .init(id:"compliance",name:"Compliance",icon:"checkmark.seal",url:URL(string:"https://customers.cyclothone.online/customer/workspace")!),
-        .init(id:"hunting",name:"Threat Hunting",icon:"scope",url:URL(string:"https://customers.cyclothone.online/customer/workspace")!),
-        .init(id:"investigation",name:"Investigation",icon:"magnifyingglass",url:URL(string:"https://customers.cyclothone.online/customer/workspace")!),
-        .init(id:"response",name:"Response",icon:"bolt.shield",url:URL(string:"https://customers.cyclothone.online/customer/workspace")!),
-        .init(id:"recovery",name:"Recovery",icon:"arrow.clockwise.shield",url:URL(string:"https://customers.cyclothone.online/customer/workspace")!),
-        .init(id:"mdi",name:"MDI",icon:"antenna.radiowaves.left.and.right",url:URL(string:"https://customers.cyclothone.online/customer/workspace")!)
+        .init(id:"threat",name:"Threat Intelligence",icon:"eye",serviceKeys:["threat_intelligence"],url:URL(string:"https://customers.cyclothone.online/customer/workspace")!),
+        .init(id:"darkweb",name:"Dark Web Monitoring",icon:"network",serviceKeys:["dark_web_monitoring"],url:URL(string:"https://customers.cyclothone.online/customer/workspace")!),
+        .init(id:"brand",name:"Brand Protection",icon:"shield",serviceKeys:["brand_protection"],url:URL(string:"https://customers.cyclothone.online/customer/workspace")!),
+        .init(id:"physical",name:"Physical Security",icon:"lock.shield",serviceKeys:["physical_security"],url:URL(string:"https://customers.cyclothone.online/customer/workspace")!),
+        .init(id:"compliance",name:"Compliance",icon:"checkmark.seal",serviceKeys:["compliance"],url:URL(string:"https://customers.cyclothone.online/customer/workspace")!),
+        .init(id:"hunting",name:"Threat Hunting",icon:"scope",serviceKeys:["cybersecurity_assessment","soc_mdr"],url:URL(string:"https://customers.cyclothone.online/customer/workspace")!),
+        .init(id:"investigation",name:"Investigation",icon:"magnifyingglass",serviceKeys:["incident_response"],url:URL(string:"https://customers.cyclothone.online/customer/workspace")!),
+        .init(id:"response",name:"Response",icon:"bolt.shield",serviceKeys:["incident_response"],url:URL(string:"https://customers.cyclothone.online/customer/workspace")!),
+        .init(id:"recovery",name:"Recovery",icon:"arrow.clockwise.shield",serviceKeys:["other"],url:URL(string:"https://customers.cyclothone.online/customer/workspace")!),
+        .init(id:"mdi",name:"MDI",icon:"antenna.radiowaves.left.and.right",serviceKeys:["mobile_digital_intelligence"],url:URL(string:"https://customers.cyclothone.online/customer/workspace")!)
     ]
 }
 
@@ -237,6 +258,39 @@ final class MobileWorkspaceModel: ObservableObject {
     var activeRequests:Int {
         requests.filter { ["submitted","triage","accepted","in_progress","blocked"].contains($0.status.lowercased()) }.count
     }
+
+    func serviceStatus(for keys:[String]) -> String {
+        let matches = requests.filter { keys.contains($0.service_key) }
+        guard let latest = matches.sorted(by: Self.requestSort).first else {
+            return "No request yet · full workspace available"
+        }
+        return "Request \(Self.statusText(latest.status)) · \(Self.requestAge(latest.updated_at ?? latest.created_at))"
+    }
+
+    func serviceStatusShort(for keys:[String]) -> String {
+        guard let latest = requests.filter({ keys.contains($0.service_key) }).sorted(by: Self.requestSort).first else {
+            return "No request"
+        }
+        return Self.statusText(latest.status)
+    }
+
+    private static func requestSort(_ lhs:MobileRequest,_ rhs:MobileRequest) -> Bool {
+        (lhs.updated_at ?? lhs.created_at) > (rhs.updated_at ?? rhs.created_at)
+    }
+
+    private static func statusText(_ value:String) -> String {
+        value.replacingOccurrences(of:"_",with:" ").capitalized
+    }
+
+    private static func requestAge(_ value:String) -> String {
+        guard let date = ISO8601DateFormatter().date(from:value) else { return "live state" }
+        let seconds = max(0,Int(Date().timeIntervalSince(date)))
+        if seconds < 60 { return "updated just now" }
+        if seconds < 3600 { return "updated \(seconds / 60)m ago" }
+        if seconds < 86400 { return "updated \(seconds / 3600)h ago" }
+        return "updated \(seconds / 86400)d ago"
+    }
+
 
     func start(token:String?) async {
         guard self.timer == nil else { return }
