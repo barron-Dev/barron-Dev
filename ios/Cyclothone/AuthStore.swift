@@ -13,6 +13,8 @@ final class AuthStore: NSObject, ObservableObject, ASWebAuthenticationPresentati
 
     @Published var message = "Sign in to continue."
     @Published var authenticated = false
+    var accessToken: String? { keychain.accessToken }
+    var refreshToken: String? { keychain.refreshToken }
     private var session: ASWebAuthenticationSession?
     private let keychain = KeychainStore()
     private var pkceVerifier: String?
