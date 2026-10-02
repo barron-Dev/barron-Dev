@@ -5,6 +5,10 @@ import UserNotifications
 import CryptoKit
 import UIKit
 
+private extension Notification.Name {
+    static let cyclothoneAuthRequired = Notification.Name("cyclothone-auth-required")
+}
+
 struct ContentView: View {
     @StateObject private var auth = AuthStore()
     @State private var mode: Mode = .entry
@@ -95,7 +99,12 @@ struct MobileWorkspace: View {
                     }
 
                     SectionCard(title:"Workspace", value:model.organizationName ?? "Loading…", detail:model.admissionStatus ?? "Live account state") {
-                        Button("Open full workspace") { UIApplication.shared.open(auth.openWorkspaceURL()) }
+                        HStack {
+                            Button("Open full workspace") { UIApplication.shared.open(auth.openWorkspaceURL()) }
+                                .buttonStyle(.borderedProminent)
+                            Button("Sign out") { auth.signOut(); model.pause() }
+                                .buttonStyle(.bordered)
+                        }
                             .buttonStyle(.borderedProminent)
                     }
 
@@ -107,7 +116,7 @@ struct MobileWorkspace: View {
 
                     VStack(alignment:.leading, spacing:10) {
                         Text("Security services").font(.headline)
-                        Text("All service workflows remain available through the same customer workspace. This mobile view is the fast operational surface; it does not create a reduced service set.")
+                        Text("All service workflows remain available through the same customer workspace. This mobile view is the fast operational surface; workflows that require the full workspace open there without creating a separate mobile implementation.")
                             .font(.caption).foregroundStyle(.secondary)
                         ForEach(MobileService.all) { service in
                             Button { UIApplication.shared.open(service.url) } label: {
@@ -115,7 +124,7 @@ struct MobileWorkspace: View {
                                     Image(systemName:service.icon).frame(width:24)
                                     VStack(alignment:.leading) {
                                         Text(service.name).font(.subheadline)
-                                        Text("Open live workspace").font(.caption2).foregroundStyle(.secondary)
+                                        Text("Open full workspace when required").font(.caption2).foregroundStyle(.secondary)
                                     }
                                     Spacer()
                                     Image(systemName:"chevron.right").font(.caption)
@@ -149,6 +158,7 @@ struct MobileWorkspace: View {
             .navigationBarTitleDisplayMode(.inline)
             .refreshable { await model.refresh(token:auth.accessToken) }
             .task { await model.start(token:auth.accessToken); await LocalNotice.requestPermission() }
+            .onReceive(NotificationCenter.default.publisher(for: .cyclothoneAuthRequired)) { _ in auth.signOut(); model.pause() }
             .onChange(of: scenePhase) { _, phase in
                 if phase == .active { model.resume(token:auth.accessToken) } else { model.pause() }
             }
