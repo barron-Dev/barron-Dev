@@ -309,7 +309,7 @@ private struct ServiceRequestView: View {
         ("threat_intelligence","Threat Intelligence"), ("dark_web_monitoring","Dark Web Monitoring"),
         ("brand_protection","Brand Protection"), ("physical_security","Physical Security"),
         ("compliance","Compliance"), ("cybersecurity_assessment","Threat Hunting"),
-        ("incident_response","Incident Response"), ("recovery","Recovery"),
+        ("incident_response","Incident Response"), ("other","Recovery"),
         ("mobile_digital_intelligence","MDI"), ("soc_mdr","SOC / MDR"), ("ai_security","AI Security"), ("other","Other")
     ]
     var body: some View {
