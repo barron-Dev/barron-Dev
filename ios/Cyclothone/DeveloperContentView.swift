@@ -44,87 +44,18 @@ private struct DeveloperPortalView: View {
     @StateObject private var model = DeveloperPortalModel()
 
     var body: some View {
+        portalContent
+    }
+
+    @ViewBuilder
+    private var portalContent: some View {
         NavigationStack {
             List {
-                Section("Developer") {
-                    Text("Applications and API credentials")
-                        .font(.headline)
-                    Text("Manage real developer applications and credentials through the Cyclothone API. Secrets are shown only when issued.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Button("Refresh") {
-                        Task { await model.load(token: auth.accessToken) }
-                    }
-                }
-
-                Section("Applications") {
-                    if model.apps.isEmpty {
-                        Text(model.loading ? "Loading…" : "No applications found.")
-                            .foregroundStyle(.secondary)
-                    }
-                    ForEach(model.apps) { app in
-                        Button {
-                            model.select(app)
-                            Task { await model.loadKeys(token: auth.accessToken) }
-                        } label: {
-                            HStack {
-                                VStack(alignment: .leading, spacing: 3) {
-                                    Text(app.name)
-                                    Text(app.active ? "Active" : "Inactive")
-                                        .font(.caption2)
-                                        .foregroundStyle(.secondary)
-                                }
-                                Spacer()
-                                if model.selectedApp?.id == app.id {
-                                    Image(systemName: "checkmark")
-                                }
-                            }
-                        }
-                    }
-                    Button("Create application") {
-                        model.showCreate = true
-                    }
-                }
-
-                if let app = model.selectedApp {
-                    Section("API credentials") {
-                        Text(app.name).font(.caption).foregroundStyle(.secondary)
-                        if model.keys.isEmpty {
-                            Text("No credentials found.")
-                                .foregroundStyle(.secondary)
-                        }
-                        ForEach(model.keys) { key in
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(key.keyPrefix)
-                                Text(key.active ? "Active" : "Inactive")
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                                Text(key.scopes.joined(separator: ", "))
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                        Button("Issue API credential") {
-                            model.showIssueKey = true
-                        }
-                    }
-                }
-
-                Section("Mobile Intelligence") {
-                    Text("Requests use the real Mobile Intelligence API and require the approved mobile:intelligence authority. Provider data is never fabricated.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    NavigationLink("Query Mobile Intelligence") {
-                        MobileIntelligenceView(auth: auth)
-                    }
-                }
-
-                Section {
-                    Button("Sign out") {
-                        model.reset()
-                        auth.signOut()
-                    }
-                }
+                developerSection
+                applicationsSection
+                credentialsSection
+                mobileIntelligenceSection
+                accountSection
             }
             .navigationTitle("Developer")
             .task { await model.load(token: auth.accessToken) }
@@ -154,6 +85,124 @@ private struct DeveloperPortalView: View {
             } message: {
                 Text(model.error ?? "")
             }
+        }
+    }
+
+    @ViewBuilder
+    private var developerSection: some View {
+        Section("Developer") {
+            Text("Applications and API credentials")
+                .font(.headline)
+            Text("Manage real developer applications and credentials through the Cyclothone API. Secrets are shown only when issued.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Button("Refresh") {
+                Task { await model.load(token: auth.accessToken) }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var applicationsSection: some View {
+        Section("Applications") {
+            if model.apps.isEmpty {
+                Text(model.loading ? "Loading…" : "No applications found.")
+                    .foregroundStyle(.secondary)
+            }
+            ForEach(model.apps) { app in
+                ApplicationRow(
+                    app: app,
+                    selected: model.selectedApp?.id == app.id
+                ) {
+                    model.select(app)
+                    Task { await model.loadKeys(token: auth.accessToken) }
+                }
+            }
+            Button("Create application") {
+                model.showCreate = true
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var credentialsSection: some View {
+        if let app = model.selectedApp {
+            Section("API credentials") {
+                Text(app.name)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                if model.keys.isEmpty {
+                    Text("No credentials found.")
+                        .foregroundStyle(.secondary)
+                }
+                ForEach(model.keys) { key in
+                    DeveloperKeyRow(key: key)
+                }
+                Button("Issue API credential") {
+                    model.showIssueKey = true
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var mobileIntelligenceSection: some View {
+        Section("Mobile Intelligence") {
+            Text("Requests use the real Mobile Intelligence API and require the approved mobile:intelligence authority. Provider data is never fabricated.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            NavigationLink("Query Mobile Intelligence") {
+                MobileIntelligenceView(auth: auth)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var accountSection: some View {
+        Section {
+            Button("Sign out") {
+                model.reset()
+                auth.signOut()
+            }
+        }
+    }
+
+
+private struct ApplicationRow: View {
+    let app: DeveloperApp
+    let selected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(app.name)
+                    Text(app.active ? "Active" : "Inactive")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                if selected {
+                    Image(systemName: "checkmark")
+                }
+            }
+        }
+    }
+}
+
+private struct DeveloperKeyRow: View {
+    let key: DeveloperKey
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(key.keyPrefix)
+            Text(key.active ? "Active" : "Inactive")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            Text(key.scopes.joined(separator: ", "))
+                .font(.caption2)
+                .foregroundStyle(.secondary)
         }
     }
 }
