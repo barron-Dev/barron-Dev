@@ -1,0 +1,23 @@
+name: Cyclothone iOS
+
+on:
+  push:
+    branches: [ios/cyclothone-mobile-v1]
+    paths: ["ios/**", ".github/workflows/ios.yml"]
+  pull_request:
+    paths: ["ios/**", ".github/workflows/ios.yml"]
+  workflow_dispatch:
+
+jobs:
+  ios:
+    runs-on: macos-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build iOS simulator target
+        run: |
+          xcodebuild             -project ios/Cyclothone/Cyclothone.xcodeproj             -target Cyclothone             -sdk iphonesimulator             -configuration Debug             -destination 'generic/platform=iOS Simulator'             CODE_SIGNING_ALLOWED=NO             build
+      - name: Verify app bundle
+        run: |
+          test -d ios/build/Build/Products/Debug-iphonesimulator/Cyclothone.app ||           test -d /tmp/CyclothoneBuild/Build/Products/Debug-iphonesimulator/Cyclothone.app
