@@ -331,6 +331,8 @@ final class MobileWorkspaceModel: ObservableObject {
             let state = try await MobileAPI.load(token:token)
             let fingerprint = state.fingerprint
             let changed = snapshotFingerprint != nil && snapshotFingerprint != fingerprint
+            let previousRequests = requests
+            let previousCases = cases
             snapshotFingerprint = fingerprint
             organizationName = state.organizationName
             admissionStatus = state.admissionStatus
@@ -341,8 +343,22 @@ final class MobileWorkspaceModel: ObservableObject {
             isFresh = true
             error = nil
             if changed {
-                notice = "Workspace updated. New activity is available now."
-                await LocalNotice.post(title:"Cyclothone workspace updated",body:"Your customer workspace has new activity.")
+                let requestChanges = state.requests.filter { current in
+                    guard let previous = previousRequests.first(where: { $0.id == current.id }) else { return true }
+                    return previous.status != current.status || previous.updated_at != current.updated_at
+                }
+                let caseChanges = state.cases.filter { current in
+                    guard let previous = previousCases.first(where: { $0.id == current.id }) else { return true }
+                    return previous.case_detail.status != current.case_detail.status || previous.case_detail.updated_at != current.case_detail.updated_at
+                }
+                let changedCount = requestChanges.count + caseChanges.count
+                notice = changedCount == 1
+                    ? "Workspace updated. 1 item has new activity."
+                    : "Workspace updated. \(changedCount) items have new activity."
+                let firstChange = requestChanges.first.map { "\($0.service_key.replacingOccurrences(of:"_", with:" ").capitalized) is now \(Self.statusText($0.status))." }
+                    ?? caseChanges.first.map { "\($0.case_detail.title) is now \(Self.statusText($0.case_detail.status))." }
+                    ?? "New customer activity is available."
+                await LocalNotice.post(title:"Cyclothone workspace updated",body:firstChange)
             }
         } catch let apiError {
             isFresh = false
