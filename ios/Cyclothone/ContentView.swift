@@ -2,6 +2,7 @@ import SwiftUI
 import WebKit
 import UserNotifications
 import CryptoKit
+import UIKit
 
 struct ContentView: View {
     @StateObject private var auth = AuthStore()
@@ -199,7 +200,7 @@ private struct MobileService: Identifiable {
     ]
 }
 
-private struct ActivityItem {
+struct ActivityItem {
     let id:String; let title:String; let detail:String
 }
 
