@@ -196,7 +196,7 @@ private struct DeveloperKeyRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(key.keyPrefix)
+            Text(key.key_prefix)
             Text(key.active ? "Active" : "Inactive")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
