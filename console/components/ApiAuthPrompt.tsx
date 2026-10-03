@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { setApiToken } from "../lib/api";
+import { clearApiToken, setApiToken } from "../lib/api";
 
 export function ApiAuthPrompt() {
   const [open, setOpen] = useState(false);
@@ -11,6 +11,9 @@ export function ApiAuthPrompt() {
     const onRequired = () => {
       const host = window.location.hostname;
       if (host === "customers.cyclothone.online" || host === "developers.cyclothone.online") {
+        clearApiToken();
+        sessionStorage.removeItem("cyclothone_refresh_token");
+        sessionStorage.removeItem("cyclothone_auth_entry");
         window.location.assign("/login");
         return;
       }
