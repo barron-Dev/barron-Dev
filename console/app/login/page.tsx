@@ -49,7 +49,16 @@ export default function Login() {
         const invitationToken = sessionStorage.getItem(INVITATION_TOKEN_KEY);
         const pendingProfile = sessionStorage.getItem(PENDING_PROFILE_KEY);
         const authEntry = sessionStorage.getItem("cyclothone_auth_entry");
-        router.replace(invitationToken ? "/invitations/accept" : pendingProfile || authEntry === "registration" ? "/customer/onboarding" : "/customer/workspace");
+        const developerSurface = window.location.hostname === "developers.cyclothone.online" || authEntry === "developer";
+        router.replace(
+          invitationToken
+            ? "/invitations/accept"
+            : pendingProfile || authEntry === "registration"
+              ? "/customer/onboarding"
+              : developerSurface
+                ? "/developers"
+                : "/customer/workspace",
+        );
         sessionStorage.removeItem("cyclothone_auth_entry");
       } catch (x) {
         setError(x instanceof Error ? x.message : "Unable to finish authentication");
@@ -101,7 +110,9 @@ export default function Login() {
       if (data.session.refresh_token) sessionStorage.setItem("cyclothone_refresh_token", data.session.refresh_token);
       await finishPendingOrganization(data.session.access_token);
       const invitationToken = sessionStorage.getItem(INVITATION_TOKEN_KEY);
-      router.push(invitationToken ? "/invitations/accept" : "/customer/workspace");
+      const developerSurface = window.location.hostname === "developers.cyclothone.online" || sessionStorage.getItem("cyclothone_auth_entry") === "developer";
+      sessionStorage.removeItem("cyclothone_auth_entry");
+      router.push(invitationToken ? "/invitations/accept" : developerSurface ? "/developers" : "/customer/workspace");
     } catch (x) {
       setError(x instanceof Error ? x.message : "Sign-in failed");
     } finally { setBusy(false); }
