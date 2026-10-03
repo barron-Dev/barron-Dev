@@ -277,6 +277,20 @@ export function getCustomerOrganizations() {
   return apiFetch<{ organizations: CustomerOrganization[] }>("/api/v1/customer/organizations");
 }
 
+export function createCustomerOrganization(body: {
+  organization_type: "company" | "government" | "security_provider" | "developer" | "client" | "partner" | "individual";
+  legal_name: string;
+  country_code?: string | null;
+  website_domain?: string | null;
+  registration_number?: string | null;
+}) {
+  return apiFetch<CustomerOrganization>("/api/v1/customer/organizations", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
 export function getCustomerServiceRequests() {
   return apiFetch<{ service_requests: CustomerServiceRequest[] }>("/api/v1/customer/service-requests");
 }
