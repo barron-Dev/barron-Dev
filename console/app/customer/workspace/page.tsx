@@ -116,7 +116,7 @@ export default function CustomerWorkspace() {
 
     <div className="relative z-10 mx-auto max-w-7xl p-5 md:p-8">
       {loading ? <div className="rounded-[2rem] border border-white/10 bg-[#06181e]/55 p-8 text-center text-xs text-[#5a6675]">Loading live workspace…</div> :
-      !orgs.length ? <div className="rounded-[2rem] border border-dashed border-white/10 bg-[#06181e]/60 p-10 text-center backdrop-blur-xl"><h1 className="text-xl font-semibold">No organization workspace yet</h1><p className="mx-auto mt-2 max-w-lg text-xs text-[#5a6675]">Create an account and organization first. Workspace provisioning occurs only after the real admission and verification process.</p><div className="mt-5"><a href="/register" className="rounded-full border border-[#4fc4bd]/35 px-4 py-2 text-xs text-[#70d3ca]">Create organization</a></div></div> :
+      !orgs.length ? <div className="rounded-[2rem] border border-dashed border-white/10 bg-[#06181e]/60 p-10 text-center backdrop-blur-xl"><h1 className="text-xl font-semibold">No organization workspace yet</h1><p className="mx-auto mt-2 max-w-lg text-xs text-[#5a6675]">Create an account and organization first. Workspace provisioning occurs only after the real admission and verification process.</p><div className="mt-5"><a href="/customer/profile" className="rounded-full border border-[#4fc4bd]/35 px-4 py-2 text-xs text-[#70d3ca]">Create organization</a></div></div> :
       <div className="grid gap-5 lg:grid-cols-[250px_1fr]">
         <aside className="border border-white/10 bg-[#06181e]/65 backdrop-blur-xl p-3">
           <div className="mb-3 px-2 text-[9px] uppercase tracking-[.16em] text-[#5a6675]">Organizations</div>
