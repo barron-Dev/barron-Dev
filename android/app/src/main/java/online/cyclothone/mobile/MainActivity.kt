@@ -31,7 +31,8 @@ class MainActivity : Activity() {
     companion object {
         private const val SUPABASE_URL = "https://whcomikcftbousoqzeal.supabase.co"
         private const val REDIRECT_URI = "cyclothone://auth/callback"
-        private const val WORKSPACE_URL = "https://customers.cyclothone.online/mobile-auth"\n        private const val API_BASE = "https://cyclothone-api-production.up.railway.app"
+        private const val WORKSPACE_URL = "https://customers.cyclothone.online/mobile-auth"
+        private const val API_BASE = "https://cyclothone-api-production.up.railway.app"
         private const val PREFS = "cyclothone_auth"
         private const val ACCESS_TOKEN = "access_token"
         private const val REFRESH_TOKEN = "refresh_token"
