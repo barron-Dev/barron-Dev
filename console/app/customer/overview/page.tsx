@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { AuthActions } from "@/components/AuthActions";
 import { getCustomerCases, getCustomerOrganizations, getCustomerServiceRequests, type CustomerCase, type CustomerOrganization, type CustomerServiceRequest } from "../../../lib/api";
 
 const statusTone: Record<string,string> = {
@@ -41,7 +42,7 @@ export default function CustomerOverview() {
     <main className="min-h-screen bg-[#05070a] text-[#e8eef6]">
       <header className="flex min-h-14 flex-wrap items-center justify-between gap-3 border-b border-[#1a2330] bg-[#0a0e14] px-5 py-3">
         <div><a href="https://cyclothone.online" className="font-semibold">Cyclothone</a><span className="ml-3 text-[10px] uppercase tracking-[.16em] text-[#ffb347]">Customer</span></div>
-        <nav className="flex gap-2 text-[10px]"><a href="/customer/workspace" className="border border-[#2a3646] px-3 py-2">Workspace</a><a href="/customer/cases" className="border border-[#2a3646] px-3 py-2">Cases</a><a href="/request-service" className="border border-[#00d9ff] px-3 py-2 text-[#00d9ff]">Request service</a></nav>
+        <nav className="flex gap-2 text-[10px]"><a href="/customer/workspace" className="border border-[#2a3646] px-3 py-2">Workspace</a><a href="/customer/cases" className="border border-[#2a3646] px-3 py-2">Cases</a><a href="/request-service" className="border border-[#00d9ff] px-3 py-2 text-[#00d9ff]">Request service</a><AuthActions /></nav>
       </header>
 
       <div className="mx-auto max-w-6xl px-5 py-10">
