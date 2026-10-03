@@ -7,7 +7,8 @@ import UIKit
 @MainActor
 final class AuthStore: NSObject, ObservableObject, ASWebAuthenticationPresentationContextProviding {
     static let supabaseURL = URL(string: "https://whcomikcftbousoqzeal.supabase.co")!
-    static let redirectURI = "cyclothone-ios://auth/callback"
+    static let callbackScheme = (Bundle.main.object(forInfoDictionaryKey: "CYCLOTHONE_URL_SCHEME") as? String) ?? "cyclothone-ios"
+    static let redirectURI = "\(callbackScheme)://auth/callback"
     static let workspaceURL = URL(string: "https://customers.cyclothone.online/mobile-auth")!
     static let publicKey = "sb_publishable_3qKBAIdxxrDuE8gEGwJICg_5NEH3CVU"
 
@@ -41,7 +42,7 @@ final class AuthStore: NSObject, ObservableObject, ASWebAuthenticationPresentati
         ]
         guard let url = components.url else { message = "Unable to start secure sign-in."; return }
         message = "Opening secure sign-in…"
-        session = ASWebAuthenticationSession(url: url, callbackURLScheme: "cyclothone-ios") { [weak self] callback, error in
+        session = ASWebAuthenticationSession(url: url, callbackURLScheme: Self.callbackScheme) { [weak self] callback, error in
             Task { @MainActor in
                 guard let self else { return }
                 defer { self.pkceVerifier = nil; self.oauthState = nil }
@@ -157,7 +158,7 @@ struct Tokens { let access:String; let refresh:String }
 enum AuthError: LocalizedError { case api(message:String); var errorDescription:String? { if case .api(let message)=self { return message }; return nil } }
 
 final class KeychainStore {
-    private let service="online.cyclothone.mobile"
+    private let service = Bundle.main.bundleIdentifier ?? "online.cyclothone.mobile"
     var accessToken:String? { get { read("access") } set { write("access",newValue) } }
     var refreshToken:String? { get { read("refresh") } set { write("refresh",newValue) } }
     private func write(_ key:String,_ value:String?) {
