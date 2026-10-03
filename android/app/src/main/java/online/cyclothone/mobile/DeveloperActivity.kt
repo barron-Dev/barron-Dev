@@ -63,6 +63,14 @@ class DeveloperActivity : Activity() {
 
     private fun handleCallback(uri: Uri) {
         if (uri.scheme != "cyclothone" || uri.host != "developer" || uri.path != "/callback") return
+        val expectedState = prefs.getString("oauth_state", null)
+        val returnedState = uri.getQueryParameter("state")
+        if (expectedState.isNullOrBlank() || returnedState.isNullOrBlank() || expectedState != returnedState) {
+            prefs.edit().remove("oauth_state").apply()
+            showSignIn()
+            status.text = "Developer sign-in failed: invalid OAuth state."
+            return
+        }
         val access = uri.fragment.orEmpty().split("&").mapNotNull {
             val p = it.split("=", limit = 2)
             if (p.size == 2) p[0] to java.net.URLDecoder.decode(p[1], "UTF-8") else null
