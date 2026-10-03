@@ -360,7 +360,7 @@ class MainActivity : Activity() {
     private fun hasSession()=readSession()!=null
     private fun clearPkce(){prefs.edit().remove(CODE_VERIFIER).remove(STATE).apply()}
 
-    private class SessionCrypto {
+    internal class SessionCrypto {
         private val key: SecretKey
         init {
             val ks = KeyStore.getInstance(KEYSTORE).apply { load(null) }
