@@ -54,7 +54,7 @@ export default function Login() {
             ? "/invitations/accept"
             : developerSurface
                 ? "/developers"
-                : "/customer/workspace",
+                : "/customer/overview",
         );
         sessionStorage.removeItem("cyclothone_auth_entry");
         sessionStorage.removeItem(PENDING_PROFILE_KEY);
