@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { supabase } from "../../../lib/supabase-public";
 import { createCustomerOrganization, getCustomerOrganizations, setApiToken, type CustomerOrganization } from "../../../lib/api";
 
 const TYPES = [
@@ -26,7 +27,7 @@ export default function CustomerProfile() {
     catch(e){ setError(e instanceof Error ? e.message : "Unable to load your profile"); }
     finally{ setLoading(false); }
   }
-  useEffect(()=>{ setApiToken(sessionStorage.getItem("cyclothone_access_token")||""); void load(); },[]);
+  useEffect(()=>{ void (async()=>{ const stored=sessionStorage.getItem("cyclothone_access_token"); if(stored){ setApiToken(stored); } else { const {data}=await supabase.auth.getSession(); if(data.session) setApiToken(data.session.access_token); } await load(); })(); },[]);
 
   async function submit(e:FormEvent){
     e.preventDefault(); setBusy(true); setError("");
