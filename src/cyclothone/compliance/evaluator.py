@@ -38,7 +38,6 @@ class ComplianceEvaluator:
             evidence = {
                 **evidence,
                 "evaluated_at": now.isoformat(),
-                "evidence_valid_until": valid_until.isoformat() if status != "unknown" else None,
                 "freshness_window_days": DEFAULT_FRESHNESS_DAYS,
                 "freshness_status": "fresh" if status != "unknown" else "unknown",
             }
@@ -50,7 +49,6 @@ class ComplianceEvaluator:
                     "status": status,
                     "score": score,
                     "last_evaluated": now.isoformat(),
-                    "evidence_valid_until": valid_until.isoformat() if status != "unknown" else None,
                     "freshness_status": "fresh" if status != "unknown" else "unknown",
                     "evidence": evidence,
                     "updated_at": now.isoformat(),
