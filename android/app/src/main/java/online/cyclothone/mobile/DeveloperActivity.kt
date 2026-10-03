@@ -38,7 +38,7 @@ class DeveloperActivity : Activity() {
     override fun onCreate(state:Bundle?) {
         super.onCreate(state)
         if (intent?.data != null) { showEntry(); handleCallback(intent.data!!); return }
-        if (!prefs.getString(TOKEN,null).isNullOrBlank()) showPortal() else showEntry()
+        if (!prefs.getString(ENCRYPTED_TOKEN,null).isNullOrBlank() || !prefs.getString(TOKEN,null).isNullOrBlank()) showPortal() else showEntry()
     }
     override fun onNewIntent(i:Intent?) { super.onNewIntent(i); setIntent(i); i?.data?.let{handleCallback(it)} }
 
