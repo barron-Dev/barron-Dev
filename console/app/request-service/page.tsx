@@ -4,7 +4,7 @@ import type { FormEvent, ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { getCustomerOrganizations, getCustomerVerification, setApiToken, apiFetch, type CustomerOrganization } from "../../lib/api";
 
-const SERVICES=[["cybersecurity_assessment","Cybersecurity Assessment"],["incident_response","Incident Response"],["threat_intelligence","Threat Intelligence"],["web_intelligence","Web Intelligence"],["scam_monitoring","Scam Monitoring"],["dark_web_monitoring","Dark Web Monitoring"],["brand_protection","Brand Protection"],["soc_mdr","SOC / MDR"],["ai_security","AI Security"],["physical_security","Physical Security"],["compliance","Compliance"],["hunting","Threat Hunting"],["investigation","Investigation"],["recovery","Recovery"]];
+const SERVICES=[["cybersecurity_assessment","Cybersecurity Assessment"],["incident_response","Incident Response"],["threat_intelligence","Threat Intelligence"],["web_intelligence","Web Intelligence"],["scam_monitoring","Scam Monitoring"],["dark_web_monitoring","Dark Web Monitoring"],["brand_protection","Brand Protection"],["soc_mdr","SOC / MDR"],["ai_security","AI Security"],["physical_security","Physical Security"],["compliance","Compliance"],["hunting","Threat Hunting"],["investigation","Investigation"],["recovery","Recovery"],["mobile_digital_intelligence","Mobile & Digital Intelligence"]];
 
 export default function RequestService(){
  const router=useRouter();
@@ -21,7 +21,7 @@ export default function RequestService(){
  const body: ReactNode = loading ? (
   <div className="mt-8 border border-white/10 p-6 text-xs text-[#688487]">Loading organization…</div>
  ) : !orgs.length ? (
-  <div className="mt-8 rounded-[2rem] border border-dashed border-white/10 p-8 text-center text-xs text-[#688487]">No organization is available. <a className="text-[#5ccbc3]" href="/register">Create one</a>.</div>
+  <div className="mt-8 rounded-[2rem] border border-dashed border-white/10 p-8 text-center text-xs text-[#688487]">No organization is available. <a className="text-[#5ccbc3]" href="/customer/profile">Create one in Profile</a>.</div>
  ) : (
   <form onSubmit={submit} className="mt-8 space-y-5 rounded-[2rem] border border-white/10 bg-[#06181e]/65 p-6 shadow-[0_30px_100px_rgba(0,0,0,.3)] backdrop-blur-xl">
    <label className="block text-sm">Organization<select required value={org} onChange={e=>void selectOrg(e.target.value)} className="mt-2 w-full rounded-[1.25rem] border border-white/10 bg-[#041319]/80 p-3.5 outline-none focus:border-[#4fc4bd]/40">{orgs.map(o=><option key={o.id} value={o.id}>{o.legal_name} · {o.admission_status}</option>)}</select></label>
