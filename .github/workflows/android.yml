@@ -28,17 +28,29 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.10.2"
-      - name: Build debug APK
+      - name: Build customer APK
         working-directory: android
-        run: gradle :app:assembleDebug --no-daemon
-      - name: Verify APK
+        run: gradle :app:assembleCustomerDebug --no-daemon
+      - name: Build developer APK
         working-directory: android
-        run: test -s app/build/outputs/apk/debug/app-debug.apk
-      - name: Upload APK
+        run: gradle :app:assembleDeveloperDebug --no-daemon
+      - name: Verify customer APK
+        working-directory: android
+        run: test -s app/build/outputs/apk/customer/debug/app-customer-debug.apk
+      - name: Verify developer APK
+        working-directory: android
+        run: test -s app/build/outputs/apk/developer/debug/app-developer-debug.apk
+      - name: Upload customer APK
         uses: actions/upload-artifact@v4
         with:
-          name: cyclothone-android-debug
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          name: cyclothone-android-customer-debug
+          path: android/app/build/outputs/apk/customer/debug/app-customer-debug.apk
+          if-no-files-found: error
+      - name: Upload developer APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: cyclothone-android-developer-debug
+          path: android/app/build/outputs/apk/developer/debug/app-developer-debug.apk
           if-no-files-found: error
 
 # Android authentication changes must be validated by CI.
