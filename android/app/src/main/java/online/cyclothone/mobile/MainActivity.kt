@@ -31,7 +31,7 @@ class MainActivity : Activity() {
     companion object {
         private const val SUPABASE_URL = "https://whcomikcftbousoqzeal.supabase.co"
         private const val REDIRECT_URI = "cyclothone://auth/callback"
-        private const val WORKSPACE_URL = "https://customers.cyclothone.online/mobile-auth"
+        private const val WORKSPACE_URL = "https://customers.cyclothone.online/mobile-auth"\n        private const val API_BASE = "https://cyclothone-api-production.up.railway.app"
         private const val PREFS = "cyclothone_auth"
         private const val ACCESS_TOKEN = "access_token"
         private const val REFRESH_TOKEN = "refresh_token"
@@ -219,11 +219,143 @@ class MainActivity : Activity() {
         return if (!a.isNullOrBlank() && !r.isNullOrBlank()) a to r else null
     }
 
-    private fun openWorkspace(){
-        val session = readSession() ?: run { showEntry(); return }
-        val web=WebView(this).apply{settings.javaScriptEnabled=true;settings.domStorageEnabled=true;settings.allowFileAccess=false;settings.allowContentAccess=false;webViewClient=WebViewClient()}
-        val handoff="$WORKSPACE_URL#access_token=${enc(session.first)}&refresh_token=${enc(session.second)}&token_type=bearer&type=recovery";web.loadUrl(handoff);setContentView(web)
+    private val workspaceHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val workspaceRefresh = object : Runnable {
+        override fun run() {
+            refreshNativeWorkspace()
+            workspaceHandler.postDelayed(this, 15000L)
+        }
     }
+
+    private fun openWorkspace() {
+        val session = readSession() ?: run { showEntry(); return }
+        showNativeWorkspace(session.first)
+        workspaceHandler.removeCallbacks(workspaceRefresh)
+        workspaceHandler.post(workspaceRefresh)
+    }
+
+    private var workspaceSummary: TextView? = null
+    private var workspaceToken: String? = null
+
+    private fun showNativeWorkspace(token: String) {
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(32, 40, 32, 32)
+            setBackgroundColor(Color.rgb(4, 16, 27))
+        }
+        val title = TextView(this).apply {
+            text = "CYCLOTHONE"
+            textSize = 24f
+            setTextColor(Color.WHITE)
+        }
+        val subtitle = TextView(this).apply {
+            text = "Mobile workspace"
+            textSize = 13f
+            setTextColor(Color.LTGRAY)
+            setPadding(0, 6, 0, 18)
+        }
+        status = TextView(this).apply {
+            text = "Loading live workspace…"
+            textSize = 14f
+            setTextColor(Color.LTGRAY)
+            setPadding(0, 0, 0, 18)
+        }
+        workspaceSummary = TextView(this).apply {
+            text = "Loading live account state…"
+            textSize = 16f
+            setTextColor(Color.WHITE)
+            setPadding(0, 0, 0, 18)
+        }
+        val refresh = Button(this).apply {
+            text = "Refresh"
+            setOnClickListener { refreshNativeWorkspace() }
+        }
+        val fullWorkspace = Button(this).apply {
+            text = "Open full workspace"
+            setOnClickListener { openWebWorkspace() }
+        }
+        val signOut = Button(this).apply {
+            text = "Sign out"
+            setOnClickListener {
+                workspaceHandler.removeCallbacks(workspaceRefresh)
+                clearSession()
+                showEntry()
+            }
+        }
+        root.addView(title)
+        root.addView(subtitle)
+        root.addView(status)
+        root.addView(workspaceSummary)
+        root.addView(refresh)
+        root.addView(fullWorkspace)
+        root.addView(signOut)
+        setContentView(root)
+        workspaceToken = token
+        refreshNativeWorkspace()
+    }
+
+    private fun refreshNativeWorkspace() {
+        val token = workspaceToken ?: readSession()?.first ?: return
+        status.text = "Syncing live workspace…"
+        thread {
+            try {
+                val organizations = apiGet("$API_BASE/api/v1/customer/organizations", token).optJSONArray("organizations")
+                val requests = apiGet("$API_BASE/api/v1/customer/service-requests", token).optJSONArray("service_requests")
+                val cases = apiGet("$API_BASE/api/v1/customer/cases", token).optJSONArray("cases")
+                val orgCount = organizations?.length() ?: 0
+                val requestCount = requests?.length() ?: 0
+                val caseCount = cases?.length() ?: 0
+                val org = organizations?.optJSONObject(0)
+                val name = org?.optString("legal_name").orEmpty().ifBlank { "No organization" }
+                val admission = org?.optString("admission_status").orEmpty().ifBlank {
+                    org?.optString("verification_status").orEmpty().ifBlank { "Account authenticated" }
+                }
+                runOnUiThread {
+                    workspaceSummary?.text =
+                        "$name\nWorkspace: $admission\n\nOrganizations: $orgCount\nService requests: $requestCount\nCases: $caseCount"
+                    status.text = "Live data synced."
+                }
+            } catch (e: Exception) {
+                runOnUiThread {
+                    status.text = e.message ?: "Live workspace sync failed."
+                }
+            }
+        }
+    }
+
+    private fun apiGet(endpoint: String, token: String): JSONObject {
+        val c = (URL(endpoint).openConnection() as HttpURLConnection).apply {
+            requestMethod = "GET"
+            connectTimeout = 15000
+            readTimeout = 15000
+            setRequestProperty("Authorization", "Bearer $token")
+            setRequestProperty("Accept", "application/json")
+        }
+        val input = if (c.responseCode in 200..299) c.inputStream else c.errorStream
+        val body = input.bufferedReader().use { it.readText() }
+        if (c.responseCode !in 200..299) {
+            val detail = runCatching { JSONObject(body).optString("detail") }.getOrNull().orEmpty()
+            throw IllegalStateException(detail.ifBlank { "Live workspace request failed (${c.responseCode})." })
+        }
+        return JSONObject(body)
+    }
+
+    private fun openWebWorkspace() {
+        val session = readSession() ?: run { showEntry(); return }
+        val handoff = "$WORKSPACE_URL#access_token=${enc(session.first)}&refresh_token=${enc(session.second)}&token_type=bearer&type=recovery"
+        startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(handoff)))
+    }
+
+    private fun clearSession() {
+        prefs.edit()
+            .remove(ENCRYPTED_ACCESS_TOKEN)
+            .remove(ENCRYPTED_REFRESH_TOKEN)
+            .remove(ACCESS_TOKEN)
+            .remove(REFRESH_TOKEN)
+            .apply()
+        workspaceToken = null
+    }
+
     private fun hasSession()=readSession()!=null
     private fun clearPkce(){prefs.edit().remove(CODE_VERIFIER).remove(STATE).apply()}
 
