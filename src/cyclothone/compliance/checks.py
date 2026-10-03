@@ -57,7 +57,7 @@ async def check_backup_active(tenant_id: UUID, start: datetime, end: datetime):
 
 async def check_backup_tested(tenant_id: UUID, start: datetime, end: datetime):
     snapshots, snap_ok = await _safe_count("recovery_snapshots", tenant_id, "created_at", start, end)
-    restores, restore_ok = await _safe_count("recovery_restore_jobs", tenant_id, "created_at", start, end)
+    restores, restore_ok = await _safe_count("recovery_restore_jobs", tenant_id, "requested_at", start, end)
     if not (snap_ok or restore_ok):
         return "unknown", 0.0, {"availability": "recovery sources unavailable"}
     if snapshots and restores:
