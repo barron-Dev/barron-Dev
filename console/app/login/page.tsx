@@ -7,20 +7,6 @@ import { supabase } from "../../lib/supabase-public";
 const INVITATION_TOKEN_KEY = "cyclothone_invitation_token";
 const PENDING_PROFILE_KEY = "cyclothone_pending_profile";
 
-async function finishPendingOrganization(accessToken: string) {
-  const pending = sessionStorage.getItem("cyclothone_pending_organization");
-  if (!pending) return;
-  const o = JSON.parse(pending);
-  const { data, error } = await supabase.rpc("create_customer_organization", {
-    p_type: o.type, p_legal_name: o.name, p_country_code: o.country || null,
-    p_domain: o.domain || null, p_registration_number: o.registration || null
-  });
-  if (error) throw new Error(error.message);
-  if (data === null || data === undefined) throw new Error("Organization creation returned no result.");
-  sessionStorage.removeItem("cyclothone_pending_organization");
-  sessionStorage.setItem("cyclothone_access_token", accessToken);
-}
-
 export default function Login() {
   const router = useRouter();
   const [email, setEmail] = useState("");
@@ -45,7 +31,6 @@ export default function Login() {
       sessionStorage.setItem("cyclothone_access_token", data.session.access_token);
       if (data.session.refresh_token) sessionStorage.setItem("cyclothone_refresh_token", data.session.refresh_token);
       try {
-        await finishPendingOrganization(data.session.access_token);
         const invitationToken = sessionStorage.getItem(INVITATION_TOKEN_KEY);
         const authEntry = sessionStorage.getItem("cyclothone_auth_entry");
         const developerSurface = window.location.hostname === "developers.cyclothone.online" || authEntry === "developer";
@@ -106,7 +91,6 @@ export default function Login() {
       if (error || !data.session) throw new Error(error?.message || "Sign-in failed");
       sessionStorage.setItem("cyclothone_access_token", data.session.access_token);
       if (data.session.refresh_token) sessionStorage.setItem("cyclothone_refresh_token", data.session.refresh_token);
-      await finishPendingOrganization(data.session.access_token);
       const invitationToken = sessionStorage.getItem(INVITATION_TOKEN_KEY);
       const developerSurface = window.location.hostname === "developers.cyclothone.online" || sessionStorage.getItem("cyclothone_auth_entry") === "developer";
       sessionStorage.removeItem("cyclothone_auth_entry");
