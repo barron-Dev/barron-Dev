@@ -10,7 +10,7 @@ export function ApiAuthPrompt() {
   useEffect(() => {
     const onRequired = () => {
       const host = window.location.hostname;
-      if (host === "customers.cyclothone.online" || host === "developers.cyclothone.online") {
+      if (host === "customers.cyclothone.online" || host === "developers.cyclothone.online" || host === "cyclothone.online" || host === "www.cyclothone.online") {
         clearApiToken();
         sessionStorage.removeItem("cyclothone_refresh_token");
         sessionStorage.removeItem("cyclothone_auth_entry");
