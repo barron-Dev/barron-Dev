@@ -77,6 +77,14 @@ private struct DeveloperPortalView: View {
             } message: {
                 Text("The credential secret is returned once by the live API.")
             }
+            .sheet(isPresented: Binding(
+                get: { model.issuedSecret != nil },
+                set: { if !$0 { model.issuedSecret = nil } }
+            )) {
+                IssuedSecretView(secret: model.issuedSecret ?? "") {
+                    model.issuedSecret = nil
+                }
+            }
             .alert("Developer error", isPresented: Binding(
                 get: { model.error != nil },
                 set: { if !$0 { model.error = nil } }
@@ -191,6 +199,37 @@ private struct ApplicationRow: View {
     }
 }
 
+private struct IssuedSecretView: View {
+    let secret: String
+    let dismiss: () -> Void
+
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("API credential issued")
+                    .font(.headline)
+                Text("This secret is shown only from the issuance response. Copy or record it now; it will not be stored in the credential list.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text(secret)
+                    .font(.system(.body, design: .monospaced))
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding()
+                    .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+                Spacer()
+                Button("Done") {
+                    dismiss()
+                }
+                .buttonStyle(.borderedProminent)
+            }
+            .padding()
+            .navigationTitle("New API secret")
+            .navigationBarTitleDisplayMode(.inline)
+        }
+    }
+}
+
 private struct DeveloperKeyRow: View {
     let key: DeveloperKey
 
@@ -263,6 +302,7 @@ private final class DeveloperPortalModel: ObservableObject {
     @Published var showIssueKey = false
     @Published var newAppName = ""
     @Published var newScopes = ""
+    @Published var issuedSecret: String?
 
     func load(token: String?) async {
         guard let token, !token.isEmpty else { error = "Authentication session is missing."; return }
@@ -320,7 +360,15 @@ private final class DeveloperPortalModel: ObservableObject {
     func issueKey(token: String?) async {
         guard let token, let selectedApp else { return }
         do {
-            _ = try await DeveloperAPI.issueKey(appID: selectedApp.id, scopes: newScopes.split(separator: ",").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }, token: token)
+            let response = try await DeveloperAPI.issueKey(
+                appID: selectedApp.id,
+                scopes: newScopes.split(separator: ",").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty },
+                token: token
+            )
+            guard let secret = response.api_key ?? response.key, !secret.isEmpty else {
+                throw DeveloperAPIError.missingIssuedSecret
+            }
+            issuedSecret = secret
             newScopes = ""
             showIssueKey = false
             keys = try await DeveloperAPI.keys(appID: selectedApp.id, token: token)
@@ -331,6 +379,7 @@ private final class DeveloperPortalModel: ObservableObject {
     }
 
     func reset() {
+        issuedSecret = nil
         apps = []
         keys = []
         selectedApp = nil
@@ -422,12 +471,15 @@ private enum DeveloperAPI {
 
 private enum DeveloperAPIError: LocalizedError {
     case invalidResponse
+    case missingIssuedSecret
     case server(Int, message: String?)
 
     var errorDescription: String? {
         switch self {
         case .invalidResponse:
             return "Developer API returned an invalid response."
+        case .missingIssuedSecret:
+            return "The Developer API did not return the one-time API secret."
         case .server(let code, let message):
             return message ?? "Developer API returned HTTP \(code)."
         }
