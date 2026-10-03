@@ -1,6 +1,7 @@
 package online.cyclothone.mobile
 
 import android.app.Activity
+import android.app.AlertDialog
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
@@ -90,7 +91,7 @@ class DeveloperActivity : Activity() {
         }
     }catch(e:Exception){runOnUiThread{status.text=e.message?:"Unable to load applications."}}}}
     fun createApp(){val input=EditText(this).apply{hint="Application name"};AlertDialog.Builder(this).setTitle("Create application").setView(input).setPositiveButton("Create"){_,_->thread{try{postJson("/api/v1/developer/apps",JSONObject().put("name",input.text.toString().trim()).put("allowed_scopes",JSONArray()).toString());runOnUiThread{loadApps()}}catch(e:Exception){runOnUiThread{status.text=e.message?:"Create failed."}}}}.setNegativeButton("Cancel",null).show()}
-    fun keys(id:String){thread{try{val j=JSONObject(get("/api/v1/developer/apps/"+id+"/keys"));val a=j.optJSONArray("keys")?:j.optJSONArray("credentials")?:JSONArray();runOnUiThread{AlertDialog.Builder(this).setTitle("API credentials").setMessage(if(a.length()==0)"No credentials found." else (0 until a.length()).joinToString("\n"){a.getJSONObject(it).optString("key_prefix")}).setPositiveButton("Issue"){_,_->issue(id)}.setNegativeButton("Close",null).show()}}catch(e:Exception){runOnUiThread{status.text=e.message?:"Unable to load credentials."}}}}
+    fun keys(id:String){thread{try{val j=JSONObject(get("/api/v1/developer/apps/"+id+"/keys"));val a=j.optJSONArray("keys")?:j.optJSONArray("credentials")?:JSONArray();runOnUiThread{AlertDialog.Builder(this).setTitle("API credentials").setMessage(if(a.length()==0)"No credentials found." else (0 until a.length()).joinToString("\\n"){a.getJSONObject(it).optString("key_prefix")}).setPositiveButton("Issue"){_,_->issue(id)}.setNegativeButton("Close",null).show()}}catch(e:Exception){runOnUiThread{status.text=e.message?:"Unable to load credentials."}}}}
     fun issue(id:String){val input=EditText(this).apply{hint="Scopes, comma separated"};AlertDialog.Builder(this).setTitle("Issue API credential").setView(input).setPositiveButton("Issue"){_,_->thread{try{val s=JSONArray(input.text.toString().split(",").map{it.trim()}.filter{it.isNotEmpty()});val j=JSONObject(postJson("/api/v1/developer/apps/"+id+"/keys",JSONObject().put("scopes",s).toString()));val secret=j.optString("api_key").ifBlank{j.optString("key")};if(secret.isBlank())throw IllegalStateException("The Developer API did not return the one-time secret.");runOnUiThread{AlertDialog.Builder(this).setTitle("One-time API secret").setMessage(secret).setPositiveButton("Done",null).show()}}catch(e:Exception){runOnUiThread{status.text=e.message?:"Credential issuance failed."}}}}.setNegativeButton("Cancel",null).show()}
     fun intelligence(){val input=EditText(this).apply{hint="Approved intelligence query";minLines=3};AlertDialog.Builder(this).setTitle("Mobile Intelligence").setView(input).setPositiveButton("Run"){_,_->thread{try{val out=postJson("/api/v1/mobile-intelligence/query",JSONObject().put("query",input.text.toString()).toString());runOnUiThread{AlertDialog.Builder(this).setTitle("Live result").setMessage(out).setPositiveButton("Done",null).show()}}catch(e:Exception){runOnUiThread{status.text=e.message?:"Query failed."}}}}.setNegativeButton("Cancel",null).show()}
     fun get(path:String)=request("GET",API_BASE+path,null)
