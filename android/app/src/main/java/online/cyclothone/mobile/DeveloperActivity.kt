@@ -31,7 +31,7 @@ class DeveloperActivity : Activity() {
         fun b64(v:ByteArray)=android.util.Base64.encodeToString(v,android.util.Base64.URL_SAFE or android.util.Base64.NO_WRAP or android.util.Base64.NO_PADDING)
     }
     val prefs by lazy { getSharedPreferences(PREFS, MODE_PRIVATE) }
-    val sessionCrypto by lazy { MainActivity.SessionCrypto() }
+    private val sessionCrypto by lazy { MainActivity.SessionCrypto() }
     lateinit var status:TextView
     lateinit var list:LinearLayout
 
