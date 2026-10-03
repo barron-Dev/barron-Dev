@@ -96,7 +96,7 @@ export default function CustomerServices() {
       {error && <div className="mt-6 border border-[#ff2d55]/40 bg-[#ff2d55]/5 p-4 text-xs text-[#ff6b83]">{error}</div>}
 
       {loading ? <div className="mt-8 border border-white/10 bg-[#06181e]/70 p-8 text-center text-xs text-[#688487]">Loading your services…</div> :
-      !org ? <div className="mt-8 rounded-[2rem] border border-dashed border-white/10 bg-[#06181e]/70 p-8"><h2 className="text-lg font-medium">Organization required</h2><p className="mt-2 text-xs leading-5 text-[#91aaab]">Create and admit your organization before requesting protected services.</p><a href="/register" className="mt-5 inline-block border border-[#5ccbc3] px-4 py-2 text-[11px] text-[#5ccbc3]">Create organization →</a></div> :
+      !org ? <div className="mt-8 rounded-[2rem] border border-dashed border-white/10 bg-[#06181e]/70 p-8"><h2 className="text-lg font-medium">Organization required</h2><p className="mt-2 text-xs leading-5 text-[#91aaab]">Create and admit your organization before requesting protected services.</p><a href="/customer/profile" className="mt-5 inline-block border border-[#5ccbc3] px-4 py-2 text-[11px] text-[#5ccbc3]">Create organization in Profile →</a></div> :
       <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {SERVICES.map(service => {
           const count = requestCounts[service.key] ?? 0;
