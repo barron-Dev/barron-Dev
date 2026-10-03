@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import { apiFetch } from "@/lib/api";
+import { AuthActions } from "@/components/AuthActions";
 
 type App = {
   id: string;
@@ -110,6 +111,7 @@ export default function Developers() {
         <div className="mx-auto max-w-4xl">
           <span className="font-semibold">Cyclothone</span>
           <span className="ml-3 text-[10px] uppercase tracking-[.16em] text-[#00ff9d]">Developer</span>
+          <div className="ml-auto"><AuthActions /></div>
         </div>
       </header>
 
