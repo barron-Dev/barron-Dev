@@ -23,6 +23,7 @@ class DeveloperActivity : Activity() {
         const val REDIRECT = "cyclothone://developer/callback"
         const val PREFS = "cyclothone_developer"
         const val TOKEN = "access_token"
+        const val ENCRYPTED_TOKEN = "encrypted_access_token"
         const val STATE = "oauth_state"
         const val VERIFIER = "pkce_verifier"
         const val SUPABASE_KEY = "sb_publishable_3qKBAIdxxrDuE8gEGwJICg_5NEH3CVU"
@@ -30,6 +31,7 @@ class DeveloperActivity : Activity() {
         fun b64(v:ByteArray)=android.util.Base64.encodeToString(v,android.util.Base64.URL_SAFE or android.util.Base64.NO_WRAP or android.util.Base64.NO_PADDING)
     }
     val prefs by lazy { getSharedPreferences(PREFS, MODE_PRIVATE) }
+    val sessionCrypto by lazy { MainActivity.SessionCrypto() }
     lateinit var status:TextView
     lateinit var list:LinearLayout
 
@@ -67,7 +69,7 @@ class DeveloperActivity : Activity() {
             val body="auth_code="+enc(code)+"&code_verifier="+enc(v)
             val j=JSONObject(post(SUPABASE_URL+"/auth/v1/token?grant_type=pkce",body,"application/x-www-form-urlencoded",mapOf("apikey" to SUPABASE_KEY)))
             val t=j.optString("access_token");if(t.isBlank())throw IllegalStateException("Authentication returned no active session.")
-            prefs.edit().putString(TOKEN,t).apply();clearOAuth();runOnUiThread{showPortal()}
+            prefs.edit().putString(ENCRYPTED_TOKEN,sessionCrypto.encrypt(t)).remove(TOKEN).apply();clearOAuth();runOnUiThread{showPortal()}
         } catch(e:Exception){clearOAuth();runOnUiThread{showEntry();status.text=e.message?:"Authentication failed."}}}
     }
     fun clearOAuth(){prefs.edit().remove(STATE).remove(VERIFIER).apply()}
@@ -80,10 +82,12 @@ class DeveloperActivity : Activity() {
         r.addView(Button(this).apply{text="Refresh";setOnClickListener{loadApps()}})
         r.addView(Button(this).apply{text="Create application";setOnClickListener{createApp()}})
         r.addView(Button(this).apply{text="Mobile Intelligence";setOnClickListener{intelligence()}})
-        r.addView(Button(this).apply{text="Sign out";setOnClickListener{prefs.edit().remove(TOKEN).apply();showEntry()}})
+        r.addView(Button(this).apply{text="Sign out";setOnClickListener{prefs.edit().remove(TOKEN).remove(ENCRYPTED_TOKEN).apply();showEntry()}})
         setContentView(r);loadApps()
     }
-    fun token()=prefs.getString(TOKEN,null)?:throw IllegalStateException("Authentication session is missing.")
+    fun token():String = prefs.getString(ENCRYPTED_TOKEN,null)?.let { runCatching { sessionCrypto.decrypt(it) }.getOrNull() }
+        ?: prefs.getString(TOKEN,null)?.also { prefs.edit().putString(ENCRYPTED_TOKEN,sessionCrypto.encrypt(it)).remove(TOKEN).apply() }
+        ?: throw IllegalStateException("Authentication session is missing.")
     fun loadApps(){thread{try{
         val j=JSONObject(get("/api/v1/developer/apps"));val a=j.optJSONArray("applications")?:j.optJSONArray("apps")?:JSONArray()
         runOnUiThread{list.removeAllViews();status.text=a.length().toString()+" application(s)"
