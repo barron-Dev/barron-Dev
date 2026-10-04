@@ -13,9 +13,9 @@ const planes = [
 
 export default function Surface() {
   return (
-    <main className="min-h-screen bg-[#05070a] text-[#e8eef6]">
-      <nav className="flex min-h-14 items-center justify-between border-b border-[#1a2330] px-5 md:px-12">
-        <a href="/" className="font-semibold tracking-tight">Cyclothone</a>
+    <main className="cyclo-water min-h-screen overflow-hidden text-[#e8eef6]">
+      <nav className="flex min-h-14 items-center justify-between border-b border-white/10 px-5 md:px-12">
+        <a href="/" className="cyclo-mark font-semibold tracking-tight">◌ CYCLOTHONE</a>
         <div className="flex items-center gap-4 text-[10px] text-[#8a97a8]">
           <a href="/platform">Platform</a>
           <a href="#how">How it works</a>
@@ -47,7 +47,7 @@ export default function Surface() {
         <div className="text-[10px] uppercase tracking-[.18em] text-[#5a6675]">Five planes · fifteen layers</div>
         <div className="mt-5 grid gap-px bg-[#1a2330] md:grid-cols-5">
           {planes.map(([name, description], i) => (
-            <a key={name} href={"/platform#layer-" + String(i + 1).padStart(2, "0")} className="bg-[#0a0e14] p-5 hover:bg-[#0d121a]">
+            <a key={name} href={"/platform#layer-" + String(i + 1).padStart(2, "0")} className="cyclo-stage p-5">
               <div className="font-mono text-[10px] text-[#00d9ff]">0{i + 1}</div>
               <h2 className="mt-3 text-sm font-medium">{name}</h2>
               <p className="mt-2 text-[10px] leading-4 text-[#8a97a8]">{description}</p>
@@ -65,7 +65,7 @@ export default function Surface() {
             ["2", "Trust verifies", "Identity, policy, evidence and authority are checked."],
             ["3", "Execution acts", "Only authorized actions are dispatched and recorded."],
           ].map(([n,t,d]) => (
-            <div key={n} className="bg-[#0a0e14] p-6">
+            <div key={n} className="cyclo-stage p-6">
               <div className="font-mono text-[#00d9ff]">{n}</div>
               <h2 className="mt-3 text-lg font-medium">{t}</h2>
               <p className="mt-2 text-xs leading-5 text-[#8a97a8]">{d}</p>
@@ -87,7 +87,7 @@ export default function Surface() {
       <section className="px-5 py-14 md:px-16 md:py-16">
         <div className="text-[10px] uppercase tracking-[.18em] text-[#ffb347]">Enter when you are ready</div>
         <div className="mt-6 grid gap-4 md:grid-cols-2">
-          <a href={CUSTOMER + "/login"} className="border border-[#2a3646] bg-[#0a0e14] p-6 hover:border-[#ffb347]">
+          <a href={CUSTOMER + "/login"} className="cyclo-stage p-6 hover:border-[#ffb347]">
             <div className="text-[10px] uppercase tracking-[.15em] text-[#ffb347]">Customer</div>
             <h2 className="mt-2 text-xl font-medium">Operate protected security services.</h2>
             <p className="mt-2 text-xs leading-5 text-[#8a97a8]">Organization, verification, admission, service requests, cases and customer-visible results.</p>
