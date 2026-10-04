@@ -106,16 +106,16 @@ export default function Developers() {
   }
 
   return (
-    <main className="min-h-screen bg-[#05070a] text-[#e8eef6]">
-      <header className="border-b border-[#1a2330] bg-[#0a0e14] px-6 py-4">
+    <main className="cyclo-water min-h-screen overflow-hidden text-[#e8eef6]">
+      <header className="relative z-10 border-b border-white/10 bg-[#02090e]/70 px-6 py-4 backdrop-blur-2xl">
         <div className="mx-auto max-w-4xl">
-          <span className="font-semibold">Cyclothone</span>
-          <span className="ml-3 text-[10px] uppercase tracking-[.16em] text-[#00ff9d]">Developer</span>
+          <span className="cyclo-mark font-semibold tracking-tight">◌ CYCLOTHONE</span>
+          <span className="ml-3 text-[10px] uppercase tracking-[.16em] text-[#c2f35a]">Developer</span>
           <div className="ml-auto"><AuthActions /></div>
         </div>
       </header>
 
-      <div className="mx-auto max-w-4xl px-6 py-10">
+      <div className="relative z-10 mx-auto max-w-5xl px-5 py-10 md:px-8 md:py-14">
         <h1 className="text-2xl font-semibold">Developer access</h1>
         <p className="mt-2 max-w-xl text-sm leading-6 text-[#8a97a8]">
           Create an application, issue an API key, and use the Cyclothone API. Advanced runtime details stay out of this screen.
@@ -131,32 +131,32 @@ export default function Developers() {
           </div>
         )}
 
-        <section className="mt-8 border border-[#1a2330] bg-[#0a0e14] p-6">
+        <section className="cyclo-stage mt-8 p-6">
           <h2 className="font-medium">1. Create an application</h2>
           <form onSubmit={createApp} className="mt-4 grid gap-3 md:grid-cols-[1fr_1fr_auto]">
-            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Application name" className="border border-[#2a3646] bg-[#05070a] p-3 text-sm" />
+            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Application name" className="rounded-2xl border border-white/10 bg-[#031019]/80 p-3 text-sm outline-none focus:border-[#c2f35a]/40" />
             <input value={scopes} onChange={(e) => setScopes(e.target.value)} placeholder="Scopes, comma separated (optional)" className="border border-[#2a3646] bg-[#05070a] p-3 text-sm" />
-            <button disabled={working} className="border border-[#00ff9d] px-5 py-3 text-sm text-[#00ff9d] disabled:opacity-50">Create</button>
+            <button disabled={working} className="rounded-full border border-[#c2f35a]/50 bg-[#c2f35a]/10 px-5 py-3 text-sm text-[#ddff9a] disabled:opacity-50">Create</button>
           </form>
         </section>
 
-        <section className="mt-4 border border-[#1a2330] bg-[#0a0e14] p-6">
+        <section className="cyclo-stage mt-4 p-6">
           <h2 className="font-medium">2. API access</h2>
           {loading ? <p className="mt-4 text-sm text-[#8a97a8]">Loading…</p> : apps.length === 0 ? (
             <p className="mt-4 text-sm text-[#8a97a8]">No applications are registered for this developer account.</p>
           ) : (
             <>
-              <select value={selectedApp} onChange={(e) => void selectApp(e.target.value)} className="mt-4 w-full border border-[#2a3646] bg-[#05070a] p-3 text-sm">
+              <select value={selectedApp} onChange={(e) => void selectApp(e.target.value)} className="mt-4 w-full rounded-2xl border border-white/10 bg-[#031019]/80 p-3 text-sm outline-none focus:border-[#c2f35a]/40">
                 {apps.map((app) => <option key={app.id} value={app.id}>{app.name}{app.active ? "" : " — inactive"}</option>)}
               </select>
-              <button onClick={() => void createKey()} disabled={working || !selectedApp} className="mt-3 border border-[#00ff9d] px-5 py-3 text-sm text-[#00ff9d] disabled:opacity-50">Create API key</button>
+              <button onClick={() => void createKey()} disabled={working || !selectedApp} className="mt-3 rounded-full border border-[#c2f35a]/50 bg-[#c2f35a]/10 px-5 py-3 text-sm text-[#ddff9a] disabled:opacity-50">Create API key</button>
 
-              <div className="mt-6 border-t border-[#1a2330] pt-5">
+              <div className="mt-6 border-t border-white/10 pt-5">
                 <div className="text-[10px] uppercase tracking-[.16em] text-[#5a6675]">Existing keys</div>
                 {keys.length === 0 ? <p className="mt-3 text-sm text-[#8a97a8]">No API keys.</p> : (
                   <div className="mt-3 space-y-2">
                     {keys.map((key) => (
-                      <div key={key.id} className="flex items-center justify-between border border-[#1a2330] p-3 text-xs">
+                      <div key={key.id} className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/[.02] p-3 text-xs">
                         <span>{key.key_prefix} · {key.active ? "Active" : "Revoked"}</span>
                         <span className="text-[#8a97a8]">{key.scopes.length ? key.scopes.join(", ") : "No scopes"}</span>
                       </div>
@@ -168,13 +168,13 @@ export default function Developers() {
           )}
         </section>
 
-        <section className="mt-4 border border-[#1a2330] bg-[#0a0e14] p-6">
+        <section className="cyclo-stage mt-4 p-6">
           <h2 className="font-medium">3. Mobile & Digital Intelligence</h2>
           <p className="mt-2 text-sm leading-6 text-[#8a97a8]">Request the <code>mobile:intelligence</code> scope for an approved application. The API exposes authorized number, SIM/device, location, reachability and roaming intelligence. Every query requires an approved authority record; unavailable provider data is returned as an error, never fabricated.</p>
           <code className="mt-3 block text-xs text-[#c4cedb]">POST /api/v1/mobile-intelligence/query</code>
         </section>
 
-        <section className="mt-4 border border-[#1a2330] bg-[#0a0e14] p-6">
+        <section className="cyclo-stage mt-4 p-6">
           <h2 className="font-medium">4. Integrate</h2>
           <p className="mt-2 text-sm leading-6 text-[#8a97a8]">
             Use your API key with the Cyclothone API. Documentation and language examples can be added after the underlying API workflow is commissioned; this page does not invent a test request.
