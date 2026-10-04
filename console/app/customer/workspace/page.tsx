@@ -109,14 +109,14 @@ export default function CustomerWorkspace() {
   return <main className="cyclo-water min-h-screen overflow-hidden text-[#e8f5f3]"><div aria-hidden="true" className="pointer-events-none absolute inset-0"><div className="absolute left-[8%] top-[20%] h-2 w-2 rounded-full bg-[#c2f35a] opacity-60 shadow-[0_0_25px_rgba(194,243,90,.4)]"/><div className="absolute right-[15%] top-[42%] h-1.5 w-1.5 rounded-full bg-[#39d7ff] opacity-60 shadow-[0_0_22px_rgba(57,215,255,.4)]"/></div>
     <header className="relative z-10 flex h-16 items-center justify-between border-b border-white/10 bg-[#02090e]/70 px-5 backdrop-blur-2xl md:px-8">
       <div><a href="/customer/overview" className="cyclo-mark font-semibold tracking-[-.02em]">◌ CYCLOTHONE</a><span className="ml-3 text-[10px] uppercase tracking-[.18em] text-[#62888a]">Command center</span></div>
-      <div className="flex gap-2"><a href="/customer/cases" className="rounded-full border border-white/10 px-3 py-2 text-[10px]">Security cases</a><a href="/request-service" className="rounded-full border border-[#4fc4bd]/35 px-3 py-1.5 text-[11px] text-[#70d3ca]">Request service</a><button onClick={()=>void load()} className="rounded-full border border-white/10 px-3 py-1.5 text-[11px] text-[#8a97a8]">Refresh</button></div>
+      <div className="flex gap-2"><a href="/customer/cases" className="cyclo-pill px-3 py-2 text-[10px] text-[#9ab0b6]">Security cases</a><a href="/request-service" className="cyclo-pill px-3 py-1.5 text-[11px] text-[#c2f35a]">Request service</a><button onClick={()=>void load()} className="cyclo-pill px-3 py-1.5 text-[11px] text-[#9ab0b6]">Refresh</button></div>
     </header>
 
     {error && <div className="mx-auto max-w-7xl px-5 pt-5"><div className="border border-[#ff2d55]/40 bg-[#ff2d55]/5 p-3 text-xs text-[#ff6b83]">{error}</div></div>}
 
     <div className="relative z-10 mx-auto max-w-7xl p-5 md:p-8">
       {loading ? <div className="rounded-[2rem] border border-white/10 bg-[#06181e]/55 p-8 text-center text-xs text-[#5a6675]">Loading live workspace…</div> :
-      !orgs.length ? <div className="rounded-[2rem] border border-dashed border-white/10 bg-[#06181e]/60 p-10 text-center backdrop-blur-xl"><h1 className="text-xl font-semibold">No organization workspace yet</h1><p className="mx-auto mt-2 max-w-lg text-xs text-[#5a6675]">Create an account and organization first. Workspace provisioning occurs only after the real admission and verification process.</p><div className="mt-5"><a href="/customer/profile" className="rounded-full border border-[#4fc4bd]/35 px-4 py-2 text-xs text-[#70d3ca]">Create organization</a></div></div> :
+      !orgs.length ? <div className="cyclo-stage rounded-[2rem] p-10 text-center backdrop-blur-xl"><h1 className="text-xl font-semibold">No organization workspace yet</h1><p className="mx-auto mt-2 max-w-lg text-xs text-[#5a6675]">Create an account and organization first. Workspace provisioning occurs only after the real admission and verification process.</p><div className="mt-5"><a href="/customer/profile" className="cyclo-pill px-4 py-2 text-xs text-[#c2f35a]">Create organization</a></div></div> :
       <div className="grid gap-5 lg:grid-cols-[250px_1fr]">
         <aside className="cyclo-stage backdrop-blur-xl p-3">
           <div className="mb-3 px-2 text-[9px] uppercase tracking-[.16em] text-[#5a6675]">Organizations</div>
@@ -132,8 +132,8 @@ export default function CustomerWorkspace() {
               <div className="text-right"><div className={"inline-block rounded border px-2 py-1 font-mono text-[9px] "+tone(org?.admission_status||"")}>{org?.admission_status||"unknown"}</div><div className="mt-2 text-[10px] text-[#5a6675]">Secure workspace · {org?.tenant_id ? "active" : "pending"}</div></div>
             </div>
             <div className="mt-5 grid gap-3 sm:grid-cols-3">
-              <div className="rounded-[1.25rem] border border-white/10 bg-white/[.02] p-3"><div className="font-mono text-2xl">{counts.total}</div><div className="text-[10px] uppercase tracking-[.12em] text-[#5a6675]">Service requests</div></div>
-              <div className="border border-white/10 p-3"><div className="font-mono text-2xl">{counts.active}</div><div className="text-[10px] uppercase tracking-[.12em] text-[#5a6675]">Active</div></div>
+              <div className="cyclo-stage p-3"><div className="font-mono text-2xl">{counts.total}</div><div className="text-[10px] uppercase tracking-[.12em] text-[#5a6675]">Service requests</div></div>
+              <div className="cyclo-stage p-3"><div className="font-mono text-2xl">{counts.active}</div><div className="text-[10px] uppercase tracking-[.12em] text-[#5a6675]">Active</div></div>
               <div className="border border-white/10 p-3"><div className="font-mono text-2xl">{counts.resolved}</div><div className="text-[10px] uppercase tracking-[.12em] text-[#5a6675]">Resolved</div></div>
             </div>
           </div>
@@ -141,9 +141,9 @@ export default function CustomerWorkspace() {
           <div className="grid gap-5 xl:grid-cols-2">
             <div className="cyclo-stage p-4 backdrop-blur-xl">
               <h2 className="text-xs font-medium">Organization members</h2>
-              <div className="mt-3 space-y-2">{members.map(m=><div key={m.user_id} className="flex items-center justify-between border-b border-white/10 py-2"><div><div className="text-[10px] text-[#9ab2b3]">Organization member</div><div className="text-[10px] text-[#5a6675]">{m.created_at ? new Date(m.created_at).toLocaleString() : "—"}</div></div><span className="rounded rounded-full border border-white/10 px-1.5 py-0.5 font-mono text-[9px]">{m.role} · {m.status}</span></div>)}{!members.length&&<div className="text-[11px] text-[#5a6675]">No members returned.</div>}</div>
+              <div className="mt-3 space-y-2">{members.map(m=><div key={m.user_id} className="flex items-center justify-between border-b border-white/10 py-2"><div><div className="text-[10px] text-[#9ab2b3]">Organization member</div><div className="text-[10px] text-[#5a6675]">{m.created_at ? new Date(m.created_at).toLocaleString() : "—"}</div></div><span className="rounded-full border border-white/10 px-1.5 py-0.5 font-mono text-[9px]">{m.role} · {m.status}</span></div>)}{!members.length&&<div className="text-[11px] text-[#5a6675]">No members returned.</div>}</div>
             </div>
-            <div className="rounded-[1.75rem] border border-white/10 bg-[#06181e]/65 p-4 backdrop-blur-xl">
+            <div className="cyclo-stage p-4 backdrop-blur-xl">
               <h2 className="text-xs font-medium">Invite organization member</h2>
               <div className="mt-3 flex gap-2"><input value={inviteEmail} onChange={e=>setInviteEmail(e.target.value)} type="email" placeholder="member@organization.com" className="min-w-0 flex-1 rounded-full border border-white/10 bg-[#041319]/75 p-2 text-xs"/><select value={inviteRole} onChange={e=>setInviteRole(e.target.value)} className="rounded-full border border-white/10 bg-[#041319]/75 p-2 text-xs"><option>requester</option><option>viewer</option><option>analyst</option><option>developer</option><option>security_admin</option><option>admin</option></select><button disabled={memberBusy||!inviteEmail.trim()} onClick={()=>void inviteMember()} className="rounded-full border border-[#4fc4bd]/35 px-3 text-[10px] text-[#70d3ca] disabled:opacity-40">Invite</button></div>
               {inviteToken&&<div className="mt-3 border border-[#ffb020]/40 bg-[#ffb020]/5 p-3"><div className="text-[10px] text-[#ffd27a]">One-time invitation token. Deliver it through your trusted channel.</div><div className="mt-2 break-all rounded-xl bg-black/20 p-2 font-mono text-[10px]">{inviteToken}</div></div>}
@@ -170,7 +170,7 @@ export default function CustomerWorkspace() {
               </div>}
             </div>
 
-            <div className="border border-white/10 bg-[#06181e]/65 backdrop-blur-xl p-4">
+            <div className="cyclo-stage backdrop-blur-xl p-4">
               <h2 className="text-xs font-medium">Workspace state</h2>
               <div className="mt-3 space-y-2 text-xs">
                 <div className="flex justify-between border-b border-white/10 py-2"><span className="text-[#5a6675]">Admission</span><span>{org?.admission_status}</span></div>
