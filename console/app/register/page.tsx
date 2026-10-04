@@ -111,7 +111,7 @@ export default function Register() {
   const inputClass = "mt-2 w-full rounded-[1.15rem] border border-white/10 bg-[#06131a]/75 px-4 py-3.5 text-sm outline-none transition placeholder:text-[#65808c] focus:border-[#35c8c1]/60 focus:bg-[#071b23] focus:ring-4 focus:ring-[#35c8c1]/10";
 
   return (
-    <main className="relative min-h-screen overflow-hidden bg-[#021014] text-[#e8f5f3]">
+    <main className="cyclo-water min-h-screen overflow-hidden text-[#e8f5f3]">
       <div aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden">
         <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_50%_0%,rgba(15,94,100,.42),transparent_45%),linear-gradient(180deg,#031a20_0%,#021014_52%,#01090c_100%)]" />
         <svg className="absolute -left-[12%] top-[8%] h-[75%] w-[125%] opacity-70" viewBox="0 0 1400 700" preserveAspectRatio="none">
@@ -133,7 +133,7 @@ export default function Register() {
       </div>
 
       <header className="relative z-10 flex items-center justify-between px-6 py-6 md:px-10">
-        <a href="/" className="font-semibold tracking-[-.02em]">Cyclothone</a>
+        <a href="/" className="cyclo-mark font-semibold tracking-[-.02em]">◌ CYCLOTHONE</a>
         <a href="/login" className="rounded-full border border-white/10 bg-white/[.035] px-4 py-2 text-xs text-[#a6b9bb] backdrop-blur-xl hover:bg-white/[.06]">Sign in</a>
       </header>
 
