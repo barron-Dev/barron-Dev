@@ -158,3 +158,50 @@ td small { display: block; margin-top: 3px; color: #5a6675; font: 11px ui-monosp
 @media (max-width:720px) {
   .journey-principle { align-items:flex-start; flex-direction:column; }
 }
+
+
+/* Cyclothone deep-water customer system */
+.cyclo-water {
+  position: relative;
+  isolation: isolate;
+  background:
+    radial-gradient(900px 520px at 50% -10%, rgba(12,82,120,.28), transparent 65%),
+    radial-gradient(700px 500px at 90% 55%, rgba(0,53,83,.18), transparent 65%),
+    linear-gradient(180deg,#03070b 0%,#04131d 52%,#020609 100%);
+}
+.cyclo-water::before {
+  content:""; position:absolute; inset:0; z-index:-2; pointer-events:none;
+  background-image:linear-gradient(rgba(69,142,168,.055) 1px,transparent 1px),linear-gradient(90deg,rgba(69,142,168,.035) 1px,transparent 1px);
+  background-size:88px 88px; mask-image:linear-gradient(180deg,black,transparent 88%);
+}
+.cyclo-water::after {
+  content:""; position:absolute; inset:-20%; z-index:-1; pointer-events:none;
+  background:radial-gradient(circle at 25% 65%,rgba(31,125,157,.08),transparent 18%),radial-gradient(circle at 75% 30%,rgba(39,95,135,.07),transparent 20%);
+  animation:cyclo-current 18s ease-in-out infinite alternate;
+}
+.cyclo-mark { color:#c2f35a; letter-spacing:-.04em; }
+.cyclo-orb {
+  border:1px solid rgba(194,243,90,.35); border-radius:50%;
+  background:radial-gradient(circle at 35% 30%,rgba(194,243,90,.24),rgba(194,243,90,.03) 48%,transparent 70%);
+  box-shadow:0 0 32px rgba(194,243,90,.08),inset 0 0 25px rgba(194,243,90,.05);
+}
+.cyclo-node {
+  position:relative; overflow:hidden; border:1px solid rgba(88,135,155,.24);
+  border-radius:34% 66% 58% 42% / 44% 36% 64% 56%;
+  background:linear-gradient(145deg,rgba(8,28,40,.92),rgba(3,12,18,.82));
+  box-shadow:0 24px 80px rgba(0,0,0,.35),inset 0 1px 0 rgba(255,255,255,.035);
+  transition:transform .22s ease,border-color .22s ease,box-shadow .22s ease;
+}
+.cyclo-node::after {
+  content:""; position:absolute; width:180px;height:1px;right:-70px;top:24px;
+  background:linear-gradient(90deg,transparent,rgba(74,184,211,.32),transparent);
+  transform:rotate(-14deg);
+}
+.cyclo-node:hover { transform:translateY(-5px) rotate(-.3deg); border-color:rgba(194,243,90,.42); box-shadow:0 30px 90px rgba(0,0,0,.42),0 0 40px rgba(31,130,160,.08); }
+.cyclo-pill { border:1px solid rgba(115,166,184,.22); border-radius:999px; background:rgba(2,10,15,.62); }
+.cyclo-battery { border:1px solid rgba(91,151,172,.35); border-radius:999px; padding:3px; background:#02080c; }
+.cyclo-battery > span { display:block; height:8px; border-radius:999px; background:linear-gradient(90deg,#5ccbc3,#c2f35a); box-shadow:0 0 16px rgba(92,203,195,.25); transition:width .5s ease; }
+.cyclo-signal { animation:cyclo-signal 2.8s ease-in-out infinite; }
+@keyframes cyclo-current { from{transform:translate3d(-2%,0,0) scale(1)} to{transform:translate3d(2%,1%,0) scale(1.04)} }
+@keyframes cyclo-signal { 0%,100%{opacity:.35;transform:translateX(-4px)} 50%{opacity:1;transform:translateX(4px)} }
+@media(prefers-reduced-motion:reduce){.cyclo-water::after,.cyclo-signal{animation:none!important}.cyclo-node{transition:none}}
