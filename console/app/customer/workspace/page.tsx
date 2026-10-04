@@ -6,7 +6,7 @@ import { getCustomerOrganizations, getCustomerServiceRequests, getCustomerVerifi
 const labels: Record<string,string> = {
   cybersecurity_assessment:"Cybersecurity Assessment", incident_response:"Incident Response", threat_intelligence:"Threat Intelligence",
   brand_protection:"Brand Protection", dark_web_monitoring:"Dark Web Monitoring", soc_mdr:"SOC / MDR", ai_security:"AI Security",
-  physical_security:"Physical Security", compliance:"Compliance", other:"Other"
+  physical_security:"Physical Security", compliance:"Compliance", hunting:"Threat Hunting", investigation:"Investigation", recovery:"Recovery", web_intelligence:"Web Intelligence", scam_monitoring:"Scam Monitoring", mobile_digital_intelligence:"Mobile & Digital Intelligence", other:"Other"
 };
 
 function tone(s:string) {
@@ -106,9 +106,9 @@ export default function CustomerWorkspace() {
     resolved:orgRequests.filter(x=>["resolved","closed"].includes(x.status)).length,
   }),[orgRequests]);
 
-  return <main className="relative min-h-screen overflow-hidden bg-[#021014] text-[#e8f5f3]"><div aria-hidden="true" className="pointer-events-none absolute inset-0"><div className="absolute inset-0 bg-[radial-gradient(ellipse_at_50%_0%,rgba(15,94,100,.38),transparent_45%),linear-gradient(180deg,#031a20_0%,#021014_55%,#01090c_100%)]"/><div className="absolute -left-[10%] top-[22%] h-[55%] w-[120%] rounded-[50%] border border-[#4fc4bd]/10 opacity-60 rotate-[-4deg]"/><div className="absolute -left-[8%] top-[32%] h-[48%] w-[116%] rounded-[50%] border border-[#4fc4bd]/[.06] rotate-[3deg]"/></div>
-    <header className="relative z-10 flex h-16 items-center justify-between border-b border-white/10 bg-[#04161b]/70 px-5 backdrop-blur-2xl md:px-8">
-      <div><a href="/" className="font-semibold tracking-[-.02em]">Cyclothone</a><span className="ml-3 text-[10px] uppercase tracking-[.18em] text-[#62888a]">Customer workspace</span></div>
+  return <main className="cyclo-water min-h-screen overflow-hidden text-[#e8f5f3]"><div aria-hidden="true" className="pointer-events-none absolute inset-0"><div className="absolute left-[8%] top-[20%] h-2 w-2 rounded-full bg-[#c2f35a] opacity-60 shadow-[0_0_25px_rgba(194,243,90,.4)]"/><div className="absolute right-[15%] top-[42%] h-1.5 w-1.5 rounded-full bg-[#39d7ff] opacity-60 shadow-[0_0_22px_rgba(57,215,255,.4)]"/></div>
+    <header className="relative z-10 flex h-16 items-center justify-between border-b border-white/10 bg-[#02090e]/70 px-5 backdrop-blur-2xl md:px-8">
+      <div><a href="/customer/overview" className="cyclo-mark font-semibold tracking-[-.02em]">◌ CYCLOTHONE</a><span className="ml-3 text-[10px] uppercase tracking-[.18em] text-[#62888a]">Command center</span></div>
       <div className="flex gap-2"><a href="/customer/cases" className="rounded-full border border-white/10 px-3 py-2 text-[10px]">Security cases</a><a href="/request-service" className="rounded-full border border-[#4fc4bd]/35 px-3 py-1.5 text-[11px] text-[#70d3ca]">Request service</a><button onClick={()=>void load()} className="rounded-full border border-white/10 px-3 py-1.5 text-[11px] text-[#8a97a8]">Refresh</button></div>
     </header>
 
@@ -118,7 +118,7 @@ export default function CustomerWorkspace() {
       {loading ? <div className="rounded-[2rem] border border-white/10 bg-[#06181e]/55 p-8 text-center text-xs text-[#5a6675]">Loading live workspace…</div> :
       !orgs.length ? <div className="rounded-[2rem] border border-dashed border-white/10 bg-[#06181e]/60 p-10 text-center backdrop-blur-xl"><h1 className="text-xl font-semibold">No organization workspace yet</h1><p className="mx-auto mt-2 max-w-lg text-xs text-[#5a6675]">Create an account and organization first. Workspace provisioning occurs only after the real admission and verification process.</p><div className="mt-5"><a href="/customer/profile" className="rounded-full border border-[#4fc4bd]/35 px-4 py-2 text-xs text-[#70d3ca]">Create organization</a></div></div> :
       <div className="grid gap-5 lg:grid-cols-[250px_1fr]">
-        <aside className="border border-white/10 bg-[#06181e]/65 backdrop-blur-xl p-3">
+        <aside className="cyclo-stage backdrop-blur-xl p-3">
           <div className="mb-3 px-2 text-[9px] uppercase tracking-[.16em] text-[#5a6675]">Organizations</div>
           {orgs.map(o=><button key={o.id} onClick={()=>void selectOrganization(o.id)} className={"mb-2 w-full rounded-[1.25rem] border p-3 text-left "+(o.id===selected?"border-[#00d9ff]/60 bg-[#0b242a]/75":"border-white/10")}>
             <div className="truncate text-xs font-medium">{o.legal_name}</div><div className="mt-1 text-[10px] text-[#5a6675]">{o.organization_type} · {o.country_code||"—"}</div><div className={"mt-2 inline-block rounded border px-1.5 py-0.5 font-mono text-[9px] "+tone(o.admission_status)}>{o.admission_status}</div>
@@ -126,7 +126,7 @@ export default function CustomerWorkspace() {
         </aside>
 
         <section className="space-y-5">
-          <div className="rounded-[2rem] border border-white/10 bg-[#06181e]/65 p-5 shadow-[0_30px_100px_rgba(0,0,0,.28)] backdrop-blur-xl">
+          <div className="cyclo-stage p-5 shadow-[0_30px_100px_rgba(0,0,0,.28)] backdrop-blur-xl">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div><div className="text-[9px] uppercase tracking-[.16em] text-[#5a6675]">Workspace</div><h1 className="mt-1 text-2xl font-semibold">{org?.legal_name}</h1><div className="mt-1 text-xs text-[#8a97a8]">{org?.organization_type} · {org?.website_domain||"domain not provided"} · {org?.country_code||"country not provided"}</div></div>
               <div className="text-right"><div className={"inline-block rounded border px-2 py-1 font-mono text-[9px] "+tone(org?.admission_status||"")}>{org?.admission_status||"unknown"}</div><div className="mt-2 text-[10px] text-[#5a6675]">Secure workspace · {org?.tenant_id ? "active" : "pending"}</div></div>
@@ -139,7 +139,7 @@ export default function CustomerWorkspace() {
           </div>
 
           <div className="grid gap-5 xl:grid-cols-2">
-            <div className="rounded-[1.75rem] border border-white/10 bg-[#06181e]/65 p-4 backdrop-blur-xl">
+            <div className="cyclo-stage p-4 backdrop-blur-xl">
               <h2 className="text-xs font-medium">Organization members</h2>
               <div className="mt-3 space-y-2">{members.map(m=><div key={m.user_id} className="flex items-center justify-between border-b border-white/10 py-2"><div><div className="text-[10px] text-[#9ab2b3]">Organization member</div><div className="text-[10px] text-[#5a6675]">{m.created_at ? new Date(m.created_at).toLocaleString() : "—"}</div></div><span className="rounded rounded-full border border-white/10 px-1.5 py-0.5 font-mono text-[9px]">{m.role} · {m.status}</span></div>)}{!members.length&&<div className="text-[11px] text-[#5a6675]">No members returned.</div>}</div>
             </div>
@@ -152,7 +152,7 @@ export default function CustomerWorkspace() {
           </div>
 
           <div className="grid gap-5 xl:grid-cols-2">
-            <div className="border border-white/10 bg-[#06181e]/65 backdrop-blur-xl p-4">
+            <div className="cyclo-stage backdrop-blur-xl p-4">
               <h2 className="text-xs font-medium">Assurance & verification</h2>
               <div className="mt-3 flex items-center justify-between border-b border-white/10 py-2"><span className="text-xs">Organization</span><span className={"rounded border px-1.5 py-0.5 font-mono text-[9px] "+tone(org?.verification_status||"")}>{org?.verification_status}</span></div>
               {verification.map(v=><div key={v.id} className="flex items-center justify-between border-b border-white/10 py-2"><span className="text-xs">{v.verification_type}</span><span className={"rounded border px-1.5 py-0.5 font-mono text-[9px] "+tone(v.status)}>{v.status}</span></div>)}
