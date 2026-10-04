@@ -106,17 +106,17 @@ export default function Developers() {
   }
 
   return (
-    <main className="cyclo-water min-h-screen overflow-hidden text-[#e8eef6]">
-      <header className="relative z-10 border-b border-white/10 bg-[#02090e]/70 px-6 py-4 backdrop-blur-2xl">
+    <main className="min-h-screen bg-[#05070a] text-[#e8eef6]">
+      <header className="border-b border-[#1a2330] bg-[#0a0e14] px-6 py-4">
         <div className="mx-auto max-w-4xl">
-          <span className="cyclo-mark font-semibold">◌ CYCLOTHONE</span>
+          <span className="font-semibold">Cyclothone</span>
           <span className="ml-3 text-[10px] uppercase tracking-[.16em] text-[#00ff9d]">Developer</span>
           <div className="ml-auto"><AuthActions /></div>
         </div>
       </header>
 
-      <div className="relative z-10 mx-auto max-w-5xl px-6 py-10">
-        <div className="text-[9px] uppercase tracking-[.18em] text-[#5f7780]">Developer command center</div><h1 className="mt-2 text-3xl font-semibold">Build on Cyclothone</h1>
+      <div className="mx-auto max-w-4xl px-6 py-10">
+        <h1 className="text-2xl font-semibold">Developer access</h1>
         <p className="mt-2 max-w-xl text-sm leading-6 text-[#8a97a8]">
           Create an application, issue an API key, and use the Cyclothone API. Advanced runtime details stay out of this screen.
         </p>
@@ -131,7 +131,7 @@ export default function Developers() {
           </div>
         )}
 
-        <section className="cyclo-stage mt-8 p-6">
+        <section className="mt-8 border border-[#1a2330] bg-[#0a0e14] p-6">
           <h2 className="font-medium">1. Create an application</h2>
           <form onSubmit={createApp} className="mt-4 grid gap-3 md:grid-cols-[1fr_1fr_auto]">
             <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Application name" className="border border-[#2a3646] bg-[#05070a] p-3 text-sm" />
@@ -140,7 +140,7 @@ export default function Developers() {
           </form>
         </section>
 
-        <section className="cyclo-stage mt-4 p-6">
+        <section className="mt-4 border border-[#1a2330] bg-[#0a0e14] p-6">
           <h2 className="font-medium">2. API access</h2>
           {loading ? <p className="mt-4 text-sm text-[#8a97a8]">Loading…</p> : apps.length === 0 ? (
             <p className="mt-4 text-sm text-[#8a97a8]">No applications are registered for this developer account.</p>
@@ -168,7 +168,7 @@ export default function Developers() {
           )}
         </section>
 
-        <section className="cyclo-stage mt-4 p-6">
+        <section className="mt-4 border border-[#1a2330] bg-[#0a0e14] p-6">
           <h2 className="font-medium">3. Mobile & Digital Intelligence</h2>
           <p className="mt-2 text-sm leading-6 text-[#8a97a8]">Request the <code>mobile:intelligence</code> scope for an approved application. The API exposes authorized number, SIM/device, location, reachability and roaming intelligence. Every query requires an approved authority record; unavailable provider data is returned as an error, never fabricated.</p>
           <code className="mt-3 block text-xs text-[#c4cedb]">POST /api/v1/mobile-intelligence/query</code>
