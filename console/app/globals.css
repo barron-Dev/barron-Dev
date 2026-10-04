@@ -205,3 +205,17 @@ td small { display: block; margin-top: 3px; color: #5a6675; font: 11px ui-monosp
 @keyframes cyclo-current { from{transform:translate3d(-2%,0,0) scale(1)} to{transform:translate3d(2%,1%,0) scale(1.04)} }
 @keyframes cyclo-signal { 0%,100%{opacity:.35;transform:translateX(-4px)} 50%{opacity:1;transform:translateX(4px)} }
 @media(prefers-reduced-motion:reduce){.cyclo-water::after,.cyclo-signal{animation:none!important}.cyclo-node{transition:none}}
+
+
+/* Cyclothone service focus */
+.cyclo-stage {
+  border:1px solid rgba(89,145,164,.22); border-radius:32px;
+  background:linear-gradient(145deg,rgba(7,28,40,.88),rgba(2,10,15,.82));
+  box-shadow:0 25px 90px rgba(0,0,0,.3),inset 0 1px 0 rgba(255,255,255,.035);
+}
+.cyclo-stage-dot { width:10px;height:10px;border-radius:50%;background:#c2f35a;box-shadow:0 0 18px rgba(194,243,90,.35); }
+.cyclo-result {
+  border-radius:36% 64% 60% 40% / 42% 35% 65% 58%;
+  border:1px solid rgba(194,243,90,.25);
+  background:radial-gradient(circle at 30% 20%,rgba(194,243,90,.12),transparent 45%),rgba(4,17,24,.78);
+}
