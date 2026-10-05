@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { setApiToken } from "../../../lib/api";
 import { supabase } from "../../../lib/supabase-public";
 
 const INVITATION_TOKEN_KEY = "cyclothone_invitation_token";
@@ -36,7 +37,7 @@ export default function AuthCallback() {
 
         if (!session) throw new Error("Authentication completed, but no session was created.");
 
-        sessionStorage.setItem("cyclothone_access_token", session.access_token);
+        setApiToken(session.access_token);
         if (session.refresh_token) sessionStorage.setItem("cyclothone_refresh_token", session.refresh_token);
 
         const invitationToken = sessionStorage.getItem(INVITATION_TOKEN_KEY);
