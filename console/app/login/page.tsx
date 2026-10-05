@@ -52,10 +52,12 @@ export default function Login() {
   }, [router]);
 
   function authCallbackUrl() {
-    const host = window.location.hostname;
-    const developer = host === "developers.cyclothone.online" || sessionStorage.getItem("cyclothone_auth_entry") === "developer";
-    const targetHost = developer ? "developers.cyclothone.online" : "customers.cyclothone.online";
-    return "https://" + targetHost + "/auth/callback?surface=" + (developer ? "developer" : "customer");
+    const developer =
+      window.location.hostname === "developers.cyclothone.online" ||
+      sessionStorage.getItem("cyclothone_auth_entry") === "developer";
+    // Keep the callback on the same origin that started PKCE so Supabase can
+    // recover the locally stored code verifier before exchanging the code.
+    return window.location.origin + "/auth/callback?surface=" + (developer ? "developer" : "customer");
   }
 
   async function oauth(provider: "google" | "github") {
