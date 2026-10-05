@@ -2,15 +2,40 @@
 
 import { useEffect, useState } from "react";
 import { clearApiToken, setApiToken } from "../lib/api";
+import { supabase } from "../lib/supabase-public";
 
 export function ApiAuthPrompt() {
   const [open, setOpen] = useState(false);
   const [token, setToken] = useState("");
 
   useEffect(() => {
-    const onRequired = () => {
+    const onRequired = async () => {
       const host = window.location.hostname;
-      if (host === "customers.cyclothone.online" || host === "developers.cyclothone.online" || host === "cyclothone.online" || host === "www.cyclothone.online") {
+      const customerSurface =
+        host === "customers.cyclothone.online" ||
+        host === "developers.cyclothone.online" ||
+        host === "cyclothone.online" ||
+        host === "www.cyclothone.online";
+
+      if (customerSurface) {
+        // A single API 401 is not proof that the user's Supabase session is gone.
+        // Re-check the real session before ever clearing credentials or redirecting.
+        try {
+          const refreshed = await supabase.auth.refreshSession();
+          const session = refreshed.data.session;
+          if (session?.access_token) {
+            setApiToken(session.access_token);
+            return;
+          }
+          const current = await supabase.auth.getSession();
+          if (current.data.session?.access_token) {
+            setApiToken(current.data.session.access_token);
+            return;
+          }
+        } catch {
+          // Fall through to the genuine unauthenticated state below.
+        }
+
         clearApiToken();
         sessionStorage.removeItem("cyclothone_refresh_token");
         sessionStorage.removeItem("cyclothone_auth_entry");
