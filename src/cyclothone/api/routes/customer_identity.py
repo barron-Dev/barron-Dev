@@ -358,8 +358,9 @@ async def create_organization(body:OrgRequest,p:DeveloperPrincipal=Depends(princ
         raise HTTPException(403,detail="user_identity_required")
     try:
         organization_id=await supabase.rpc(
-            "create_customer_organization",
+            "create_customer_organization_for_user",
             {
+                "p_owner_user_id":p.user_id,
                 "p_type":body.organization_type,
                 "p_legal_name":body.legal_name.strip(),
                 "p_country_code":body.country_code,
@@ -371,6 +372,8 @@ async def create_organization(body:OrgRequest,p:DeveloperPrincipal=Depends(princ
         detail=str(exc)
         if "authentication required" in detail:
             raise HTTPException(401,detail="authentication_required")
+        if "user_identity_required" in detail:
+            raise HTTPException(403,detail="user_identity_required")
         if "invalid organization type" in detail:
             raise HTTPException(400,detail="invalid organization type")
         raise
