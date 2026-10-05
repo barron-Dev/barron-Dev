@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { setApiToken } from "../../lib/api";
 import { supabase } from "../../lib/supabase-public";
 
 const INVITATION_TOKEN_KEY = "cyclothone_invitation_token";
@@ -28,7 +29,7 @@ export default function Login() {
       if (!active) return;
       if (error) { setError(error.message); return; }
       if (!data.session) { setError("Verification completed, but no session was returned. Please use the verification link again."); return; }
-      sessionStorage.setItem("cyclothone_access_token", data.session.access_token);
+      setApiToken(data.session.access_token);
       if (data.session.refresh_token) sessionStorage.setItem("cyclothone_refresh_token", data.session.refresh_token);
       try {
         const invitationToken = sessionStorage.getItem(INVITATION_TOKEN_KEY);
@@ -96,7 +97,7 @@ export default function Login() {
     try {
       const { data, error } = await supabase.auth.signInWithPassword({ email, password });
       if (error || !data.session) throw new Error(error?.message || "Sign-in failed");
-      sessionStorage.setItem("cyclothone_access_token", data.session.access_token);
+      setApiToken(data.session.access_token);
       if (data.session.refresh_token) sessionStorage.setItem("cyclothone_refresh_token", data.session.refresh_token);
       const invitationToken = sessionStorage.getItem(INVITATION_TOKEN_KEY);
       const developerSurface = window.location.hostname === "developers.cyclothone.online" || sessionStorage.getItem("cyclothone_auth_entry") === "developer";
