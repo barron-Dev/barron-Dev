@@ -41,8 +41,30 @@ function resolveApiBase() {
 
 const API_BASE = resolveApiBase();
 let accessToken: string | null = null;
+let sessionSyncPromise: Promise<string | null> | null = null;
 
 if (typeof window !== "undefined") accessToken = sessionStorage.getItem("cyclothone_access_token");
+
+async function syncSupabaseSession(): Promise<string | null> {
+  if (typeof window === "undefined") return accessToken;
+  if (sessionSyncPromise) return sessionSyncPromise;
+  sessionSyncPromise = (async () => {
+    try {
+      // Supabase owns the customer session. getSession() also refreshes when
+      // the access token needs renewal, so we do not race refreshSession()
+      // across concurrent customer requests.
+      const { data } = await supabase.auth.getSession();
+      const token = data.session?.access_token?.trim() || null;
+      if (token) setApiToken(token);
+      return token;
+    } catch {
+      return null;
+    } finally {
+      sessionSyncPromise = null;
+    }
+  })();
+  return sessionSyncPromise;
+}
 
 export function setApiToken(token: string) {
   accessToken = token.trim() || null;
@@ -64,34 +86,19 @@ async function fetchWithCurrentSession(path: string, init: RequestInit): Promise
   return fetch(`${API_BASE}${path}`, { ...init, headers, cache: "no-store" });
 }
 
-async function refreshApiSession(): Promise<boolean> {
-  if (typeof window === "undefined") return false;
-  try {
-    const refreshed = await supabase.auth.refreshSession();
-    const refreshedToken = refreshed.data.session?.access_token?.trim();
-    if (refreshedToken) {
-      setApiToken(refreshedToken);
-      return true;
-    }
-
-    const current = await supabase.auth.getSession();
-    const currentToken = current.data.session?.access_token?.trim();
-    if (!currentToken) return false;
-    setApiToken(currentToken);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
+  await syncSupabaseSession();
   let response = await fetchWithCurrentSession(path, init);
 
   // A Supabase access token can expire between navigation and the first API call.
   // Rehydrate/refresh the real Supabase session once before treating 401 as logout.
   if (response.status === 401 && typeof window !== "undefined") {
-    const refreshed = await refreshApiSession();
-    if (refreshed) response = await fetchWithCurrentSession(path, init);
+    // Re-read the authoritative Supabase session once. Do not force a refresh
+    // for every 401: several parallel requests can otherwise race refresh-token
+    // rotation and turn one endpoint-level 401 into a false global logout.
+    const before = accessToken;
+    const current = await syncSupabaseSession();
+    if (current && current !== before) response = await fetchWithCurrentSession(path, init);
   }
 
   const contentType = response.headers.get("content-type") ?? "";
