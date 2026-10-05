@@ -21,6 +21,8 @@ export type ConsoleOverview = {
 
 const DEFAULT_API_BASE = "/api/cyclothone";
 
+import { supabase } from "./supabase-public";
+
 function resolveApiBase() {
   const configured = (process.env.NEXT_PUBLIC_CYCLOTHONE_API_URL ?? "").trim().replace(/\/$/, "");
   if (!configured) return DEFAULT_API_BASE;
@@ -55,16 +57,37 @@ export function clearApiToken() {
   if (typeof window !== "undefined") sessionStorage.removeItem("cyclothone_access_token");
 }
 
-export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
+async function fetchWithCurrentSession(path: string, init: RequestInit): Promise<Response> {
   const headers = new Headers(init.headers);
   headers.set("Accept", "application/json");
   if (accessToken) headers.set("Authorization", `Bearer ${accessToken}`);
+  return fetch(`${API_BASE}${path}`, { ...init, headers, cache: "no-store" });
+}
 
-  const response = await fetch(`${API_BASE}${path}`, {
-    ...init,
-    headers,
-    cache: "no-store",
-  });
+async function refreshApiSession(): Promise<boolean> {
+  if (typeof window === "undefined") return false;
+  try {
+    const { data, error } = await supabase.auth.getSession();
+    if (error || !data.session?.access_token) return false;
+    const nextToken = data.session.access_token.trim();
+    if (!nextToken) return false;
+    const changed = nextToken !== accessToken;
+    setApiToken(nextToken);
+    return changed;
+  } catch {
+    return false;
+  }
+}
+
+export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
+  let response = await fetchWithCurrentSession(path, init);
+
+  // A Supabase access token can expire between navigation and the first API call.
+  // Rehydrate/refresh the real Supabase session once before treating 401 as logout.
+  if (response.status === 401 && typeof window !== "undefined") {
+    const refreshed = await refreshApiSession();
+    if (refreshed) response = await fetchWithCurrentSession(path, init);
+  }
 
   const contentType = response.headers.get("content-type") ?? "";
   const raw = await response.text();
