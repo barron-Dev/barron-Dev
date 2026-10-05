@@ -50,13 +50,20 @@ export default function Login() {
     return () => { active = false; };
   }, [router]);
 
+  function authCallbackUrl() {
+    const host = window.location.hostname;
+    const developer = host === "developers.cyclothone.online" || sessionStorage.getItem("cyclothone_auth_entry") === "developer";
+    const targetHost = developer ? "developers.cyclothone.online" : "customers.cyclothone.online";
+    return "https://" + targetHost + "/login?confirmed=1";
+  }
+
   async function oauth(provider: "google" | "github") {
     setBusy(true); setError(null);
     try {
       const { error } = await supabase.auth.signInWithOAuth({
         provider,
         options: {
-          redirectTo: `${window.location.origin}/login?confirmed=1`,
+          redirectTo: authCallbackUrl(),
           queryParams: provider === "google" ? { access_type: "offline", prompt: "select_account" } : undefined,
         },
       });
@@ -75,7 +82,7 @@ export default function Login() {
       sessionStorage.removeItem(PENDING_PROFILE_KEY);
       const { error } = await supabase.auth.signInWithOtp({
         email: cleanEmail,
-        options: { emailRedirectTo: `${window.location.origin}/login?confirmed=1`, shouldCreateUser: false },
+        options: { emailRedirectTo: authCallbackUrl(), shouldCreateUser: false },
       });
       if (error) throw new Error(error.message);
       setDone("Sign-in link sent. Open it to enter Cyclothone.");
