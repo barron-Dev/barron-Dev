@@ -67,13 +67,18 @@ async function fetchWithCurrentSession(path: string, init: RequestInit): Promise
 async function refreshApiSession(): Promise<boolean> {
   if (typeof window === "undefined") return false;
   try {
-    const { data, error } = await supabase.auth.getSession();
-    if (error || !data.session?.access_token) return false;
-    const nextToken = data.session.access_token.trim();
-    if (!nextToken) return false;
-    const changed = nextToken !== accessToken;
-    setApiToken(nextToken);
-    return changed;
+    const refreshed = await supabase.auth.refreshSession();
+    const refreshedToken = refreshed.data.session?.access_token?.trim();
+    if (refreshedToken) {
+      setApiToken(refreshedToken);
+      return true;
+    }
+
+    const current = await supabase.auth.getSession();
+    const currentToken = current.data.session?.access_token?.trim();
+    if (!currentToken) return false;
+    setApiToken(currentToken);
+    return true;
   } catch {
     return false;
   }
