@@ -54,7 +54,7 @@ export default function Login() {
     const host = window.location.hostname;
     const developer = host === "developers.cyclothone.online" || sessionStorage.getItem("cyclothone_auth_entry") === "developer";
     const targetHost = developer ? "developers.cyclothone.online" : "customers.cyclothone.online";
-    return "https://" + targetHost + "/login?confirmed=1";
+    return "https://" + targetHost + "/auth/callback";
   }
 
   async function oauth(provider: "google" | "github") {
