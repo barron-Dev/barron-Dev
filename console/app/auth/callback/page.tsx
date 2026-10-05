@@ -15,21 +15,34 @@ export default function AuthCallback() {
     let active = true;
     (async () => {
       try {
-        const code = new URLSearchParams(window.location.search).get("code");
-        if (!code) throw new Error("Authentication callback did not include a sign-in code.");
+        const params = new URLSearchParams(window.location.search);
+        const code = params.get("code");
+        const tokenHash = params.get("token_hash");
+        let session = null;
 
-        const { data, error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
-        if (exchangeError) throw exchangeError;
-        if (!data.session) throw new Error("Authentication completed, but no session was created.");
+        if (code) {
+          const { data, error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
+          if (exchangeError) throw exchangeError;
+          session = data.session;
+        } else if (tokenHash) {
+          const { data, error: verifyError } = await supabase.auth.verifyOtp({ token_hash: tokenHash, type: "email" });
+          if (verifyError) throw verifyError;
+          session = data.session;
+        } else {
+          const { data, error: sessionError } = await supabase.auth.getSession();
+          if (sessionError) throw sessionError;
+          session = data.session;
+        }
+
+        if (!session) throw new Error("Authentication completed, but no session was created.");
 
         sessionStorage.setItem("cyclothone_access_token", data.session.access_token);
         if (data.session.refresh_token) sessionStorage.setItem("cyclothone_refresh_token", data.session.refresh_token);
 
         const invitationToken = sessionStorage.getItem(INVITATION_TOKEN_KEY);
-        const authEntry = sessionStorage.getItem("cyclothone_auth_entry");
         const developerSurface =
           window.location.hostname === "developers.cyclothone.online" ||
-          authEntry === "developer";
+          params.get("surface") === "developer";
 
         sessionStorage.removeItem("cyclothone_auth_entry");
         sessionStorage.removeItem(PENDING_PROFILE_KEY);
