@@ -19,7 +19,7 @@ export type ConsoleOverview = {
   }>;
 };
 
-const DEFAULT_API_BASE = "https://cyclothone-api-production.up.railway.app";
+const DEFAULT_API_BASE = "/api/cyclothone";
 
 function resolveApiBase() {
   const configured = (process.env.NEXT_PUBLIC_CYCLOTHONE_API_URL ?? "").trim().replace(/\/$/, "");
