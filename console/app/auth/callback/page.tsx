@@ -36,8 +36,8 @@ export default function AuthCallback() {
 
         if (!session) throw new Error("Authentication completed, but no session was created.");
 
-        sessionStorage.setItem("cyclothone_access_token", data.session.access_token);
-        if (data.session.refresh_token) sessionStorage.setItem("cyclothone_refresh_token", data.session.refresh_token);
+        sessionStorage.setItem("cyclothone_access_token", session.access_token);
+        if (session.refresh_token) sessionStorage.setItem("cyclothone_refresh_token", session.refresh_token);
 
         const invitationToken = sessionStorage.getItem(INVITATION_TOKEN_KEY);
         const developerSurface =
