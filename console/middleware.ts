@@ -23,7 +23,7 @@ export function middleware(req: NextRequest) {
   // Public platform map is a real root route on the public surface.
   if (p === "/platform") return NextResponse.next();
 
-  if (p === "/login" || p === "/register" || p === "/request-service" || p.startsWith("/invitations/")) {
+  if (p === "/login" || p === "/register" || p === "/auth/callback" || p === "/request-service" || p.startsWith("/invitations/")) {
     return NextResponse.next();
   }
 
