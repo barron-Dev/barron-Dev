@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 
 async function forward(req: NextRequest, { params }: { params: Promise<{ path: string[] }> }) {
   const { path } = await params;
-  const target = BACKEND + "/api/" + path.map(encodeURIComponent).join("/");
+  const target = BACKEND + "/" + path.map(encodeURIComponent).join("/");
   const headers = new Headers();
   const authorization = req.headers.get("authorization");
   const contentType = req.headers.get("content-type");
