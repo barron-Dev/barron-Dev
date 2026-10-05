@@ -361,6 +361,7 @@ async def create_organization(body:OrgRequest,p:DeveloperPrincipal=Depends(princ
             "create_customer_organization_for_user",
             {
                 "p_owner_user_id":p.user_id,
+                "p_owner_user_id":p.user_id,
                 "p_type":body.organization_type,
                 "p_legal_name":body.legal_name.strip(),
                 "p_country_code":body.country_code,
