@@ -58,7 +58,7 @@ class SupabaseServiceClient:
 
     async def insert_one(self, table: str, values: dict[str, Any]) -> dict[str, Any]:
         async def operation() -> dict[str, Any]:
-            response = await (await self._ensure()).table(table).insert(values).select("*").single().execute()
+            response = await (await self._ensure()).table(table).insert(values).select("*").limit(1).execute()
             return response.data
         return await self._retry(operation)
 
