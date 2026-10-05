@@ -18,22 +18,18 @@ export function ApiAuthPrompt() {
         host === "www.cyclothone.online";
 
       if (customerSurface) {
-        // A single API 401 is not proof that the user's Supabase session is gone.
-        // Re-check the real session before ever clearing credentials or redirecting.
+        // A 401 can also mean that the requested backend route does not
+        // authorize this customer surface. Never rotate a refresh token or
+        // redirect merely because one endpoint returned 401.
         try {
-          const refreshed = await supabase.auth.refreshSession();
-          const session = refreshed.data.session;
-          if (session?.access_token) {
-            setApiToken(session.access_token);
-            return;
-          }
           const current = await supabase.auth.getSession();
           if (current.data.session?.access_token) {
             setApiToken(current.data.session.access_token);
             return;
           }
         } catch {
-          // Fall through to the genuine unauthenticated state below.
+          // Treat an auth-storage failure as unknown; do not manufacture logout.
+          return;
         }
 
         clearApiToken();
