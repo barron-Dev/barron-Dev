@@ -385,6 +385,25 @@ async def create_organization(body:OrgRequest,p:DeveloperPrincipal=Depends(princ
     )
     if not row:
         raise HTTPException(500,detail="organization_creation_not_confirmed")
+    try:
+        await supabase.rpc("giril_start_customer_admission", {"p_organization_id": str(organization_id)})
+    except Exception as exc:
+        detail=str(exc)
+        mapping={
+            "verified_email_required":(422,"verified_email_required"),
+            "giril_company_flow_required":(422,"giril_company_flow_required"),
+            "authentication required":(401,"authentication_required"),
+            "organization_not_found":(404,"organization_not_found"),
+        }
+        for key,(code,msg) in mapping.items():
+            if key in detail: raise HTTPException(code,detail=msg)
+        raise HTTPException(503,detail="giril_admission_engine_unavailable")
+    row=await supabase.select_one(
+        "customer_organizations",
+        "id,tenant_id,organization_type,legal_name,country_code,website_domain,registration_number,verification_status,admission_status,created_at,updated_at",
+        id=str(organization_id),
+        owner_user_id=p.user_id,
+    )
     return row
 
 
