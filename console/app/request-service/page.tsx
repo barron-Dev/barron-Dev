@@ -86,6 +86,20 @@ export default function RequestService(){ const [orgs,setOrgs]=useState<Customer
       <div className="mt-2 text-lg">The workflow has been recorded.</div>
       {stage&&<div className="mt-2 text-xs text-[#8ca6ad]">Live stage: <span className="text-[#c2f35a]">{stage}</span></div>}
       <Progress value={progress}/>
+      {result?.result&&<div className="mt-6 rounded-[1.5rem] border border-white/10 bg-[#06181e]/70 p-5">
+        <div className="text-[9px] uppercase tracking-[.18em] text-[#4f8494]">Real assessment result</div>
+        <div className="mt-2 text-base">{result.result.target}</div>
+        <div className="mt-4 grid grid-cols-2 gap-3 text-xs md:grid-cols-4">
+          <div><span className="text-[#67848d]">HTTP</span><div className="mt-1 text-sm">{result.result.status_code}</div></div>
+          <div><span className="text-[#67848d]">Findings</span><div className="mt-1 text-sm">{result.result.finding_count}</div></div>
+          <div><span className="text-[#67848d]">Emails</span><div className="mt-1 text-sm">{result.result.observed_emails}</div></div>
+          <div><span className="text-[#67848d]">Credential indicators</span><div className="mt-1 text-sm">{result.result.credential_indicators}</div></div>
+        </div>
+        <div className="mt-5 space-y-2">
+          {result.result.findings?.map((finding:any,i:number)=><div key={i} className="rounded-xl border border-white/8 px-3 py-3 text-xs"><span className="uppercase text-[#c2f35a]">{finding.severity}</span><span className="ml-3">{finding.title}</span></div>)}
+        </div>
+        <div className="mt-4 text-[10px] text-[#67848d]">Evidence hash: {result.result.findings ? "captured with the assessment record" : "captured"}</div>
+      </div>}
     </div>}
    </form>}
   </div>
