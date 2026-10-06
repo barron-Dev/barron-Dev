@@ -36,16 +36,58 @@ export default function RequestService(){ const [orgs,setOrgs]=useState<Customer
    <div className="text-[9px] uppercase tracking-[.22em] text-[#4f8494]">Controlled request</div><h1 className="mt-3 text-3xl font-semibold md:text-4xl">Start a security workflow.</h1><p className="mt-3 text-sm leading-7 text-[#8ca6ad]">Tell Cyclothone the outcome you need. The platform will route the request through the authorized service workflow. Progress is shown only when the live service returns a real stage or percentage.</p>
    {error&&<div className="mt-6 rounded-2xl border border-[#ff3d67]/30 bg-[#250910]/50 p-4 text-xs text-[#ff8ba0]">{error}</div>}
    {loading?<div className="mt-8 text-center text-xs text-[#69858d]">Reading organization state…</div>:!orgs.length?<div className="mt-8 rounded-[2rem] border border-dashed border-white/10 bg-[#031019]/70 p-9 text-center text-xs text-[#69858d]">No organization is available.<br/><a className="mt-3 inline-block text-[#c2f35a]" href="/customer/profile">Create one in Profile →</a></div>:
-   <form onSubmit={submit} className="cyclo-node mt-8 p-6 shadow-[0_30px_100px_rgba(0,0,0,.35)] md:p-8">
-    <label className="relative z-10 block text-xs font-medium">Organization<select required value={org} onChange={e=>void selectOrg(e.target.value)} className="mt-2 w-full rounded-2xl border border-white/10 bg-[#031019]/80 p-3.5 text-sm outline-none focus:border-[#c2f35a]/40">{orgs.map(o=><option key={o.id} value={o.id}>{o.legal_name} · {o.admission_status}</option>)}</select></label>
-    <div className="cyclo-stage relative z-10 mt-4 p-4 text-xs text-[#8ca6ad]">Admission <strong className="text-[#e8f1f3]">{current?.admission_status}</strong> · Verification <strong className="text-[#e8f1f3]">{current?.verification_status}</strong>{current?.admission_status!=="approved"&&<div className="mt-3 text-[#ffd27a]">The workspace must be admitted before a protected request can be created. <a href="/customer/workspace" className="text-[#c2f35a]">View workspace →</a></div>}</div>
-    <div className="cyclo-stage relative z-10 mt-4 p-4 text-xs text-[#8ca6ad]">Verification records: {verification.length?verification.map(v=>v.verification_type+":"+v.status).join(" · "):"none"}</div>
-    <label className="relative z-10 mt-5 block text-xs font-medium">Service<select value={service} onChange={e=>setService(e.target.value)} className="mt-2 w-full rounded-2xl border border-white/10 bg-[#031019]/80 p-3.5 text-sm outline-none focus:border-[#c2f35a]/40">{SERVICES.map(x=><option key={x[0]} value={x[0]}>{x[1]}</option>)}</select></label>
-    <div className="cyclo-stage relative z-10 mt-5 p-5"><div className="text-[9px] uppercase tracking-[.2em] text-[#4f8494]">Service brief · {serviceName}</div><p className="mt-2 text-sm text-[#dbe8ea]">{guidance.prompt}</p><p className="mt-2 text-[11px] leading-5 text-[#78939a]">{guidance.help}</p></div>\n    <label className="relative z-10 mt-5 block text-xs font-medium">{guidance.label}<input required minLength={2} maxLength={2000} value={target} onChange={e=>setTarget(e.target.value)} className="mt-2 w-full rounded-2xl border border-white/10 bg-[#031019]/80 p-3.5 text-sm outline-none focus:border-[#c2f35a]/40" placeholder={guidance.placeholder} /></label>\n    <label className="relative z-10 mt-5 block text-xs font-medium">Urgency<select value={urgency} onChange={e=>setUrgency(e.target.value)} className="mt-2 w-full rounded-2xl border border-white/10 bg-[#031019]/80 p-3.5 text-sm outline-none focus:border-[#c2f35a]/40">{["low","normal","high","critical"].map(x=><option key={x}>{x}</option>)}</select></label>
-    <label className="relative z-10 mt-5 block text-xs font-medium">What do you need?<textarea required minLength={10} maxLength={10000} value={description} onChange={e=>setDescription(e.target.value)} rows={7} className="mt-2 w-full rounded-2xl border border-white/10 bg-[#031019]/80 p-4 text-sm leading-6 outline-none focus:border-[#c2f35a]/40" placeholder="Add the context, scope, timeframe, systems, evidence or expected outcome. This stays attached to the target above." /></label>
-    {result&&<div className="relative z-10 mt-5 rounded-2xl border border-[#c2f35a]/25 bg-[#b8ee4a]/5 p-5"><div className="text-[9px] uppercase tracking-[.18em] text-[#c2f35a]">Request accepted</div><div className="mt-2 text-lg">The workflow has been recorded.</div>{stage&&<div className="mt-2 text-xs text-[#8ca6ad]">Live stage: <span className="text-[#c2f35a]">{stage}</span></div>}<Progress value={progress}/><div className="mt-3 text-[10px] text-[#69858d]">No progress percentage is invented. The gauge appears only when the live service supplies one.</div></div>}
-    <button disabled={!org||current?.admission_status!=="approved"} className="relative z-10 mt-6 w-full rounded-full border border-[#c2f35a]/50 bg-[#5f8e1f]/30 p-4 text-sm text-[#ddff9a] shadow-[0_14px_45px_rgba(194,243,90,.08)] transition hover:bg-[#6e9e25]/35 disabled:cursor-not-allowed disabled:opacity-35">Begin controlled workflow →</button>
-   </form>}
+   <form onSubmit={submit} className="mt-8">
+    <div className="border-b border-white/10 pb-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <div className="text-[9px] uppercase tracking-[.18em] text-[#4f8494]">Workspace</div>
+          <div className="mt-1 text-sm">{current?.legal_name}</div>
+        </div>
+        <div className="text-[10px] text-[#8ca6ad]">Admission <span className="text-[#e8f1f3]">{current?.admission_status}</span> · Verification <span className="text-[#e8f1f3]">{current?.verification_status}</span></div>
+      </div>
+      {current?.admission_status !== "approved" && <p className="mt-3 text-[11px] leading-5 text-[#ffd27a]">This workspace must be admitted before a protected request can start. <a href="/customer/workspace" className="text-[#c2f35a]">Open workspace →</a></p>}
+    </div>
+
+    <section className="border-b border-white/10 py-7">
+      <label className="block text-xs font-medium">1. Service
+        <select value={service} onChange={e=>setService(e.target.value)} className="mt-3 w-full border-b border-white/15 bg-transparent py-3 text-base outline-none focus:border-[#c2f35a]/50">
+          {SERVICES.map(x=><option key={x[0]} value={x[0]}>{x[1]}</option>)}
+        </select>
+      </label>
+      <p className="mt-2 text-[11px] leading-5 text-[#78939a]">{guidance.prompt} {guidance.help}</p>
+    </section>
+
+    <section className="border-b border-white/10 py-7">
+      <label className="block text-xs font-medium">2. Target
+        <input required minLength={2} maxLength={2000} value={target} onChange={e=>setTarget(e.target.value)} className="mt-3 w-full border-b border-white/15 bg-transparent py-3 text-base outline-none focus:border-[#c2f35a]/50" placeholder={guidance.placeholder}/>
+      </label>
+      <p className="mt-2 text-[11px] leading-5 text-[#78939a]">Use the exact approved target you want Cyclothone to work on. Multiple targets can be separated by commas where supported.</p>
+    </section>
+
+    <section className="border-b border-white/10 py-7">
+      <label className="block text-xs font-medium">3. What do you need?
+        <textarea required minLength={10} maxLength={10000} value={description} onChange={e=>setDescription(e.target.value)} rows={5} className="mt-3 w-full resize-y border-b border-white/15 bg-transparent py-3 text-sm leading-6 outline-none focus:border-[#c2f35a]/50" placeholder="Tell us the objective, scope, timeframe, known concern, evidence needed, or expected outcome."/>
+      </label>
+    </section>
+
+    <section className="flex flex-wrap items-center justify-between gap-5 py-6">
+      <label className="text-xs">Priority
+        <select value={urgency} onChange={e=>setUrgency(e.target.value)} className="ml-3 border-b border-white/15 bg-transparent px-2 py-2 text-xs outline-none focus:border-[#c2f35a]/50">
+          {["low","normal","high","critical"].map(x=><option key={x}>{x}</option>)}
+        </select>
+      </label>
+      <button disabled={!org||current?.admission_status!=="approved"} className="rounded-full border border-[#c2f35a]/50 bg-[#5f8e1f]/30 px-7 py-3.5 text-sm text-[#ddff9a] shadow-[0_14px_45px_rgba(194,243,90,.08)] transition hover:bg-[#6e9e25]/35 disabled:cursor-not-allowed disabled:opacity-35">
+        Begin controlled workflow →
+      </button>
+    </section>
+
+    {result&&<div className="border-t border-[#c2f35a]/20 py-6">
+      <div className="text-[9px] uppercase tracking-[.18em] text-[#c2f35a]">Request accepted</div>
+      <div className="mt-2 text-lg">The workflow has been recorded.</div>
+      {stage&&<div className="mt-2 text-xs text-[#8ca6ad]">Live stage: <span className="text-[#c2f35a]">{stage}</span></div>}
+      <Progress value={progress}/>
+    </div>}
+   </form>
   </div>
  </main>
 }
