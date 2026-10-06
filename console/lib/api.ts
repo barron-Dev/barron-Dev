@@ -45,16 +45,19 @@ let sessionSyncPromise: Promise<string | null> | null = null;
 
 if (typeof window !== "undefined") accessToken = sessionStorage.getItem("cyclothone_access_token");
 
-async function syncSupabaseSession(): Promise<string | null> {
+async function syncSupabaseSession(forceRefresh = false): Promise<string | null> {
   if (typeof window === "undefined") return accessToken;
   if (sessionSyncPromise) return sessionSyncPromise;
   sessionSyncPromise = (async () => {
     try {
-      // Supabase owns the customer session. getSession() also refreshes when
-      // the access token needs renewal, so we do not race refreshSession()
-      // across concurrent customer requests.
-      const { data } = await supabase.auth.getSession();
-      const token = data.session?.access_token?.trim() || null;
+      // Supabase is authoritative for the customer session. Normally reuse
+      // the current session; after a backend 401, explicitly refresh once so
+      // a rotated/expired access token cannot strand the customer behind a
+      // false "Authentication required" state.
+      const result = forceRefresh
+        ? await supabase.auth.refreshSession()
+        : await supabase.auth.getSession();
+      const token = result.data.session?.access_token?.trim() || null;
       if (token) setApiToken(token);
       return token;
     } catch {
@@ -93,12 +96,10 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
   // A Supabase access token can expire between navigation and the first API call.
   // Rehydrate/refresh the real Supabase session once before treating 401 as logout.
   if (response.status === 401 && typeof window !== "undefined") {
-    // Re-read the authoritative Supabase session once. Do not force a refresh
-    // for every 401: several parallel requests can otherwise race refresh-token
-    // rotation and turn one endpoint-level 401 into a false global logout.
-    const before = accessToken;
-    const current = await syncSupabaseSession();
-    if (current && current !== before) response = await fetchWithCurrentSession(path, init);
+    // The first request may have raced token expiry/rotation. Serialize one
+    // real Supabase refresh and retry with the newly issued access token.
+    const current = await syncSupabaseSession(true);
+    if (current) response = await fetchWithCurrentSession(path, init);
   }
 
   const contentType = response.headers.get("content-type") ?? "";
@@ -380,9 +381,17 @@ export function getCustomerCaseActions(id:string){ return apiFetch<{actions:any[
 
 
 export async function apiDownload(path: string): Promise<Blob> {
+  await syncSupabaseSession();
   const headers = new Headers();
   if (accessToken) headers.set("Authorization", `Bearer ${accessToken}`);
-  const response = await fetch(`${API_BASE}${path}`, { headers, cache: "no-store" });
+  let response = await fetch(`${API_BASE}${path}`, { headers, cache: "no-store" });
+  if (response.status === 401 && typeof window !== "undefined") {
+    const current = await syncSupabaseSession(true);
+    if (current) {
+      headers.set("Authorization", `Bearer ${current}`);
+      response = await fetch(`${API_BASE}${path}`, { headers, cache: "no-store" });
+    }
+  }
   if (!response.ok) {
     if (response.status === 401 && typeof window !== "undefined") {
       window.dispatchEvent(new Event("cyclothone-auth-required"));
