@@ -347,7 +347,18 @@ async def create_invitation(organization_id: str, body: InvitationRequest, p: De
 
 @router.get("/customer/organizations")
 async def organizations(p:DeveloperPrincipal=Depends(principal)):
-    rows=await supabase.select("customer_organizations","id,tenant_id,organization_type,legal_name,country_code,website_domain,registration_number,verification_status,created_at,updated_at",owner_user_id=p.user_id)
+    rows=await supabase.select("customer_organizations","id,tenant_id,organization_type,legal_name,country_code,website_domain,registration_number,verification_status,admission_status,created_at,updated_at",owner_user_id=p.user_id)
+    for row in rows:
+        if row.get("admission_status") != "approved":
+            try:
+                await supabase.rpc("giril_start_customer_admission_for_user", {
+                    "p_owner_user_id": p.user_id,
+                    "p_organization_id": str(row["id"]),
+                })
+            except Exception:
+                pass
+    if rows:
+        rows=await supabase.select("customer_organizations","id,tenant_id,organization_type,legal_name,country_code,website_domain,registration_number,verification_status,admission_status,created_at,updated_at",owner_user_id=p.user_id)
     return {"organizations":rows}
 
 @router.post("/customer/organizations")
@@ -386,7 +397,7 @@ async def create_organization(body:OrgRequest,p:DeveloperPrincipal=Depends(princ
     if not row:
         raise HTTPException(500,detail="organization_creation_not_confirmed")
     try:
-        await supabase.rpc("giril_start_customer_admission", {"p_organization_id": str(organization_id)})
+        await supabase.rpc("giril_start_customer_admission_for_user", {"p_owner_user_id": p.user_id, "p_organization_id": str(organization_id)})
     except Exception as exc:
         detail=str(exc)
         mapping={
