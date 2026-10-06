@@ -35,7 +35,7 @@ class RobotsCache:
     _cache: dict[str, RobotFileParser] = {}
 
     @classmethod
-    async def allowed(cls, url: str, user_agent: str = "SentinelBot/1.0") -> bool:
+    async def allowed(cls, url: str, user_agent: str = "CyclothoneBot/1.0") -> bool:
         parts = urlsplit(url)
         root = f"{parts.scheme}://{parts.netloc}"
         parser = cls._cache.get(root)
@@ -62,7 +62,7 @@ class WebCrawler:
     an explicitly configured Tor proxy.
     """
 
-    USER_AGENT = "SentinelBot/1.0"
+    USER_AGENT = "CyclothoneBot/1.0"
 
     def __init__(self, tor_proxy: str | None = None, max_bytes: int = 2 * 1024 * 1024) -> None:
         self.tor_proxy = tor_proxy
