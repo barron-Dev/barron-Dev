@@ -547,10 +547,101 @@ async def service_requests(p:DeveloperPrincipal=Depends(principal)):
 @router.post("/customer/service-requests")
 async def create_service_request(body:ServiceRequest,p:DeveloperPrincipal=Depends(principal)):
     org=await supabase.select_one("customer_organizations","id,tenant_id,admission_status",id=body.organization_id,owner_user_id=p.user_id)
-    if not org or org.get("admission_status") != "approved": raise HTTPException(403,detail="workspace_not_admitted")
-    if not org: raise HTTPException(404,detail="organization_not_found")
-    if body.service_key not in {"cybersecurity_assessment","incident_response","threat_intelligence","brand_protection","dark_web_monitoring","soc_mdr","ai_security","physical_security","compliance","mobile_digital_intelligence","other"}: raise HTTPException(400,detail="invalid service")
-    if body.urgency not in {"low","normal","high","critical"}: raise HTTPException(400,detail="invalid urgency")
-    if not p.user_id: raise HTTPException(403,detail="user_identity_required")
-    row=await supabase.insert_one("service_requests",{"organization_id":body.organization_id,"requester_user_id":p.user_id,"service_key":body.service_key,"urgency":body.urgency,"description":body.description.strip(),"status":"submitted"})
+    if not org:
+        raise HTTPException(404,detail="organization_not_found")
+    if org.get("admission_status") != "approved":
+        raise HTTPException(403,detail="workspace_not_admitted")
+    if body.service_key not in {"cybersecurity_assessment","incident_response","threat_intelligence","brand_protection","dark_web_monitoring","soc_mdr","ai_security","physical_security","compliance","mobile_digital_intelligence","other"}:
+        raise HTTPException(400,detail="invalid service")
+    if body.urgency not in {"low","normal","high","critical"}:
+        raise HTTPException(400,detail="invalid urgency")
+    if not p.user_id:
+        raise HTTPException(403,detail="user_identity_required")
+
+    description=body.description.strip()
+    row=await supabase.insert_one("service_requests",{
+        "organization_id":body.organization_id,
+        "requester_user_id":p.user_id,
+        "service_key":body.service_key,
+        "urgency":body.urgency,
+        "description":description,
+        "status":"submitted",
+    })
+
+    # Customer requests must enter a real service path. The first production
+    # service is a bounded, passive external assessment: it uses the existing
+    # SSRF-safe WebCrawler, never authenticates to the target, never exploits it,
+    # and records the resulting observations as customer-visible evidence.
+    if body.service_key == "cybersecurity_assessment":
+        import re
+        from urllib.parse import urlsplit
+        from cyclothone.web.crawler import WebCrawler
+
+        target_match=re.search(r"^Target:\s*(.+)$", description, re.MULTILINE | re.IGNORECASE)
+        target=(target_match.group(1).strip() if target_match else "")
+        if not target:
+            await supabase.update("service_requests",{"status":"failed"},id=str(row["id"]))
+            raise HTTPException(422,detail="cybersecurity_target_required")
+        target_url=target if "://" in target else f"https://{target}"
+        parsed=urlsplit(target_url)
+        if parsed.scheme not in {"http","https"} or not parsed.hostname:
+            await supabase.update("service_requests",{"status":"failed"},id=str(row["id"]))
+            raise HTTPException(422,detail="invalid_cybersecurity_target")
+
+        try:
+            pages=await WebCrawler().crawl(target_url,layer="surface",respect_robots=False,depth=0)
+            if not pages:
+                await supabase.update("service_requests",{"status":"failed"},id=str(row["id"]))
+                raise HTTPException(502,detail="target_unreachable")
+            page=pages[0]
+            findings=[]
+            if page.status_code >= 400:
+                findings.append({"severity":"high","title":"Target returned an error HTTP status","evidence":{"status_code":page.status_code}})
+            if page.credential_indicators:
+                findings.append({"severity":"critical","title":"Credential-pattern indicators exposed in public content","evidence":{"count":page.credential_indicators}})
+            if page.wallets:
+                findings.append({"severity":"high","title":"Cryptocurrency wallet indicators exposed in public content","evidence":{"count":len(page.wallets)}})
+            if page.emails:
+                findings.append({"severity":"medium","title":"Email addresses exposed in public content","evidence":{"count":len(page.emails)}})
+            if not findings:
+                findings.append({"severity":"informational","title":"No configured public-content exposure indicators observed","evidence":{"status_code":page.status_code,"content_type":page.content_type}})
+
+            rank={"critical":4,"high":3,"medium":2,"low":1,"informational":0}
+            severity=max((f["severity"] for f in findings),key=lambda x:rank[x])
+            summary={
+                "target":str(page.url),
+                "status_code":page.status_code,
+                "content_type":page.content_type,
+                "observed_emails":len(page.emails),
+                "observed_urls":len(page.urls),
+                "observed_wallets":len(page.wallets),
+                "credential_indicators":page.credential_indicators,
+                "finding_count":len(findings),
+                "findings":findings,
+                "method":"bounded passive public HTTP assessment",
+            }
+            case_number=await supabase.rpc("next_case_number",{"p_tenant":str(org["tenant_id"])})
+            case=await supabase.insert_one("crime_cases",{
+                "tenant_id":str(org["tenant_id"]),
+                "case_number":str(case_number),
+                "title":f"Cybersecurity Assessment — {parsed.hostname}",
+                "category":"cybersecurity",
+                "severity":severity,
+                "status":"open",
+                "summary":f"Passive external assessment completed for {parsed.hostname}. {len(findings)} observations recorded.",
+                "evidence":[{"type":"cybersecurity_assessment","target":str(page.url),"content_hash":page.content_hash,"observations":summary}],
+            })
+            await supabase.insert_one("customer_case_links",{
+                "organization_id":body.organization_id,
+                "service_request_id":str(row["id"]),
+                "case_id":str(case["id"]),
+            })
+            await supabase.update("service_requests",{"status":"completed"},id=str(row["id"]))
+            return {**row,"status":"completed","case_id":case["id"],"result":summary}
+        except HTTPException:
+            raise
+        except Exception:
+            await supabase.update("service_requests",{"status":"failed"},id=str(row["id"]))
+            raise HTTPException(503,detail="cybersecurity_assessment_unavailable")
+
     return row
