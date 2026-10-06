@@ -125,7 +125,7 @@ async def customer_case_detail(case_id: str, p: DeveloperPrincipal=Depends(princ
     if not link: raise HTTPException(404,detail="case_not_found")
     member=await supabase.select_one("organization_members","organization_id,user_id,status,role",organization_id=link["organization_id"],user_id=p.user_id,status="active")
     if not member: raise HTTPException(404,detail="case_not_found")
-    case=await supabase.select_one("crime_cases","id,tenant_id,case_number,category,severity,status,title,summary,device_id,created_at,updated_at",id=case_id)
+    case=await supabase.select_one("crime_cases","id,tenant_id,case_number,category,severity,status,title,summary,evidence,device_id,created_at,updated_at",id=case_id)
     req=await supabase.select_one("service_requests","id,service_key,urgency,description,status,requester_user_id,created_at,updated_at",id=link["service_request_id"])
     assignment=await supabase.select_one("customer_case_assignments","id,operator_user_id,assigned_by,active,created_at,ended_at",case_id=case_id,active=True)
     return {"case":case,"service_request":req,"link":link,"assignment":assignment}
