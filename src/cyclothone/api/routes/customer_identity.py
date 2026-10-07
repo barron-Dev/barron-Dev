@@ -439,7 +439,7 @@ async def create_organization(body:OrgRequest,p:DeveloperPrincipal=Depends(princ
 
     if body.service_key == "dark_web_monitoring":
         import re
-        target_match = re.search(r"^Target:\\s*(.+)$", description, re.MULTILINE | re.IGNORECASE)
+        target_match = re.search(r"^Target:\s*(.+)$", description, re.MULTILINE | re.IGNORECASE)
         target = target_match.group(1).strip().lower() if target_match else ""
         target = target.removeprefix("https://").removeprefix("http://").split("/")[0].split(":")[0]
         if not target or "." not in target:
@@ -447,7 +447,7 @@ async def create_organization(body:OrgRequest,p:DeveloperPrincipal=Depends(princ
             raise HTTPException(422, detail="dark_web_target_domain_required")
         try:
             from cyclothone.darkweb.matcher import DarkWebMatcher
-            from cyclothone.darkweb.pullers import GitHubCodeMonitor, HIBPPuller
+            from cyclothone.darkweb.pullers import GitHubCodeMonitor, HIBPPuller, RansomwatchPuller
             tenant_id = str(org["tenant_id"])
             watch = await supabase.insert_one("dw_watchlist", {
                 "tenant_id": tenant_id,
@@ -463,6 +463,9 @@ async def create_organization(body:OrgRequest,p:DeveloperPrincipal=Depends(princ
             source_results = []
             hibp_key = os.getenv("CYCLOTHONE_HIBP_KEY", "").strip() or os.getenv("SENTINEL_HIBP_KEY", "").strip()
             github_token = os.getenv("CYCLOTHONE_GITHUB_TOKEN", "").strip() or os.getenv("SENTINEL_GITHUB_TOKEN", "").strip()
+            if "ransomwatch" in enabled:
+                findings.extend(await RansomwatchPuller().pull())
+                source_results.append("ransomwatch")
             if hibp_key and "hibp" in enabled:
                 findings.extend(await HIBPPuller(hibp_key).pull_domain(target))
                 source_results.append("hibp")
