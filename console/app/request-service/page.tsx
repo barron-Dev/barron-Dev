@@ -17,7 +17,10 @@ const SERVICE_GUIDANCE:Record<string,{prompt:string;label:string;placeholder:str
  compliance:{prompt:"Identify the framework and the evidence or compliance outcome you need.",label:"Framework / objective",placeholder:"ISO 27001, SOC 2, PCI DSS, UAE PDPL, HIPAA…",help:"Add the scope, controls, audit date or evidence requirement below."},
  mobile_digital_intelligence:{prompt:"Identify the authorized mobile, device or digital target.",label:"Device / app / digital target",placeholder:"Device, application, account, domain or approved digital target",help:"Use an exact identifier where available and explain the objective below."}
 };
-const DEFAULT_GUIDANCE={prompt:"Describe the outcome you need Cyclothone to secure, investigate, monitor or assess.",label:"Target / scope",placeholder:"What should Cyclothone work on?",help:"Be specific about the target, scope and desired outcome."};\nconst REQUEST_SUGGESTIONS=[\n "Check public exposure",\n "Look for exposed email addresses",\n "Look for credential-pattern indicators",\n "Look for cryptocurrency wallet indicators",\n "Check the HTTP response and content type",\n "Give me a concise risk summary and next steps"\n];
+const DEFAULT_GUIDANCE={prompt:"Describe the outcome you need Cyclothone to secure, investigate, monitor or assess.",label:"Target / scope",placeholder:"What should Cyclothone work on?",help:"Be specific about the target, scope and desired outcome."};
+const REQUEST_SUGGESTIONS=[
+ "Check public exposure",\n "Look for exposed email addresses",\n "Look for credential-pattern indicators",\n "Look for cryptocurrency wallet indicators",\n "Check the HTTP response and content type",\n "Give me a concise risk summary and next steps"
+];
 
 function Progress({value}:{value:number|null}){if(value===null)return null;return <div className="mt-5"><div className="mb-2 flex justify-between text-[9px] uppercase tracking-[.15em] text-[#67848d]"><span>Live workflow progress</span><span className="text-[#c2f35a]">{value}%</span></div><div className="cyclo-battery"><span style={{width:Math.max(0,Math.min(100,value))+"%"}}/></div></div>}
 
@@ -62,7 +65,8 @@ export default function RequestService(){ const [orgs,setOrgs]=useState<Customer
 
     <section className="border-b border-white/10 py-7">
       <label className="block text-xs font-medium">3. What do you need?
-        <textarea required minLength={10} maxLength={10000} value={description} onChange={e=>setDescription(e.target.value)} rows={5} className="mt-3 w-full resize-y border-b border-white/15 bg-transparent py-3 text-sm leading-6 outline-none focus:border-[#c2f35a]/50" placeholder="Choose a suggestion or tell Cyclothone what you want to find out."/>\n      <div className="mt-4 flex flex-wrap gap-2">{REQUEST_SUGGESTIONS.map(s=><button type="button" key={s} onClick={()=>setDescription(s)} className="rounded-full border border-white/10 bg-white/[0.035] px-3 py-2 text-[10px] text-[#a9bdc2] transition hover:border-[#c2f35a]/35 hover:bg-white/[0.07] hover:text-[#e8f1f3]">{s}</button>)}</div>
+        <textarea required minLength={10} maxLength={10000} value={description} onChange={e=>setDescription(e.target.value)} rows={5} className="mt-3 w-full resize-y border-b border-white/15 bg-transparent py-3 text-sm leading-6 outline-none focus:border-[#c2f35a]/50" placeholder="Choose a suggestion or tell Cyclothone what you want to find out."/>
+      <div className="mt-4 flex flex-wrap gap-2">{REQUEST_SUGGESTIONS.map(s=><button type="button" key={s} onClick={()=>setDescription(s)} className="rounded-full border border-white/10 bg-white/[0.035] px-3 py-2 text-[10px] text-[#a9bdc2] transition hover:border-[#c2f35a]/35 hover:bg-white/[0.07] hover:text-[#e8f1f3]">{s}</button>)}</div>
       </label>
     </section>
 
