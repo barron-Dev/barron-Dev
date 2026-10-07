@@ -28,12 +28,12 @@ export default function Surface() {
       <section className="relative overflow-hidden border-b border-[#1a2330] px-5 py-20 md:px-16 md:py-28">
         <ParticleField />
         <div className="relative z-10 max-w-4xl">
-          <div className="text-[10px] uppercase tracking-[.18em] text-[#00d9ff]">Zero-trust security operations</div>
+          <div className="text-[10px] uppercase tracking-[.18em] text-[#00d9ff]">Discover. Understand. Protect.</div>
           <h1 className="mt-4 text-4xl font-semibold leading-tight md:text-6xl">
-            See the whole system.<br />Then enter the protected platform.
+            Discover. Understand. Protect.<br />One security platform for the world.
           </h1>
           <p className="mt-6 max-w-3xl text-sm leading-6 text-[#8a97a8]">
-            Cyclothone connects identity, security operations, trust and control, intelligence and AI, and execution into one governed security platform. Explore the architecture and capabilities first. Authentication begins only when you enter a protected destination or request an authorized operation.
+            Cyclothone helps you discover what matters, understand what is happening, and protect what matters next. Explore the platform and its real security services, then enter when you are ready.
           </p>
           <div className="mt-8 flex flex-wrap gap-3">
             <a href="/platform" className="border border-[#00d9ff] px-5 py-3 text-[11px] text-[#00d9ff]">Explore the full platform →</a>
@@ -77,9 +77,9 @@ export default function Surface() {
       <section id="security" className="border-b border-[#1a2330] px-5 py-14 md:px-16 md:py-16">
         <div className="max-w-3xl">
           <div className="text-[10px] uppercase tracking-[.18em] text-[#00ff9d]">Security boundary</div>
-          <h2 className="mt-3 text-3xl font-semibold">Trust stays outside the model.</h2>
+          <h2 className="mt-3 text-3xl font-semibold">Protection is built into the system.</h2>
           <p className="mt-4 text-sm leading-6 text-[#8a97a8]">
-            Signed authority, continuous verification, policy enforcement and durable provenance remain independent of model output.
+            Cyclothone keeps security decisions, verification and controlled action connected to evidence—not promises.
           </p>
         </div>
       </section>
@@ -90,7 +90,7 @@ export default function Surface() {
           <a href={CUSTOMER + "/login"} className="cyclo-stage p-6 hover:border-[#ffb347]">
             <div className="text-[10px] uppercase tracking-[.15em] text-[#ffb347]">Customer</div>
             <h2 className="mt-2 text-xl font-medium">Operate protected security services.</h2>
-            <p className="mt-2 text-xs leading-5 text-[#8a97a8]">Organization, verification, admission, service requests, cases and customer-visible results.</p>
+            <p className="mt-2 text-xs leading-5 text-[#8a97a8]">Request services, follow progress, and receive clear results and evidence.</p>
             <div className="mt-5 text-[11px] text-[#ffb347]">Sign in / create account →</div>
           </a>
           <a href={DEVELOPERS} className="border border-[#2a3646] bg-[#0a0e14] p-6 hover:border-[#00ff9d]">
