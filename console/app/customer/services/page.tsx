@@ -5,7 +5,8 @@ import { getCustomerCases, getCustomerOrganizations, getCustomerServiceRequests,
 
 type Service={key:string;name:string;description:string;outcome:string;accent:string};
 const SERVICES:Service[]=[
-  ["cybersecurity_assessment","Cybersecurity Assessment","Check a website for real security exposure and surface-level weaknesses.","A live assessment with findings, evidence and clear next steps.","#5ccbc3"]
+  ["cybersecurity_assessment","Cybersecurity Assessment","Check a website for real security exposure and surface-level weaknesses.","A live assessment with findings, evidence and clear next steps.","#5ccbc3"],
+  ["dark_web_monitoring","Dark Web Monitoring","Monitor a domain for real exposure signals from configured external sources.","A live monitoring result with persisted findings, alerts and evidence.","#c2f35a"]
 ].map(([key,name,description,outcome,accent])=>({key,name,description,outcome,accent})) as Service[];
 
 const statusTone:Record<string,string>={approved:"text-[#9ff5c0]",resolved:"text-[#9ff5c0]",closed:"text-[#9ff5c0]",pending:"text-[#ffd27a]",submitted:"text-[#ffd27a]",in_progress:"text-[#ffd27a]",rejected:"text-[#ff7c93]"};
@@ -26,7 +27,7 @@ export default function CustomerServices(){
   <div className="relative z-10 mx-auto max-w-6xl px-5 py-10 md:px-8">
    <div className="max-w-3xl"><div className="text-[9px] uppercase tracking-[.22em] text-[#4f8494]">Discover. Understand. Protect.</div><h1 className="mt-3 text-3xl font-semibold tracking-tight md:text-5xl">Start with what you need checked.</h1><p className="mt-4 text-sm leading-7 text-[#9ab0b6]">Choose a service that is genuinely available today. Cyclothone will show you what it checked, what it found, and the evidence behind the result.</p></div>
    {error&&<div className="mt-7 rounded-2xl border border-[#ff3d67]/30 bg-[#250910]/50 p-4 text-xs text-[#ff8ba0]">{error}</div>}
-   {!loading&&<div className="mt-8 flex flex-wrap items-center justify-between gap-3 text-xs"><span className="text-[#69858d]">1 service available now</span>{org&&<span className="cyclo-pill px-4 py-2 text-[10px] text-[#9ff5c0]">{org.legal_name}</span>}</div>}
+   {!loading&&<div className="mt-8 flex flex-wrap items-center justify-between gap-3 text-xs"><span className="text-[#69858d]">{SERVICES.length} services available now</span>{org&&<span className="cyclo-pill px-4 py-2 text-[10px] text-[#9ff5c0]">{org.legal_name}</span>}</div>}
    {loading?<div className="mt-8 p-10 text-center text-xs text-[#69858d]">Loading available services…</div>:<div className="mt-7 max-w-3xl">
     <a href="/customer/services/cybersecurity_assessment" className="group relative block overflow-hidden rounded-[2rem] border border-white/[0.12] bg-white/[0.045] px-7 py-8 shadow-[0_20px_70px_rgba(0,0,0,.18)] backdrop-blur-xl transition-all duration-300 hover:-translate-y-0.5 hover:border-white/20 hover:bg-white/[0.065]">
      <div className="absolute -right-16 -top-16 h-40 w-40 rounded-full bg-[#5ccbc3]/[0.08] blur-3xl"/><div className="relative z-10 flex items-start justify-between gap-5"><div><div className="font-mono text-[9px] text-[#4e707b]">AVAILABLE NOW</div><h2 className="mt-2 text-2xl font-medium">{SERVICES[0].name}</h2></div>{latest&&<span className={"text-[9px] uppercase tracking-wider "+(statusTone[latest.status]??"text-[#789aa4]")}>{latest.status.replaceAll("_"," ")}</span>}</div>
