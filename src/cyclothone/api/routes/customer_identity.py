@@ -574,18 +574,18 @@ async def create_service_request(body:ServiceRequest,p:DeveloperPrincipal=Depend
         target_match=re.search(r"^Target:\s*(.+)$", description, re.MULTILINE | re.IGNORECASE)
         target=(target_match.group(1).strip() if target_match else "")
         if not target:
-            await supabase.update("service_requests",{"status":"failed"},id=str(row["id"]))
+            await supabase.update("service_requests",{"status":"blocked"},id=str(row["id"]))
             raise HTTPException(422,detail="cybersecurity_target_required")
         target_url=target if "://" in target else f"https://{target}"
         parsed=urlsplit(target_url)
         if parsed.scheme not in {"http","https"} or not parsed.hostname:
-            await supabase.update("service_requests",{"status":"failed"},id=str(row["id"]))
+            await supabase.update("service_requests",{"status":"blocked"},id=str(row["id"]))
             raise HTTPException(422,detail="invalid_cybersecurity_target")
 
         try:
             pages=await WebCrawler().crawl(target_url,layer="surface",respect_robots=False,depth=0)
             if not pages:
-                await supabase.update("service_requests",{"status":"failed"},id=str(row["id"]))
+                await supabase.update("service_requests",{"status":"blocked"},id=str(row["id"]))
                 raise HTTPException(502,detail="target_unreachable")
             page=pages[0]
             findings=[]
@@ -631,11 +631,11 @@ async def create_service_request(body:ServiceRequest,p:DeveloperPrincipal=Depend
                 "case_id":str(case["id"]),
             })
             await supabase.update("service_requests",{"status":"resolved"},id=str(row["id"]))
-            return {**row,"status":"completed","case_id":case["id"],"result":summary}
+            return {**row,"status":"resolved","case_id":case["id"],"result":summary}
         except HTTPException:
             raise
         except Exception:
-            await supabase.update("service_requests",{"status":"failed"},id=str(row["id"]))
+            await supabase.update("service_requests",{"status":"blocked"},id=str(row["id"]))
             raise HTTPException(503,detail="cybersecurity_assessment_unavailable")
 
     return row
