@@ -51,14 +51,14 @@ def operator_principal(p: DeveloperPrincipal=Depends(authenticate_request))->Dev
 
 
 class OrgRequest(BaseModel):
-    organization_type: str
+    organization_type: str = "company"
     legal_name: str=Field(min_length=1,max_length=240)
     country_code: str|None=None
     website_domain: str|None=None
     registration_number: str|None=None
 
 class ServiceRequest(BaseModel):
-    organization_id: str
+    organization_id: str|None = None
     service_key: str
     urgency: str="normal"
     description: str=Field(min_length=10,max_length=10000)
@@ -348,17 +348,6 @@ async def create_invitation(organization_id: str, body: InvitationRequest, p: De
 @router.get("/customer/organizations")
 async def organizations(p:DeveloperPrincipal=Depends(principal)):
     rows=await supabase.select("customer_organizations","id,tenant_id,organization_type,legal_name,country_code,website_domain,registration_number,verification_status,admission_status,created_at,updated_at",owner_user_id=p.user_id)
-    for row in rows:
-        if row.get("admission_status") != "approved":
-            try:
-                await supabase.rpc("giril_start_customer_admission_for_user", {
-                    "p_owner_user_id": p.user_id,
-                    "p_organization_id": str(row["id"]),
-                })
-            except Exception:
-                pass
-    if rows:
-        rows=await supabase.select("customer_organizations","id,tenant_id,organization_type,legal_name,country_code,website_domain,registration_number,verification_status,admission_status,created_at,updated_at",owner_user_id=p.user_id)
     return {"organizations":rows}
 
 @router.post("/customer/organizations")
@@ -396,19 +385,6 @@ async def create_organization(body:OrgRequest,p:DeveloperPrincipal=Depends(princ
     )
     if not row:
         raise HTTPException(500,detail="organization_creation_not_confirmed")
-    try:
-        await supabase.rpc("giril_start_customer_admission_for_user", {"p_owner_user_id": p.user_id, "p_organization_id": str(organization_id)})
-    except Exception as exc:
-        detail=str(exc)
-        mapping={
-            "verified_email_required":(422,"verified_email_required"),
-            "giril_company_flow_required":(422,"giril_company_flow_required"),
-            "authentication required":(401,"authentication_required"),
-            "organization_not_found":(404,"organization_not_found"),
-        }
-        for key,(code,msg) in mapping.items():
-            if key in detail: raise HTTPException(code,detail=msg)
-        raise HTTPException(503,detail="giril_admission_engine_unavailable")
     row=await supabase.select_one(
         "customer_organizations",
         "id,tenant_id,organization_type,legal_name,country_code,website_domain,registration_number,verification_status,admission_status,created_at,updated_at",
@@ -546,11 +522,29 @@ async def service_requests(p:DeveloperPrincipal=Depends(principal)):
 
 @router.post("/customer/service-requests")
 async def create_service_request(body:ServiceRequest,p:DeveloperPrincipal=Depends(principal)):
-    org=await supabase.select_one("customer_organizations","id,tenant_id,admission_status",id=body.organization_id,owner_user_id=p.user_id)
-    if not org:
-        raise HTTPException(404,detail="organization_not_found")
-    if org.get("admission_status") != "approved":
-        raise HTTPException(403,detail="workspace_not_admitted")
+    if not p.user_id:
+        raise HTTPException(403,detail="user_identity_required")
+    organization_id=body.organization_id
+    if organization_id:
+        org=await supabase.select_one("customer_organizations","id,tenant_id,admission_status",id=organization_id,owner_user_id=p.user_id)
+        if not org:
+            raise HTTPException(404,detail="organization_not_found")
+    else:
+        org=await supabase.select_one("customer_organizations","id,tenant_id,admission_status",owner_user_id=p.user_id,organization_type="individual")
+        if not org:
+            organization_id=await supabase.rpc("create_customer_organization_for_user",{
+                "p_owner_user_id":p.user_id,
+                "p_type":"individual",
+                "p_legal_name":"Personal Workspace",
+                "p_country_code":None,
+                "p_domain":None,
+                "p_registration_number":None,
+            })
+            org=await supabase.select_one("customer_organizations","id,tenant_id,admission_status",id=str(organization_id),owner_user_id=p.user_id)
+        else:
+            organization_id=org["id"]
+    if not org or not org.get("tenant_id"):
+        raise HTTPException(503,detail="workspace_unavailable")
     if body.service_key not in {"cybersecurity_assessment","incident_response","threat_intelligence","brand_protection","dark_web_monitoring","soc_mdr","ai_security","physical_security","compliance","mobile_digital_intelligence","other"}:
         raise HTTPException(400,detail="invalid service")
     if body.urgency not in {"low","normal","high","critical"}:
@@ -560,7 +554,7 @@ async def create_service_request(body:ServiceRequest,p:DeveloperPrincipal=Depend
 
     description=body.description.strip()
     row=await supabase.insert_one("service_requests",{
-        "organization_id":body.organization_id,
+        "organization_id":organization_id,
         "requester_user_id":p.user_id,
         "service_key":body.service_key,
         "urgency":body.urgency,
@@ -632,7 +626,7 @@ async def create_service_request(body:ServiceRequest,p:DeveloperPrincipal=Depend
                 "evidence":[{"type":"cybersecurity_assessment","target":str(page.url),"content_hash":page.content_hash,"observations":summary}],
             })
             await supabase.insert_one("customer_case_links",{
-                "organization_id":body.organization_id,
+                "organization_id":organization_id,
                 "service_request_id":str(row["id"]),
                 "case_id":str(case["id"]),
             })
