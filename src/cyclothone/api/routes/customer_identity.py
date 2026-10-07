@@ -437,6 +437,80 @@ async def create_organization(body:OrgRequest,p:DeveloperPrincipal=Depends(princ
             await supabase.update("service_requests", {"status":"blocked"}, id=str(row["id"]))
             raise HTTPException(503, detail="brand_protection_unavailable")
 
+    if body.service_key == "dark_web_monitoring":
+        import re
+        target_match = re.search(r"^Target:\\s*(.+)$", description, re.MULTILINE | re.IGNORECASE)
+        target = target_match.group(1).strip().lower() if target_match else ""
+        target = target.removeprefix("https://").removeprefix("http://").split("/")[0].split(":")[0]
+        if not target or "." not in target:
+            await supabase.update("service_requests", {"status":"blocked"}, id=str(row["id"]))
+            raise HTTPException(422, detail="dark_web_target_domain_required")
+        try:
+            from cyclothone.darkweb.matcher import DarkWebMatcher
+            from cyclothone.darkweb.pullers import GitHubCodeMonitor, HIBPPuller
+            tenant_id = str(org["tenant_id"])
+            watch = await supabase.insert_one("dw_watchlist", {
+                "tenant_id": tenant_id,
+                "kind": "domain",
+                "value": target,
+                "value_hash": __import__("hashlib").sha256(target.encode()).hexdigest(),
+                "label": f"Customer request: {target}",
+                "severity": "high",
+            })
+            enabled_rows = await supabase.select("dw_sources", "id,enabled", enabled=True)
+            enabled = {str(x["id"]) for x in enabled_rows}
+            findings = []
+            source_results = []
+            hibp_key = os.getenv("CYCLOTHONE_HIBP_KEY", "").strip() or os.getenv("SENTINEL_HIBP_KEY", "").strip()
+            github_token = os.getenv("CYCLOTHONE_GITHUB_TOKEN", "").strip() or os.getenv("SENTINEL_GITHUB_TOKEN", "").strip()
+            if hibp_key and "hibp" in enabled:
+                findings.extend(await HIBPPuller(hibp_key).pull_domain(target))
+                source_results.append("hibp")
+            if github_token and "github_code" in enabled:
+                findings.extend(await GitHubCodeMonitor(github_token).pull_domain(target))
+                source_results.append("github_code")
+            if not source_results:
+                await supabase.update("service_requests", {"status":"blocked"}, id=str(row["id"]))
+                raise HTTPException(503, detail="dark_web_sources_unavailable")
+            matcher = DarkWebMatcher()
+            ingested = 0
+            errors = 0
+            for finding in findings[:2000]:
+                result = await matcher.process({
+                    "source_id": finding.source_id, "kind": finding.kind,
+                    "matched_value": finding.matched_value, "context": finding.context,
+                    "severity": finding.severity, "source_url": finding.source_url,
+                    "metadata": finding.metadata,
+                })
+                ingested += int(result.get("matched", 0))
+                errors += int(result.get("errors", 0))
+            persisted = await supabase.select(
+                "dw_findings",
+                "id,source_id,kind,matched_value,context,source_url,severity,first_seen,watchlist_id,web_layer,collected_at",
+                tenant_id=tenant_id,
+                watchlist_id=str(watch["id"]),
+            )
+            alerts = await supabase.select("dw_alerts", "id,title,summary,severity,status,finding_id,created_at", tenant_id=tenant_id)
+            alerts = [a for a in alerts if any(str(a.get("finding_id")) == str(f.get("id")) for f in persisted)]
+            if errors:
+                await supabase.update("service_requests", {"status":"blocked"}, id=str(row["id"]))
+                raise HTTPException(503, detail="dark_web_ingestion_incomplete")
+            summary = {
+                "service":"dark_web_monitoring", "target":target,
+                "sources":source_results, "source_findings":len(findings),
+                "findings_persisted":len(persisted), "alerts":len(alerts),
+                "watchlist_id":str(watch["id"]), "ingested_matches":ingested,
+                "findings":persisted[:200], "alert_records":alerts[:200],
+                "method":"real configured dark-web monitoring sources with tenant watchlist matching",
+            }
+            await supabase.update("service_requests", {"status":"resolved"}, id=str(row["id"]))
+            return {**row, "status":"resolved", "result":summary}
+        except HTTPException:
+            raise
+        except Exception:
+            await supabase.update("service_requests", {"status":"blocked"}, id=str(row["id"]))
+            raise HTTPException(503, detail="dark_web_monitoring_unavailable")
+
     return row
 
 
