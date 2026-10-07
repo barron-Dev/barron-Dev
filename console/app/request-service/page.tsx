@@ -4,7 +4,7 @@ import type {FormEvent} from "react";
 
 import {getCustomerOrganizations,apiFetch,type CustomerOrganization} from "../../lib/api";
 
-const SERVICES=[["cybersecurity_assessment","Cybersecurity Assessment"],["incident_response","Incident Response"],["threat_intelligence","Threat Intelligence"],["dark_web_monitoring","Dark Web Monitoring"],["brand_protection","Brand Protection"],["soc_mdr","SOC / MDR"],["ai_security","AI Security"],["physical_security","Physical Security"],["compliance","Compliance"],["mobile_digital_intelligence","Mobile & Digital Intelligence"]];
+const SERVICES=[["cybersecurity_assessment","Cybersecurity Assessment"]];
 const SERVICE_GUIDANCE:Record<string,{prompt:string;label:string;placeholder:string;help:string}>={
  cybersecurity_assessment:{prompt:"Identify the system, environment or business area you want assessed.",label:"System / environment",placeholder:"Website, application, cloud environment, network or business system",help:"Tell Cyclothone what is in scope and what you want the assessment to establish."},
  incident_response:{prompt:"Identify the incident or affected system and tell us what happened.",label:"Incident / affected system",placeholder:"Incident, domain, application, endpoint, account or affected system",help:"Add the known symptoms, timeframe and business impact below."},
@@ -17,7 +17,7 @@ const SERVICE_GUIDANCE:Record<string,{prompt:string;label:string;placeholder:str
  compliance:{prompt:"Identify the framework and the evidence or compliance outcome you need.",label:"Framework / objective",placeholder:"ISO 27001, SOC 2, PCI DSS, UAE PDPL, HIPAA…",help:"Add the scope, controls, audit date or evidence requirement below."},
  mobile_digital_intelligence:{prompt:"Identify the authorized mobile, device or digital target.",label:"Device / app / digital target",placeholder:"Device, application, account, domain or approved digital target",help:"Use an exact identifier where available and explain the objective below."}
 };
-const DEFAULT_GUIDANCE={prompt:"Describe the outcome you need Cyclothone to secure, investigate, monitor or assess.",label:"Target / scope",placeholder:"What should Cyclothone work on?",help:"Be specific about the target, scope and desired outcome."};
+const DEFAULT_GUIDANCE={prompt:"Describe the outcome you need Cyclothone to secure, investigate, monitor or assess.",label:"Target / scope",placeholder:"What should Cyclothone work on?",help:"Be specific about the target, scope and desired outcome."};\nconst REQUEST_SUGGESTIONS=[\n "Check public exposure",\n "Look for exposed email addresses",\n "Look for credential-pattern indicators",\n "Look for cryptocurrency wallet indicators",\n "Check the HTTP response and content type",\n "Give me a concise risk summary and next steps"\n];
 
 function Progress({value}:{value:number|null}){if(value===null)return null;return <div className="mt-5"><div className="mb-2 flex justify-between text-[9px] uppercase tracking-[.15em] text-[#67848d]"><span>Live workflow progress</span><span className="text-[#c2f35a]">{value}%</span></div><div className="cyclo-battery"><span style={{width:Math.max(0,Math.min(100,value))+"%"}}/></div></div>}
 
@@ -31,7 +31,7 @@ export default function RequestService(){ const [orgs,setOrgs]=useState<Customer
  return <main className="cyclo-water min-h-screen overflow-hidden text-[#e8f1f3]">
   <header className="relative z-10 flex items-center justify-between border-b border-white/10 bg-[#02090e]/70 px-5 py-4 backdrop-blur-2xl"><div className="flex items-center gap-3"><a href="/customer/services" className="cyclo-mark text-lg font-bold">◌</a><a href="/customer/services" className="font-semibold tracking-tight">CYCLOTHONE</a></div><a href="/customer/services" className="cyclo-pill px-3 py-2 text-[10px] text-[#9ab0b6]">Back to services</a></header>
   <div className="relative z-10 mx-auto max-w-4xl px-5 py-10 md:py-14">
-   <div className="text-[9px] uppercase tracking-[.22em] text-[#4f8494]">Controlled request</div><h1 className="mt-3 text-3xl font-semibold md:text-4xl">Start a security workflow.</h1><p className="mt-3 text-sm leading-7 text-[#8ca6ad]">Tell Cyclothone the outcome you need. The platform will route the request through the authorized service workflow. Progress is shown only when the live service returns a real stage or percentage.</p>
+   <div className="text-[9px] uppercase tracking-[.22em] text-[#4f8494]">Controlled request</div><h1 className="mt-3 text-3xl font-semibold md:text-4xl">Start a security workflow.</h1><p className="mt-3 text-sm leading-7 text-[#8ca6ad]">Tell Cyclothone what you want checked. Choose a suggestion below or describe your own objective.</p>
    {error&&<div className="mt-6 rounded-2xl border border-[#ff3d67]/30 bg-[#250910]/50 p-4 text-xs text-[#ff8ba0]">{error}</div>}
    {loading?<div className="mt-8 text-center text-xs text-[#69858d]">Reading account state…</div>:<form onSubmit={submit} className="mt-8">
     <div className="border-b border-white/10 pb-5">
@@ -57,12 +57,12 @@ export default function RequestService(){ const [orgs,setOrgs]=useState<Customer
       <label className="block text-xs font-medium">2. Target
         <input required minLength={2} maxLength={2000} value={target} onChange={e=>setTarget(e.target.value)} className="mt-3 w-full border-b border-white/15 bg-transparent py-3 text-base outline-none focus:border-[#c2f35a]/50" placeholder={guidance.placeholder}/>
       </label>
-      <p className="mt-2 text-[11px] leading-5 text-[#78939a]">Use the exact approved target you want Cyclothone to work on. Multiple targets can be separated by commas where supported.</p>
+      <p className="mt-2 text-[11px] leading-5 text-[#78939a]">Enter the website or system you want checked.</p>
     </section>
 
     <section className="border-b border-white/10 py-7">
       <label className="block text-xs font-medium">3. What do you need?
-        <textarea required minLength={10} maxLength={10000} value={description} onChange={e=>setDescription(e.target.value)} rows={5} className="mt-3 w-full resize-y border-b border-white/15 bg-transparent py-3 text-sm leading-6 outline-none focus:border-[#c2f35a]/50" placeholder="Tell us the objective, scope, timeframe, known concern, evidence needed, or expected outcome."/>
+        <textarea required minLength={10} maxLength={10000} value={description} onChange={e=>setDescription(e.target.value)} rows={5} className="mt-3 w-full resize-y border-b border-white/15 bg-transparent py-3 text-sm leading-6 outline-none focus:border-[#c2f35a]/50" placeholder="Choose a suggestion or tell Cyclothone what you want to find out."/>\n      <div className="mt-4 flex flex-wrap gap-2">{REQUEST_SUGGESTIONS.map(s=><button type="button" key={s} onClick={()=>setDescription(s)} className="rounded-full border border-white/10 bg-white/[0.035] px-3 py-2 text-[10px] text-[#a9bdc2] transition hover:border-[#c2f35a]/35 hover:bg-white/[0.07] hover:text-[#e8f1f3]">{s}</button>)}</div>
       </label>
     </section>
 
