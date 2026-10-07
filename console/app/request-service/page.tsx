@@ -4,7 +4,7 @@ import type {FormEvent} from "react";
 
 import {getCustomerOrganizations,apiFetch,type CustomerOrganization} from "../../lib/api";
 
-const SERVICES=[["cybersecurity_assessment","Cybersecurity Assessment"]];
+const SERVICES=[["cybersecurity_assessment","Cybersecurity Assessment"],["dark_web_monitoring","Dark Web Monitoring"]];
 const SERVICE_GUIDANCE:Record<string,{prompt:string;label:string;placeholder:string;help:string}>={
  cybersecurity_assessment:{prompt:"Identify the system, environment or business area you want assessed.",label:"System / environment",placeholder:"Website, application, cloud environment, network or business system",help:"Tell Cyclothone what is in scope and what you want the assessment to establish."},
  incident_response:{prompt:"Identify the incident or affected system and tell us what happened.",label:"Incident / affected system",placeholder:"Incident, domain, application, endpoint, account or affected system",help:"Add the known symptoms, timeframe and business impact below."},
@@ -65,7 +65,7 @@ export default function RequestService(){ const [orgs,setOrgs]=useState<Customer
       <label className="block text-xs font-medium">2. Target
         <input required minLength={2} maxLength={2000} value={target} onChange={e=>setTarget(e.target.value)} className="mt-3 w-full border-b border-white/15 bg-transparent py-3 text-base outline-none focus:border-[#c2f35a]/50" placeholder={guidance.placeholder}/>
       </label>
-      <p className="mt-2 text-[11px] leading-5 text-[#78939a]">Enter the website or system you want checked.</p>
+      <p className="mt-2 text-[11px] leading-5 text-[#78939a]">{service==="dark_web_monitoring"?"Enter the domain you want monitored for real exposure signals.":"Enter the website or system you want checked."}</p>
     </section>
 
     <section className="border-b border-white/10 py-7">
