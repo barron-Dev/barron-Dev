@@ -619,7 +619,7 @@ async def create_service_request(body:ServiceRequest,p:DeveloperPrincipal=Depend
                 "tenant_id":str(org["tenant_id"]),
                 "case_number":str(case_number),
                 "title":f"Cybersecurity Assessment — {parsed.hostname}",
-                "category":"cybersecurity",
+                "category":"other",
                 "severity":severity,
                 "status":"open",
                 "summary":f"Passive external assessment completed for {parsed.hostname}. {len(findings)} observations recorded.",
