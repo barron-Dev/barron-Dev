@@ -391,6 +391,52 @@ async def create_organization(body:OrgRequest,p:DeveloperPrincipal=Depends(princ
         id=str(organization_id),
         owner_user_id=p.user_id,
     )
+    if body.service_key == "brand_protection":
+        import re
+        from datetime import datetime, UTC
+        target_match=re.search(r"^Target:\\s*(.+)$", description, re.MULTILINE | re.IGNORECASE)
+        target=(target_match.group(1).strip() if target_match else "")
+        if not target:
+            await supabase.update("service_requests", {"status":"blocked"}, id=str(row["id"]))
+            raise HTTPException(422, detail="brand_target_required")
+        target=target.lower().removeprefix("https://").removeprefix("http://").split("/")[0].split(":")[0]
+        if "." not in target:
+            await supabase.update("service_requests", {"status":"blocked"}, id=str(row["id"]))
+            raise HTTPException(422, detail="invalid_brand_target")
+        try:
+            from cyclothone.brand.typosquat import TyposquatScanner
+            brand=await supabase.insert_one("brands", {
+                "tenant_id":str(org["tenant_id"]),
+                "name":target,
+                "primary_domain":target,
+                "domains":[],
+                "keywords":[],
+                "trademarks":[],
+                "social_handles":[],
+                "app_ids":{},
+                "logo_url":None,
+                "similarity_min":0.75,
+                "created_by":p.user_id,
+            })
+            scan=await TyposquatScanner().scan_brand(brand)
+            threats=await supabase.select("brand_threats","id,kind,identifier,url,similarity,severity,status,first_seen",tenant_id=str(org["tenant_id"]),brand_id=str(brand["id"]))
+            summary={
+                "service":"brand_protection",
+                "target":target,
+                "checked":int(scan.get("checked",0)),
+                "resolved":int(scan.get("resolved",0)),
+                "threats_persisted":len(threats),
+                "threats":threats[:200],
+                "method":"real DNS typosquat discovery using Cyclothone Brand Protection engine",
+            }
+            await supabase.update("service_requests", {"status":"resolved"}, id=str(row["id"]))
+            return {**row, "status":"resolved", "result":summary}
+        except HTTPException:
+            raise
+        except Exception:
+            await supabase.update("service_requests", {"status":"blocked"}, id=str(row["id"]))
+            raise HTTPException(503, detail="brand_protection_unavailable")
+
     return row
 
 
