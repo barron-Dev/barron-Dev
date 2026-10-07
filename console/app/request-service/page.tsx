@@ -19,7 +19,12 @@ const SERVICE_GUIDANCE:Record<string,{prompt:string;label:string;placeholder:str
 };
 const DEFAULT_GUIDANCE={prompt:"Describe the outcome you need Cyclothone to secure, investigate, monitor or assess.",label:"Target / scope",placeholder:"What should Cyclothone work on?",help:"Be specific about the target, scope and desired outcome."};
 const REQUEST_SUGGESTIONS=[
- "Check public exposure",\n "Look for exposed email addresses",\n "Look for credential-pattern indicators",\n "Look for cryptocurrency wallet indicators",\n "Check the HTTP response and content type",\n "Give me a concise risk summary and next steps"
+ "Check public exposure",
+ "Look for exposed email addresses",
+ "Look for credential-pattern indicators",
+ "Look for cryptocurrency wallet indicators",
+ "Check the HTTP response and content type",
+ "Give me a concise risk summary and next steps"
 ];
 
 function Progress({value}:{value:number|null}){if(value===null)return null;return <div className="mt-5"><div className="mb-2 flex justify-between text-[9px] uppercase tracking-[.15em] text-[#67848d]"><span>Live workflow progress</span><span className="text-[#c2f35a]">{value}%</span></div><div className="cyclo-battery"><span style={{width:Math.max(0,Math.min(100,value))+"%"}}/></div></div>}
@@ -27,7 +32,8 @@ function Progress({value}:{value:number|null}){if(value===null)return null;retur
 export default function RequestService(){ const [orgs,setOrgs]=useState<CustomerOrganization[]>([]),[org,setOrg]=useState(""),[service,setService]=useState("cybersecurity_assessment"),[urgency,setUrgency]=useState("normal"),[target,setTarget]=useState(""),[description,setDescription]=useState(""),[verification,setVerification]=useState<any[]>([]),[error,setError]=useState<string|null>(null),[result,setResult]=useState<any>(null),[loading,setLoading]=useState(true);
  async function load(){setLoading(true);setError(null);try{const r=await getCustomerOrganizations();setOrgs(r.organizations);setOrg(r.organizations[0]?.id||"")}catch(e){setError(e instanceof Error?e.message:"Unable to load account")}finally{setLoading(false)}}
  useEffect(()=>{const requested=new URLSearchParams(window.location.search).get("service");if(requested&&SERVICES.some(x=>x[0]===requested))setService(requested);void load()},[]);
- async function submit(e:FormEvent){e.preventDefault();setError(null);setResult(null);try{const r=await apiFetch<any>("/api/v1/customer/service-requests",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({...(org?{organization_id:org}:{}),service_key:service,urgency,description:[`Target: ${target.trim()}`,`Service objective: ${description.trim()}`].join("\n")})});setResult(r);setTarget("");setDescription("")}catch(e){setError(e instanceof Error?e.message:"Service request failed")}}
+ async function submit(e:FormEvent){e.preventDefault();setError(null);setResult(null);try{const r=await apiFetch<any>("/api/v1/customer/service-requests",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({...(org?{organization_id:org}:{}),service_key:service,urgency,description:[`Target: ${target.trim()}`,`Service objective: ${description.trim()}`].join("
+")})});setResult(r);setTarget("");setDescription("")}catch(e){setError(e instanceof Error?e.message:"Service request failed")}}
  const current=orgs.find(x=>x.id===org); const guidance=SERVICE_GUIDANCE[service]||DEFAULT_GUIDANCE; const serviceName=SERVICES.find(x=>x[0]===service)?.[1]||service;
  const progress=typeof result?.progress_percent==="number"?result.progress_percent:typeof result?.progress==="number"?result.progress:null;
  const stage=typeof result?.stage==="string"?result.stage:null;
