@@ -314,7 +314,7 @@ export function getCustomerOrganizations() {
 }
 
 export function createCustomerOrganization(body: {
-  organization_type: "company" | "government" | "security_provider" | "developer" | "client" | "partner" | "individual";
+  organization_type?: "company" | "government" | "security_provider" | "developer" | "client" | "partner" | "individual";
   legal_name: string;
   country_code?: string | null;
   website_domain?: string | null;
