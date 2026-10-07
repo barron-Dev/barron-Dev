@@ -511,6 +511,45 @@ async def create_organization(body:OrgRequest,p:DeveloperPrincipal=Depends(princ
             await supabase.update("service_requests", {"status":"blocked"}, id=str(row["id"]))
             raise HTTPException(503, detail="dark_web_monitoring_unavailable")
 
+    if body.service_key == "compliance":
+        import re
+        from datetime import UTC, datetime, timedelta
+        framework_match = re.search(r"^Framework:\\s*([a-z0-9_\\-]+)$", description, re.MULTILINE | re.IGNORECASE)
+        framework = (framework_match.group(1).strip().lower() if framework_match else "soc2")
+        try:
+            from cyclothone.compliance.catalog import FRAMEWORKS
+            from cyclothone.compliance.service import ComplianceService
+            if framework not in FRAMEWORKS:
+                await supabase.update("service_requests", {"status":"blocked"}, id=str(row["id"]))
+                raise HTTPException(422, detail="unsupported_compliance_framework")
+            period_end = datetime.now(UTC)
+            period_start = period_end - timedelta(hours=24)
+            result = await ComplianceService().evaluate(
+                UUID(str(org["tenant_id"])), framework, period_start, period_end, UUID(str(p.user_id))
+            )
+            summary = {
+                "service":"compliance", "framework":framework,
+                "framework_name":FRAMEWORKS[framework]["name"],
+                "period": {"start":period_start.isoformat(), "end":period_end.isoformat()},
+                "run_id":result.get("run_id"),
+                "total_controls":int(result.get("total_controls",0)),
+                "passing":int(result.get("passing",0)),
+                "failing":int(result.get("failing",0)),
+                "partial":int(result.get("partial",0)),
+                "unknown":int(result.get("unknown",0)),
+                "overall_score":result.get("overall_score"),
+                "evidence_count":int(result.get("evidence_count",0)),
+                "controls":result.get("controls",[])[:200],
+                "method":"real tenant-scoped telemetry evaluation with evidence freshness",
+            }
+            await supabase.update("service_requests", {"status":"resolved"}, id=str(row["id"]))
+            return {**row, "status":"resolved", "result":summary}
+        except HTTPException:
+            raise
+        except Exception:
+            await supabase.update("service_requests", {"status":"blocked"}, id=str(row["id"]))
+            raise HTTPException(503, detail="compliance_unavailable")
+
     return row
 
 
