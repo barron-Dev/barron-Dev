@@ -2,7 +2,7 @@
 import {useEffect,useState} from "react";
 import type {FormEvent} from "react";
 
-import {getCustomerOrganizations,getCustomerVerification,apiFetch,type CustomerOrganization} from "../../lib/api";
+import {getCustomerOrganizations,apiFetch,type CustomerOrganization} from "../../lib/api";
 
 const SERVICES=[["cybersecurity_assessment","Cybersecurity Assessment"],["incident_response","Incident Response"],["threat_intelligence","Threat Intelligence"],["dark_web_monitoring","Dark Web Monitoring"],["brand_protection","Brand Protection"],["soc_mdr","SOC / MDR"],["ai_security","AI Security"],["physical_security","Physical Security"],["compliance","Compliance"],["mobile_digital_intelligence","Mobile & Digital Intelligence"]];
 const SERVICE_GUIDANCE:Record<string,{prompt:string;label:string;placeholder:string;help:string}>={
@@ -22,11 +22,9 @@ const DEFAULT_GUIDANCE={prompt:"Describe the outcome you need Cyclothone to secu
 function Progress({value}:{value:number|null}){if(value===null)return null;return <div className="mt-5"><div className="mb-2 flex justify-between text-[9px] uppercase tracking-[.15em] text-[#67848d]"><span>Live workflow progress</span><span className="text-[#c2f35a]">{value}%</span></div><div className="cyclo-battery"><span style={{width:Math.max(0,Math.min(100,value))+"%"}}/></div></div>}
 
 export default function RequestService(){ const [orgs,setOrgs]=useState<CustomerOrganization[]>([]),[org,setOrg]=useState(""),[service,setService]=useState("cybersecurity_assessment"),[urgency,setUrgency]=useState("normal"),[target,setTarget]=useState(""),[description,setDescription]=useState(""),[verification,setVerification]=useState<any[]>([]),[error,setError]=useState<string|null>(null),[result,setResult]=useState<any>(null),[loading,setLoading]=useState(true);
- async function load(){setLoading(true);setError(null);try{const r=await getCustomerOrganizations();setOrgs(r.organizations);const id=r.organizations[0]?.id||"";setOrg(id);if(id){const v=await getCustomerVerification(id);setVerification(v.verifications)}}catch(e){setError(e instanceof Error?e.message:"Unable to load organization")}finally{setLoading(false)}}
+ async function load(){setLoading(true);setError(null);try{const r=await getCustomerOrganizations();setOrgs(r.organizations);setOrg(r.organizations[0]?.id||"")}catch(e){setError(e instanceof Error?e.message:"Unable to load account")}finally{setLoading(false)}}
  useEffect(()=>{const requested=new URLSearchParams(window.location.search).get("service");if(requested&&SERVICES.some(x=>x[0]===requested))setService(requested);void load()},[]);
- async function selectOrg(id:string){setOrg(id);setError(null);try{const v=await getCustomerVerification(id);setVerification(v.verifications)}catch(e){setError(e instanceof Error?e.message:"Unable to load verification")}}
- async function requestAdmission(){setError(null);try{await apiFetch("/api/v1/customer/organizations/"+encodeURIComponent(org)+"/admission",{method:"POST"});await load()}catch(e){setError(e instanceof Error?e.message:"Admission request failed")}}
- async function submit(e:FormEvent){e.preventDefault();setError(null);setResult(null);try{const r=await apiFetch<any>("/api/v1/customer/service-requests",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({organization_id:org,service_key:service,urgency,description:[`Target: ${target.trim()}`,`Service objective: ${description.trim()}`].join("\n")})});setResult(r);setTarget("");setDescription("")}catch(e){setError(e instanceof Error?e.message:"Service request failed")}}
+ async function submit(e:FormEvent){e.preventDefault();setError(null);setResult(null);try{const r=await apiFetch<any>("/api/v1/customer/service-requests",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({...(org?{organization_id:org}:{}),service_key:service,urgency,description:[`Target: ${target.trim()}`,`Service objective: ${description.trim()}`].join("\n")})});setResult(r);setTarget("");setDescription("")}catch(e){setError(e instanceof Error?e.message:"Service request failed")}}
  const current=orgs.find(x=>x.id===org); const guidance=SERVICE_GUIDANCE[service]||DEFAULT_GUIDANCE; const serviceName=SERVICES.find(x=>x[0]===service)?.[1]||service;
  const progress=typeof result?.progress_percent==="number"?result.progress_percent:typeof result?.progress==="number"?result.progress:null;
  const stage=typeof result?.stage==="string"?result.stage:null;
@@ -35,17 +33,15 @@ export default function RequestService(){ const [orgs,setOrgs]=useState<Customer
   <div className="relative z-10 mx-auto max-w-4xl px-5 py-10 md:py-14">
    <div className="text-[9px] uppercase tracking-[.22em] text-[#4f8494]">Controlled request</div><h1 className="mt-3 text-3xl font-semibold md:text-4xl">Start a security workflow.</h1><p className="mt-3 text-sm leading-7 text-[#8ca6ad]">Tell Cyclothone the outcome you need. The platform will route the request through the authorized service workflow. Progress is shown only when the live service returns a real stage or percentage.</p>
    {error&&<div className="mt-6 rounded-2xl border border-[#ff3d67]/30 bg-[#250910]/50 p-4 text-xs text-[#ff8ba0]">{error}</div>}
-   {loading?<div className="mt-8 text-center text-xs text-[#69858d]">Reading organization state…</div>:!orgs.length?<div className="mt-8 rounded-[2rem] border border-dashed border-white/10 bg-[#031019]/70 p-9 text-center text-xs text-[#69858d]">No organization is available.<br/><a className="mt-3 inline-block text-[#c2f35a]" href="/customer/profile">Create one in Profile →</a></div>:
-   <form onSubmit={submit} className="mt-8">
+   {loading?<div className="mt-8 text-center text-xs text-[#69858d]">Reading organization state…</div>? onSubmit={submit} className="mt-8">
     <div className="border-b border-white/10 pb-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <div className="text-[9px] uppercase tracking-[.18em] text-[#4f8494]">Workspace</div>
-          <div className="mt-1 text-sm">{current?.legal_name}</div>
+          <div className="mt-1 text-sm">{current?.legal_name||"Personal request"}</div>
         </div>
-        <div className="text-[10px] text-[#8ca6ad]">Admission <span className="text-[#e8f1f3]">{current?.admission_status}</span> · Verification <span className="text-[#e8f1f3]">{current?.verification_status}</span></div>
+        
       </div>
-      {current?.admission_status !== "approved" && <p className="mt-3 text-[11px] leading-5 text-[#ffd27a]">This workspace must be admitted before a protected request can start. <a href="/customer/workspace" className="text-[#c2f35a]">Open workspace →</a></p>}
     </div>
 
     <section className="border-b border-white/10 py-7">
@@ -76,7 +72,7 @@ export default function RequestService(){ const [orgs,setOrgs]=useState<Customer
           {["low","normal","high","critical"].map(x=><option key={x}>{x}</option>)}
         </select>
       </label>
-      <button disabled={!org||current?.admission_status!=="approved"} className="rounded-full border border-[#c2f35a]/50 bg-[#5f8e1f]/30 px-7 py-3.5 text-sm text-[#ddff9a] shadow-[0_14px_45px_rgba(194,243,90,.08)] transition hover:bg-[#6e9e25]/35 disabled:cursor-not-allowed disabled:opacity-35">
+      <button disabled={loading} className="rounded-full border border-[#c2f35a]/50 bg-[#5f8e1f]/30 px-7 py-3.5 text-sm text-[#ddff9a] shadow-[0_14px_45px_rgba(194,243,90,.08)] transition hover:bg-[#6e9e25]/35 disabled:cursor-not-allowed disabled:opacity-35">
         Begin controlled workflow →
       </button>
     </section>
