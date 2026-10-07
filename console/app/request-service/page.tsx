@@ -33,7 +33,7 @@ export default function RequestService(){ const [orgs,setOrgs]=useState<Customer
   <div className="relative z-10 mx-auto max-w-4xl px-5 py-10 md:py-14">
    <div className="text-[9px] uppercase tracking-[.22em] text-[#4f8494]">Controlled request</div><h1 className="mt-3 text-3xl font-semibold md:text-4xl">Start a security workflow.</h1><p className="mt-3 text-sm leading-7 text-[#8ca6ad]">Tell Cyclothone the outcome you need. The platform will route the request through the authorized service workflow. Progress is shown only when the live service returns a real stage or percentage.</p>
    {error&&<div className="mt-6 rounded-2xl border border-[#ff3d67]/30 bg-[#250910]/50 p-4 text-xs text-[#ff8ba0]">{error}</div>}
-   {loading?<div className="mt-8 text-center text-xs text-[#69858d]">Reading organization state…</div>? onSubmit={submit} className="mt-8">
+   {loading?<div className="mt-8 text-center text-xs text-[#69858d]">Reading account state…</div>:<form onSubmit={submit} className="mt-8">
     <div className="border-b border-white/10 pb-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
