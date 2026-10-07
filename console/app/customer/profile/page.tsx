@@ -52,7 +52,7 @@ export default function CustomerProfile() {
           <h2 className="font-medium">Create organization</h2>
           <div className="mt-4 grid gap-4 md:grid-cols-2">
             <label className="text-xs">Legal / organization name<input required value={name} onChange={e=>setName(e.target.value)} className="mt-2 w-full border border-[#2a3646] bg-[#05070a] p-3" placeholder="Your company or organization"/></label>
-            <label className="text-xs">Website domain <span className="text-[#5a6675]">(optional)</span><input value={domain} onChange={e=>setDomain(e.target.value)} className="mt-2 w-full border border-[#2a3646] bg-[#05070a] p-3" placeholder="company.com"/></label>
+            <label className="text-xs">Website <input required value={domain} onChange={e=>setDomain(e.target.value)} className="mt-2 w-full border border-[#2a3646] bg-[#05070a] p-3" placeholder="company.com"/></label>
             </div>
           <button disabled={busy} className="mt-5 w-full rounded-full border border-[#c2f35a]/50 bg-[#c2f35a]/10 px-4 py-3 text-sm text-[#ddff9a] transition hover:bg-[#c2f35a]/15 disabled:opacity-40">{busy?"Creating organization…":"Create organization"}</button>
         </form>
