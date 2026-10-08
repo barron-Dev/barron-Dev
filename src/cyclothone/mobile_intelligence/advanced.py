@@ -39,7 +39,8 @@ class SS7Anomaly:
         while arr and arr[0] < cutoff:
             arr.popleft()
 
-        rate = len(arr) / (self.window_ms / 1000)
+        burst_window_s = max((now - arr[0]) / 1000, 1.0) if arr else 1.0
+        rate = len(arr) / min(self.window_ms / 1000, burst_window_s)
         mean = float(os.getenv("MDI_SS7_BASELINE_MEAN", "5"))
         sd = float(os.getenv("MDI_SS7_BASELINE_SD", "2"))
         z = (rate - mean) / sd if sd > 0 else 0.0
@@ -191,6 +192,8 @@ class AdvancedMdiService:
         algorithm: str,
         explanation: dict[str, Any],
         case_id: str | None = None,
+        tenant_id: str,
+
     ) -> dict[str, Any]:
         row = await supabase.insert_one(
             "mdi_advanced_alerts",
@@ -203,11 +206,12 @@ class AdvancedMdiService:
                 "algorithm": algorithm,
                 "explanation": explanation,
                 "case_id": case_id,
+                "tenant_id": tenant_id,
             },
         )
         return dict(row)
 
-    async def observe_ss7(self, gt: str, opcode: str, timestamp_ms: int | None = None) -> dict[str, Any]:
+    async def observe_ss7(self, gt: str, opcode: str, timestamp_ms: int | None = None, *, tenant_id: str) -> dict[str, Any]:
         decision = self.ss7.observe(gt, opcode, timestamp_ms)
         if decision is None:
             return {"detected": False}
@@ -218,6 +222,7 @@ class AdvancedMdiService:
             score=min(1.0, decision.z_score / 10),
             action=decision.action,
             algorithm="ss7_map_sliding_zscore_v1",
+            tenant_id=tenant_id,
             explanation={
                 "gt": decision.gt,
                 "opcode": decision.opcode,
@@ -227,7 +232,7 @@ class AdvancedMdiService:
         )
         return {"detected": True, "decision": decision.__dict__, "alert": alert}
 
-    async def observe_otp(self, event: dict[str, Any]) -> dict[str, Any]:
+    async def observe_otp(self, event: dict[str, Any], *, tenant_id: str) -> dict[str, Any]:
         decision = detect_otp_relay(**event)
         if not decision.block:
             return {"detected": False, "decision": decision.__dict__}
@@ -238,11 +243,12 @@ class AdvancedMdiService:
             score=min(1.0, max(0.0, 1 - decision.latency_ms / 5000)),
             action="block_otp_route",
             algorithm="otp_relay_stream_v1",
+            tenant_id=tenant_id,
             explanation={"reason": decision.reason, "latency_ms": decision.latency_ms},
         )
         return {"detected": True, "decision": decision.__dict__, "alert": alert}
 
-    async def observe_flash_calls(self, calls: list[dict[str, Any]]) -> dict[str, Any]:
+    async def observe_flash_calls(self, calls: list[dict[str, Any]], *, tenant_id: str) -> dict[str, Any]:
         findings = flash_call_anomaly(calls)
         alerts = []
         for finding in findings:
@@ -253,6 +259,7 @@ class AdvancedMdiService:
                 score=float(finding["risk"]),
                 action="review_otp_flash_call_route",
                 algorithm="flash_call_burst_v1",
+                tenant_id=tenant_id,
                 explanation=finding,
             ))
         return {"detected": bool(alerts), "alerts": alerts}
@@ -261,7 +268,7 @@ class AdvancedMdiService:
         fingerprint = trunk_fingerprint(sip_invite)
         return {"fingerprint": fingerprint}
 
-    async def observe_cross_border(self, events: list[dict[str, Any]]) -> dict[str, Any]:
+    async def observe_cross_border(self, events: list[dict[str, Any]], *, tenant_id: str) -> dict[str, Any]:
         links = link_cross_border(events)
         alerts = []
         for left, right, score in links:
@@ -272,6 +279,7 @@ class AdvancedMdiService:
                 score=score,
                 action="correlate_investigation",
                 algorithm="cross_border_imei_temporal_v1",
+                tenant_id=tenant_id,
                 explanation={"subject_a": left, "subject_b": right, "link_score": score},
             ))
         return {"detected": bool(alerts), "links": links, "alerts": alerts}

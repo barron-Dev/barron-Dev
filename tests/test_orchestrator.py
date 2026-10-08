@@ -40,18 +40,42 @@ def test_action_classification():
 
 @pytest.mark.asyncio
 async def test_high_impact_queued_for_approval():
-    dispatcher = AsyncMock()
-    orch = ResponseOrchestrator(dispatcher, FakeStore())
-    result = await orch.run_chain(tenant_id=uuid4(), case_id=uuid4(), device_id=uuid4(), plan=[ActionPlan("isolate_host", {}, True)], issued_by="test")
+    from datetime import UTC, datetime, timedelta
+    from cyclothone.ai.envelope_issuer import EnvelopeIssueRequest
+    from cyclothone.ai.execution_gate import AgentEnvelope
+
+    tenant, agent, run_id = uuid4(), uuid4(), uuid4()
+    request = EnvelopeIssueRequest(
+        tenant_id=tenant, agent_id=agent, model_id="model-a", provider_id="provider-a",
+        tool_name="isolate_host", action="isolate_host", args={}, target="device-1",
+        mission_id="mission-a", mission_version=1, mission_hash="d" * 64,
+    )
+    envelope = AgentEnvelope(
+        "env-issued", tenant, agent, "model-a", "provider-a", "isolate_host", "isolate_host",
+        {}, "device-1", datetime.now(UTC), datetime.now(UTC) + timedelta(minutes=1),
+        "kid", "sig", "1", "b" * 64, "mission-a", 1, "d" * 64,
+    )
+    issuer = AsyncMock()
+    issuer.issue = AsyncMock(return_value=envelope)
+    gate = AsyncMock()
+    store = FakeStore()
+    orch = ResponseOrchestrator(dispatcher=AsyncMock(), store=store, execution_gate=gate, envelope_issuer=issuer)
+    result = await orch.run_chain(
+        tenant_id=tenant, case_id=uuid4(), device_id=uuid4(),
+        plan=[ActionPlan("isolate_host", {}, True, envelope_request=request, run_id=run_id)],
+        issued_by="test",
+    )
     assert result.queued == ["1"]
-    dispatcher.issue.assert_not_called()
+    assert store.rows["1"]["ai_run_id"] == run_id
+    gate.validate.assert_awaited_once()
+    orch.dispatcher.issue.assert_not_called()
 
 
 @pytest.mark.asyncio
 async def test_dry_run_never_dispatches():
     dispatcher = AsyncMock()
     orch = ResponseOrchestrator(dispatcher, FakeStore())
-    result = await orch.run_chain(tenant_id=uuid4(), case_id=uuid4(), device_id=uuid4(), plan=[ActionPlan("kill_process", {"pid": 1})], issued_by="test", dry_run=True)
+    result = await orch.run_chain(tenant_id=uuid4(), case_id=uuid4(), device_id=uuid4(), plan=[ActionPlan("scan_now", {"pid": 1})], issued_by="test", dry_run=True)
     assert result.dispatched == ["1"]
     dispatcher.issue.assert_not_called()
 

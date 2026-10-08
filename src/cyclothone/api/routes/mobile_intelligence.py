@@ -31,16 +31,16 @@ async def create_authorization(body:AuthorizationRequest,p:DeveloperPrincipal=De
     return {"id":str(row["id"]),"status":"pending"}
 @router.post("/authorizations/{authorization_id}/approve")
 async def approve_authorization(authorization_id:str,p:DeveloperPrincipal=Depends(operator_principal)):
-    row=await supabase.select_one("mobile_authorizations","id,tenant_id,status,valid_to",id=authorization_id)
+    row=await supabase.select_one("mobile_authorizations","id,tenant_id,status,valid_to",id=authorization_id,tenant_id=p.tenant_id)
     if not row: raise HTTPException(404,"authorization_not_found")
     if row.get("status")!="pending": raise HTTPException(409,"authorization_not_pending")
-    updated=await supabase.update("mobile_authorizations",{"status":"approved","approved_by":p.user_id},id=authorization_id)
+    updated=await supabase.update("mobile_authorizations",{"status":"approved","approved_by":p.user_id},id=authorization_id,tenant_id=p.tenant_id)
     return {"id":authorization_id,"status":"approved","tenant_id":updated.get("tenant_id") if updated else row.get("tenant_id")}
 @router.post("/authorizations/{authorization_id}/revoke")
 async def revoke_authorization(authorization_id:str,p:DeveloperPrincipal=Depends(operator_principal)):
-    row=await supabase.select_one("mobile_authorizations","id,status",id=authorization_id)
+    row=await supabase.select_one("mobile_authorizations","id,status",id=authorization_id,tenant_id=p.tenant_id)
     if not row: raise HTTPException(404,"authorization_not_found")
-    updated=await supabase.update("mobile_authorizations",{"status":"revoked"},id=authorization_id); return {"id":authorization_id,"status":updated.get("status") if updated else "revoked"}
+    updated=await supabase.update("mobile_authorizations",{"status":"revoked"},id=authorization_id,tenant_id=p.tenant_id); return {"id":authorization_id,"status":updated.get("status") if updated else "revoked"}
 @router.post("/query")
 async def query(body:IntelligenceRequest,p:DeveloperPrincipal=Depends(principal)):
     try:

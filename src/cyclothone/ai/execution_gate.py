@@ -90,6 +90,13 @@ class AgentExecutionGate:
             raise AgentExecutionDenied("model binding mismatch")
         if envelope.provider_id != expected_provider_id:
             raise AgentExecutionDenied("provider binding mismatch")
+        digest = hashlib.sha256(
+            json.dumps(
+                envelope.canonical(), sort_keys=True, separators=(",", ":"), ensure_ascii=True
+            ).encode("utf-8")
+        ).hexdigest()
+        if not await verify_digest_signature(digest, envelope.signature_b64, envelope.signer_kid):
+            raise AgentExecutionDenied("invalid envelope signature")
         if (expected_mission_id, expected_mission_version, expected_mission_hash) != (envelope.mission_id, envelope.mission_version, envelope.mission_hash):
             raise AgentExecutionDenied("mission binding mismatch")
         if not envelope.mission_id or envelope.mission_version is None or not envelope.mission_hash:
@@ -104,13 +111,6 @@ class AgentExecutionGate:
             raise AgentExecutionDenied("invalid provider binding hash")
         if not envelope.tool_name or not envelope.action or envelope.tool_name != envelope.action:
             raise AgentExecutionDenied("tool/action binding mismatch")
-        digest = hashlib.sha256(
-            json.dumps(
-                envelope.canonical(), sort_keys=True, separators=(",", ":"), ensure_ascii=True
-            ).encode("utf-8")
-        ).hexdigest()
-        if not await verify_digest_signature(digest, envelope.signature_b64, envelope.signer_kid):
-            raise AgentExecutionDenied("invalid envelope signature")
         policy = await self.policy.check(tenant_id, envelope.agent_id, envelope.tool_name, envelope.args)
         if not policy.get("allowed") and not policy.get("requires_approval"):
             raise AgentExecutionDenied(str(policy.get("reason") or "tool policy denied"))

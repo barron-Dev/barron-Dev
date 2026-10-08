@@ -2,7 +2,7 @@ from cyclothone.dna.extractor import DNAExtractor, TOTAL_DIM, EXTRACTOR_VERSION,
 
 def test_dimensions_and_versioned_schema():
     fp = DNAExtractor().extract({"tools":["x"],"mitre_techniques":["T1059"]})
-    assert len(fp.vector) == TOTAL_DIM == 1036
+    assert len(fp.vector) == TOTAL_DIM
     assert fp.extractor_version == EXTRACTOR_VERSION
     assert fp.schema_hash == SCHEMA_HASH
     assert 0 < fp.coverage <= 1

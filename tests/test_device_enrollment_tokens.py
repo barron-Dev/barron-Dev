@@ -18,6 +18,7 @@ async def test_enrollment_token_is_hashed_and_never_sent_to_rpc():
         tenant_id=str(uuid4()),
         app_id=str(uuid4()),
         scopes=frozenset({"console:write"}),
+        user_id=None,
         auth_type="api_key",
     )
     rpc = AsyncMock(
