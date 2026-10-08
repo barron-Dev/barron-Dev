@@ -1,7 +1,7 @@
-import http from "node:http";
-const port=Number(process.env.PORT||8080);
-const sleep=ms=>new Promise(r=>setTimeout(r,ms));
-const url=(process.env.SUPABASE_URL||"").replace(/\/$/,""),key=process.env.SUPABASE_SERVICE_ROLE_KEY;
-async function detect(){if(!url||!key)throw new Error("missing_supabase_configuration");const h={apikey:key,Authorization:`Bearer ${key}`,Accept:"application/json"};const since=new Date(Date.now()-120000).toISOString();const q=`mdi_rf_observations?select=id,subject_id,radio,rx_level_dbm,ssid,gnss_sats,spoof_flag,observed_at&observed_at=gt.${encodeURIComponent(since)}&limit=500`;const rr=await fetch(url+"/rest/v1/"+q,{headers:h});if(!rr.ok)throw new Error("supabase_"+rr.status);for(const o of await rr.json()){const t=[];if(o.radio==="gnss"&&(o.spoof_flag||Number(o.gnss_sats??99)<4))t.push(["gps_spoofer",4,.7,"gnss_integrity_v1"]);for(const [threat_type,severity,confidence,algorithm] of t){await fetch(url+"/rest/v1/mdi_rf_threats",{method:"POST",headers:{...h,"Content-Type":"application/json",Prefer:"return=minimal"},body:JSON.stringify({observation_id:o.id,threat_type,severity,confidence,algorithm,explanation:{source:"consented_rf_observation"}})});}}}
-const server=http.createServer((req,res)=>{res.writeHead(req.url==="/health"?200:404,{"content-type":"application/json"});res.end(JSON.stringify(req.url==="/health"?{status:"ok",service:"mdi-rf-bundle"}:{error:"not_found"}));});server.listen(port,"0.0.0.0");
-for(;;){try{await detect()}catch(e){console.error(JSON.stringify({component:"mdi-rf-bundle",error:String(e)}));}await sleep(60000);}
+import {spawn} from "node:child_process";import http from "node:http";
+const port=Number(process.env.PORT||8080),env={...process.env};
+const a=spawn("node",["/app/rf-worker/src/index.js"],{env,stdio:"inherit"});
+const b=spawn("node",["/app/voice-worker/src/index.js"],{env,stdio:"inherit"});
+const fail=c=>process.exit(c??1);a.on("exit",fail);b.on("exit",fail);
+const s=http.createServer((q,r)=>{r.writeHead(q.url==="/health"?200:404,{"content-type":"application/json"});r.end(JSON.stringify(q.url==="/health"?{status:"ok",service:"mdi-rf-bundle",workers:["rf","voice"]}:{error:"not_found"}));});
+s.listen(port,"0.0.0.0");

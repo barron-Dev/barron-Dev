@@ -67,7 +67,7 @@ async function syncRansomwareGroups(){
 }
 
 export async function syncCti(){
-  const actorIds=(process.env.MDI_GAPMATRIX_ACTORS||"APT28,Lazarus,FIN7").split(",").map(s=>s.trim()).filter(Boolean);
+  const actorIds=(process.env.MDI_GAPMATRIX_ACTORS||"").split(",").map(s=>s.trim()).filter(Boolean);
   const gap=[];
   for(const id of actorIds){
     try{gap.push(await syncGapMatrixActor(id));}

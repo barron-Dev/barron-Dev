@@ -28,19 +28,23 @@ async def create_authorization(body:AuthorizationRequest,p:DeveloperPrincipal=De
     try: normalized=normalize_number(body.number)
     except MobileIntelligenceError as exc: raise HTTPException(422,str(exc)) from exc
     row=await supabase.insert_one("mobile_authorizations",{"tenant_id":p.tenant_id,"app_id":p.app_id,"subject_hash":subject_hash(normalized),"purpose":body.purpose.strip(),"authority_reference":body.authority_reference.strip(),"valid_from":datetime.now(UTC).isoformat(),"valid_to":(datetime.now(UTC)+timedelta(hours=body.valid_hours)).isoformat(),"status":"pending","requested_by":p.user_id})
+    await service._audit(__import__("uuid").UUID(p.tenant_id),p.app_id,str(row["id"]),str(row["id"]),"authorization.requested",{"valid_hours":body.valid_hours})
     return {"id":str(row["id"]),"status":"pending"}
 @router.post("/authorizations/{authorization_id}/approve")
 async def approve_authorization(authorization_id:str,p:DeveloperPrincipal=Depends(operator_principal)):
-    row=await supabase.select_one("mobile_authorizations","id,tenant_id,status,valid_to",id=authorization_id)
+    row=await supabase.select_one("mobile_authorizations","id,tenant_id,app_id,status,valid_to",id=authorization_id,tenant_id=p.tenant_id)
     if not row: raise HTTPException(404,"authorization_not_found")
     if row.get("status")!="pending": raise HTTPException(409,"authorization_not_pending")
-    updated=await supabase.update("mobile_authorizations",{"status":"approved","approved_by":p.user_id},id=authorization_id)
-    return {"id":authorization_id,"status":"approved","tenant_id":updated.get("tenant_id") if updated else row.get("tenant_id")}
+    updated=await supabase.update("mobile_authorizations",{"status":"approved","approved_by":p.user_id},id=authorization_id,tenant_id=p.tenant_id)
+    await service._audit(__import__("uuid").UUID(p.tenant_id),str(row["app_id"]),authorization_id,authorization_id,"authorization.approved")
+    return {"id":authorization_id,"status":"approved","tenant_id":p.tenant_id}
 @router.post("/authorizations/{authorization_id}/revoke")
 async def revoke_authorization(authorization_id:str,p:DeveloperPrincipal=Depends(operator_principal)):
-    row=await supabase.select_one("mobile_authorizations","id,status",id=authorization_id)
+    row=await supabase.select_one("mobile_authorizations","id,tenant_id,app_id,status",id=authorization_id,tenant_id=p.tenant_id)
     if not row: raise HTTPException(404,"authorization_not_found")
-    updated=await supabase.update("mobile_authorizations",{"status":"revoked"},id=authorization_id); return {"id":authorization_id,"status":updated.get("status") if updated else "revoked"}
+    updated=await supabase.update("mobile_authorizations",{"status":"revoked"},id=authorization_id,tenant_id=p.tenant_id)
+    await service._audit(__import__("uuid").UUID(p.tenant_id),str(row["app_id"]),authorization_id,authorization_id,"authorization.revoked")
+    return {"id":authorization_id,"status":updated.get("status") if updated else "revoked"}
 @router.post("/query")
 async def query(body:IntelligenceRequest,p:DeveloperPrincipal=Depends(principal)):
     try:

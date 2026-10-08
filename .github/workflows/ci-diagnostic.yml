@@ -1,6 +1,7 @@
 name: Cyclothone CI Diagnostic
 
 on:
+  pull_request:
   push:
     branches:
       - "bulk/response-execution-chain"
