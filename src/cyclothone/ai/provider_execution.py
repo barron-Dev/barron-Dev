@@ -47,7 +47,12 @@ def _openai_request(*, model_id: str, input_text: str) -> dict:
         raise RuntimeError("OpenAI provider transport failure") from exc
 
 
-def _parse_response(data: dict, *, latency_ms: int) -> ProviderExecutionResult:
+def _parse_response(
+    data: dict,
+    *,
+    latency_ms: int,
+    cost_meta: dict,
+) -> ProviderExecutionResult:
     output = data.get("output_text")
     if not isinstance(output, str):
         parts = []
@@ -59,15 +64,44 @@ def _parse_response(data: dict, *, latency_ms: int) -> ProviderExecutionResult:
     if not output:
         raise RuntimeError("OpenAI response contained no text output")
 
-    usage = data.get("usage") or {}
+    usage = data.get("usage")
+    if not isinstance(usage, dict) or "input_tokens" not in usage or "output_tokens" not in usage:
+        raise RuntimeError("OpenAI response omitted token usage; refusing to record zero cost")
+    tokens_in = int(usage["input_tokens"])
+    tokens_out = int(usage["output_tokens"])
     details = usage.get("input_tokens_details") or {}
+    tokens_cached = int(details.get("cached_tokens") or 0)
+    if min(tokens_in, tokens_out, tokens_cached) < 0 or tokens_cached > tokens_in:
+        raise RuntimeError("OpenAI response contained invalid token usage")
+
+    required_prices = (
+        "input_usd_per_million_tokens",
+        "cached_input_usd_per_million_tokens",
+        "output_usd_per_million_tokens",
+    )
+    if not isinstance(cost_meta, dict) or any(key not in cost_meta for key in required_prices):
+        raise RuntimeError("Model pricing is not registered; refusing to record zero cost")
+
+    input_rate = Decimal(str(cost_meta["input_usd_per_million_tokens"]))
+    cached_rate = Decimal(str(cost_meta["cached_input_usd_per_million_tokens"]))
+    output_rate = Decimal(str(cost_meta["output_usd_per_million_tokens"]))
+    if min(input_rate, cached_rate, output_rate) < 0:
+        raise RuntimeError("Model pricing contains a negative rate")
+
+    uncached_tokens = tokens_in - tokens_cached
+    cost = (
+        Decimal(uncached_tokens) * input_rate
+        + Decimal(tokens_cached) * cached_rate
+        + Decimal(tokens_out) * output_rate
+    ) / Decimal(1_000_000)
+
     return ProviderExecutionResult(
         output_text=output,
-        tokens_in=int(usage.get("input_tokens") or 0),
-        tokens_out=int(usage.get("output_tokens") or 0),
-        tokens_cached=int(details.get("cached_tokens") or 0),
+        tokens_in=tokens_in,
+        tokens_out=tokens_out,
+        tokens_cached=tokens_cached,
         latency_ms=max(0, latency_ms),
-        cost_usd=Decimal("0"),
+        cost_usd=cost.quantize(Decimal("0.00000001")),
     )
 
 
@@ -85,12 +119,32 @@ async def execute_openai_run(
     if not rows:
         raise HTTPException(status_code=404, detail="AI run not found")
     run = rows[0]
+    tenant_id = str(run["tenant_id"])
     provider_id = str(run["provider_id"])
     model_id = str(run["model_id"])
     if provider_id.lower() != "openai":
         raise HTTPException(status_code=409, detail="unsupported provider executor")
     if run["run_state"] not in {"AUTHORIZED", "RUNNING"}:
         raise HTTPException(status_code=409, detail="AI run is not executable")
+
+    provider_response = await client.table("ai_providers").select(
+        "lifecycle_state,circuit_state"
+    ).eq("id", provider_id).limit(1).execute()
+    providers = provider_response.data or []
+    if not providers or providers[0].get("lifecycle_state") != "ACTIVE" or providers[0].get("circuit_state") == "OPEN":
+        raise HTTPException(status_code=409, detail="OpenAI provider is not active in the registry")
+
+    model_response = await client.table("ai_models").select(
+        "provider_model_key,lifecycle_state,cost_meta"
+    ).eq("id", model_id).eq("tenant_id", tenant_id).limit(1).execute()
+    models = model_response.data or []
+    if not models or models[0].get("lifecycle_state") != "ACTIVE":
+        raise HTTPException(status_code=409, detail="AI model is not active for this tenant")
+    model = models[0]
+    provider_model_key = str(model.get("provider_model_key") or "")
+    cost_meta = model.get("cost_meta") or {}
+    if not provider_model_key:
+        raise HTTPException(status_code=409, detail="AI model has no provider model key")
 
     claim_response = await client.rpc(
         "ai_claim_provider_execution",
@@ -107,8 +161,12 @@ async def execute_openai_run(
 
     started = monotonic()
     try:
-        data = await asyncio.to_thread(_openai_request, model_id=model_id, input_text=input_text)
-        result = _parse_response(data, latency_ms=int((monotonic() - started) * 1000))
+        data = await asyncio.to_thread(_openai_request, model_id=provider_model_key, input_text=input_text)
+        result = _parse_response(
+            data,
+            latency_ms=int((monotonic() - started) * 1000),
+            cost_meta=cost_meta,
+        )
         await client.rpc(
             "ai_record_provider_usage",
             {
