@@ -128,7 +128,7 @@ export default function RequestService(){ const [orgs,setOrgs]=useState<Customer
       </div>}
       {["failed","blocked"].includes(result.processing_state)&&<div className="mt-4 text-sm text-[#ff8ba0]">Execution did not complete. Error code: {result.failure_code||"execution_failed"}</div>}
     </div>}
-    {result&&<div className="border-t border-[#c2f35a]/20 py-6">
+    {result&&result.service!=="dark_web_monitoring"&&<div className="border-t border-[#c2f35a]/20 py-6">
       <div className="text-[9px] uppercase tracking-[.18em] text-[#c2f35a]">Request accepted</div>
       <div className="mt-2 text-lg">The workflow has been recorded.</div>
       {stage&&<div className="mt-2 text-xs text-[#8ca6ad]">Live stage: <span className="text-[#c2f35a]">{stage}</span></div>}
