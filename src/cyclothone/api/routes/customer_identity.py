@@ -721,8 +721,22 @@ async def create_service_request(body:ServiceRequest,p:DeveloperPrincipal=Depend
                 "observed_emails":len(page.emails),"observed_urls":len(page.urls),"observed_wallets":len(page.wallets),
                 "credential_indicators":page.credential_indicators,"finding_count":len(findings),"findings":findings,
                 "method":"bounded passive public HTTP assessment"}
+            rank={"critical":4,"high":3,"medium":2,"low":1,"informational":0}
+            severity=max((f["severity"] for f in findings),key=lambda level:rank[level])
+            case_number=await supabase.rpc("next_case_number",{"p_tenant":str(org["tenant_id"])})
+            case=await supabase.insert_one("crime_cases",{
+                "tenant_id":str(org["tenant_id"]),"case_number":str(case_number),
+                "title":f"Cybersecurity Assessment — {parsed.hostname}","category":"other",
+                "severity":severity,"status":"open",
+                "summary":f"Passive external assessment completed for {parsed.hostname}. {len(findings)} observations recorded.",
+                "evidence":[{"type":"cybersecurity_assessment","target":str(page.url),"observations":summary}],
+            })
+            await supabase.insert_one("customer_case_links",{
+                "organization_id":organization_id,"service_request_id":str(row["id"]),"case_id":str(case["id"]),
+            })
+            summary["case_id"]=str(case["id"])
             await supabase.update("service_requests",{"status":"resolved","processing_state":"succeeded","result":summary,"completed_at":datetime.now(UTC).isoformat()},id=str(row["id"]))
-            return {**row,"status":"resolved","processing_state":"succeeded","result":summary}
+            return {**row,"status":"resolved","processing_state":"succeeded","case_id":str(case["id"]),"result":summary}
         except HTTPException:
             raise
         except Exception:
