@@ -106,7 +106,8 @@ class DarkWebRequestWorker:
                 logger.warning("dark-web request rejected id=%s reason=%s", row.get("id"), str(exc))
                 try:
                     await supabase.rpc("complete_service_request", {
-                        "p_id": row["id"], "p_state": "blocked", "p_status": "blocked",
+                        "p_id": row["id"], "p_attempt": int(row["attempts"]),
+                        "p_state": "blocked", "p_status": "blocked",
                         "p_result": {"service": "dark_web_monitoring", "error": "invalid_target"},
                         "p_failure_code": str(exc)[:80] or "invalid_target",
                     })
@@ -126,7 +127,7 @@ class DarkWebRequestWorker:
             "customer_organizations", "id,tenant_id", id=organization_id
         )
         if not org or not org.get("tenant_id"):
-            await self._complete(request_id, "blocked", "blocked", {"error": "tenant_unavailable"}, "tenant_unavailable")
+            await self._complete(request, "blocked", "blocked", {"error": "tenant_unavailable"}, "tenant_unavailable")
             return
         tenant_id = str(org["tenant_id"])
         watch_kind = {"domain": "domain", "url": "domain", "email": "email", "brand": "company_name",
@@ -241,7 +242,11 @@ class DarkWebRequestWorker:
                 case = await supabase.insert_one("crime_cases", {
                     "tenant_id": tenant_id, "case_number": str(case_number),
                     "title": f"Dark Web Monitoring — {watch_value[:120]}",
-                    "category": "other", "severity": max((str(a.get("severity", "medium")) for a in relevant_alerts), default="medium"),
+                    "category": "other", "severity": max(
+                        (str(a.get("severity", "medium")).lower() for a in relevant_alerts),
+                        key=lambda value: {"critical": 4, "high": 3, "medium": 2, "low": 1, "info": 0}.get(value, 2),
+                        default="medium",
+                    ),
                     "status": "open", "summary": f"Exact dark-web exposure match for {watch_value}.",
                     "evidence": evidence[:200],
                 })
@@ -264,10 +269,13 @@ class DarkWebRequestWorker:
             ),
             "completed_at": datetime.now(UTC).isoformat(),
         }
-        await self._complete(request_id, "succeeded", "resolved", result, None)
+        await self._complete(request, "succeeded", "resolved", result, None)
 
-    async def _complete(self, request_id: str, state: str, status: str, result: dict, failure_code: str | None) -> None:
+    async def _complete(self, request: dict, state: str, status: str, result: dict, failure_code: str | None) -> None:
+        # The attempt number is a fencing token: a stale worker cannot overwrite
+        # a newer lease or a terminal result after its lease has been reclaimed.
         await supabase.rpc("complete_service_request", {
-            "p_id": request_id, "p_state": state, "p_status": status,
+            "p_id": str(request["id"]), "p_attempt": int(request["attempts"]),
+            "p_state": state, "p_status": status,
             "p_result": result, "p_failure_code": failure_code,
         })
