@@ -281,11 +281,13 @@ async def test_destructive_orchestrator_mints_and_consumes_authoritative_envelop
     env = AgentEnvelope(
         "env-issued", tenant, agent, "model-a", "provider-a", "kill_process", "kill_process",
         {"pid": 7}, "device-1", datetime.now(UTC), datetime.now(UTC) + timedelta(minutes=1),
-        "kid", "sig", "1", "b" * 64,
+        "kid", "sig", "1", "b" * 64, "mission-a", 1, "d" * 64,
     )
+    run_id = uuid4()
     request = EnvelopeIssueRequest(
         tenant_id=tenant, agent_id=agent, model_id="model-a", provider_id="provider-a",
         tool_name="kill_process", action="kill_process", args={"pid": 7}, target="device-1",
+        mission_id="mission-a", mission_version=1, mission_hash="d" * 64,
     )
     issuer = AsyncMock()
     issuer.issue = AsyncMock(return_value=env)
@@ -297,10 +299,11 @@ async def test_destructive_orchestrator_mints_and_consumes_authoritative_envelop
     dispatcher.issue = AsyncMock(return_value={"id": "cmd-1"})
 
     result = await ResponseOrchestrator(
-        dispatcher, store, execution_gate=gate, envelope_issuer=issuer
+        dispatcher, store, execution_gate=gate, envelope_issuer=issuer,
+        execution_authorizer=AsyncMock(return_value={"allowed": True, "committed": True}),
     ).run_chain(
         tenant_id=tenant, case_id=uuid4(), device_id=uuid4(),
-        plan=[ActionPlan("kill_process", {"pid": 7}, envelope_request=request)],
+        plan=[ActionPlan("kill_process", {"pid": 7}, envelope_request=request, run_id=run_id)],
         issued_by="test",
     )
 
@@ -339,6 +342,6 @@ def test_mission_binding_changes_envelope_canonical_digest():
         env.envelope_id, env.tenant_id, env.agent_id, env.model_id, env.provider_id,
         env.tool_name, env.action, env.args, env.target, env.issued_at, env.expires_at,
         env.signer_kid, env.signature_b64, env.version, env.binding_hash,
-        "mission-a", 1, "d" * 64,
+        "mission-a", 2, "d" * 64,
     )
     assert a != AgentExecutionGate._envelope_hash(changed)
