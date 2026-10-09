@@ -38,19 +38,18 @@ export default function RequestService(){ const [orgs,setOrgs]=useState<Customer
   let cancelled=false;
   let timer:ReturnType<typeof setTimeout>|undefined;
   let delay=1500;
-  let attempts=0;
   const poll=async()=>{
-    if(cancelled||attempts>=8)return;
-    attempts++;
+    if(cancelled)return;
     try{
       const state=await apiFetch<any>("/api/v1/customer/service-requests/"+encodeURIComponent(id)+"/result");
       if(cancelled)return;
       setResult((current:any)=>current?.request_id===id?{...current,...state,service:"dark_web_monitoring"}:current);
       if(["succeeded","failed","blocked"].includes(state?.processing_state))return;
     }catch(e){
-      if(!cancelled&&attempts>=8)setError(e instanceof Error?e.message:"Unable to read workflow result");
+      // A transient poll failure must not strand a still-running server-side request.
+      if(!cancelled)setError(e instanceof Error?e.message:"Unable to read workflow result");
     }
-    if(!cancelled&&attempts<8){timer=setTimeout(poll,delay);delay=Math.min(delay*1.7,10000)}
+    if(!cancelled){timer=setTimeout(poll,delay);delay=Math.min(Math.round(delay*1.7),15000)}
   };
   timer=setTimeout(poll,delay);
   return()=>{cancelled=true;if(timer)clearTimeout(timer)};
