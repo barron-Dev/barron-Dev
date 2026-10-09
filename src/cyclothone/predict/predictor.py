@@ -63,8 +63,12 @@ class AttackPathPredictor:
             raise PredictionInputError("horizon must be between 1 and 5")
         if not 1 <= top_n <= self.MAX_TOP_N:
             raise PredictionInputError("top_n must be between 1 and 100")
-        if self._node(self.graph, root) is None:
+        root_node = self._node(self.graph, root)
+        if root_node is None:
             raise PredictionInputError("root node not found")
+        # Validate root criticality too; the root is excluded from candidates but
+        # invalid graph evidence must not bypass input validation.
+        self._unit(getattr(root_node, "criticality", 0.0), "criticality")
 
         # Keep the maximum path likelihood per node. The visited map also prevents
         # cycles from expanding indefinitely while allowing a later stronger path.
@@ -89,7 +93,7 @@ class AttackPathPredictor:
                     continue
                 relation = str(getattr(edge, "relation", "unknown"))
                 multiplier = RELATION_LIKELIHOOD.get(relation, 0.5)
-                score = current_score * multiplier * edge_weight * 0.9
+                score = current_score * multiplier * edge_weight
                 next_depth = current_depth + 1
                 previous = best.get(next_id)
                 if previous is not None and previous[0] >= score and depth[next_id] <= next_depth:
