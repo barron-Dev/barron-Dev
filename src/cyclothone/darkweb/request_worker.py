@@ -230,18 +230,25 @@ class DarkWebRequestWorker:
         relevant_alerts = [a for a in alerts if str(a.get("finding_id")) in {str(f["id"]) for f in persisted}]
         case_id = None
         if relevant_alerts:
-            case_number = await supabase.rpc("next_case_number", {"p_tenant": tenant_id})
-            case = await supabase.insert_one("crime_cases", {
-                "tenant_id": tenant_id, "case_number": str(case_number),
-                "title": f"Dark Web Monitoring — {watch_value[:120]}",
-                "category": "other", "severity": max((str(a.get("severity", "medium")) for a in relevant_alerts), default="medium"),
-                "status": "open", "summary": f"Exact dark-web exposure match for {watch_value}.",
-                "evidence": evidence[:200],
-            })
-            case_id = str(case["id"])
-            await supabase.insert_one("customer_case_links", {
-                "organization_id": organization_id, "service_request_id": request_id, "case_id": case_id,
-            })
+            # Reuse a case already linked to this request if a worker retry occurs.
+            existing_link = await supabase.select_one(
+                "customer_case_links", "case_id", service_request_id=request_id,
+            )
+            if existing_link:
+                case_id = str(existing_link["case_id"])
+            else:
+                case_number = await supabase.rpc("next_case_number", {"p_tenant": tenant_id})
+                case = await supabase.insert_one("crime_cases", {
+                    "tenant_id": tenant_id, "case_number": str(case_number),
+                    "title": f"Dark Web Monitoring — {watch_value[:120]}",
+                    "category": "other", "severity": max((str(a.get("severity", "medium")) for a in relevant_alerts), default="medium"),
+                    "status": "open", "summary": f"Exact dark-web exposure match for {watch_value}.",
+                    "evidence": evidence[:200],
+                })
+                case_id = str(case["id"])
+                await supabase.insert_one("customer_case_links", {
+                    "organization_id": organization_id, "service_request_id": request_id, "case_id": case_id,
+                })
             for alert in relevant_alerts:
                 if not alert.get("case_id"):
                     await supabase.update("dw_alerts", {"case_id": case_id}, id=str(alert["id"]), tenant_id=tenant_id)
