@@ -43,7 +43,8 @@ async def test_high_impact_queued_for_approval():
     dispatcher = AsyncMock()
     orch = ResponseOrchestrator(dispatcher, FakeStore())
     result = await orch.run_chain(tenant_id=uuid4(), case_id=uuid4(), device_id=uuid4(), plan=[ActionPlan("isolate_host", {}, True)], issued_by="test")
-    assert result.queued == ["1"]
+    assert result.rejected == ["1"]
+    assert "canonical AI run binding is required" in result.reasons["1"]
     dispatcher.issue.assert_not_called()
 
 

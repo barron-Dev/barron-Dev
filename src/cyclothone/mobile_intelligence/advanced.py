@@ -39,7 +39,11 @@ class SS7Anomaly:
         while arr and arr[0] < cutoff:
             arr.popleft()
 
-        rate = len(arr) / (self.window_ms / 1000)
+        # Estimate the rate over the observed burst, bounded by the configured window.
+        # Dividing every burst by the full 60-second window masks sub-second spikes.
+        observed_ms = max(1000, arr[-1] - arr[0]) if arr else self.window_ms
+        elapsed_seconds = min(self.window_ms, observed_ms) / 1000
+        rate = len(arr) / max(elapsed_seconds, 1.0)
         mean = float(os.getenv("MDI_SS7_BASELINE_MEAN", "5"))
         sd = float(os.getenv("MDI_SS7_BASELINE_SD", "2"))
         z = (rate - mean) / sd if sd > 0 else 0.0

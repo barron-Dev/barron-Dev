@@ -13,7 +13,7 @@ _PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = tuple(
         ("concept", r"\b(what|explain|understand|mean|definition)\b"),
         ("partner", r"\b(partner|mssp|reseller|affiliate|channel)\b"),
         ("defense", r"\b(defense|gated|restricted|classified|military|sovereign)\b"),
-        ("action", r"\b(enable|disable|deploy|configure|set up|turn on|turn off|isolate|block)\b"),
+        ("action", r"\b(enable|disable|deploy|set up|turn on|turn off|isolate|block)\b"),
         ("support", r"\b(help|broken|error|bug|down|fail|ticket|issue|not working)\b"),
     )
 )
