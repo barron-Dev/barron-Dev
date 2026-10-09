@@ -296,7 +296,7 @@ async def test_destructive_orchestrator_mints_and_consumes_authoritative_envelop
         dispatcher, store, execution_gate=gate, envelope_issuer=issuer
     ).run_chain(
         tenant_id=tenant, case_id=uuid4(), device_id=uuid4(),
-        plan=[ActionPlan("kill_process", {"pid": 7}, envelope_request=request)],
+        plan=[ActionPlan("kill_process", {"pid": 7}, envelope_request=request, run_id=uuid4())],
         issued_by="test",
     )
 
@@ -335,6 +335,6 @@ def test_mission_binding_changes_envelope_canonical_digest():
         env.envelope_id, env.tenant_id, env.agent_id, env.model_id, env.provider_id,
         env.tool_name, env.action, env.args, env.target, env.issued_at, env.expires_at,
         env.signer_kid, env.signature_b64, env.version, env.binding_hash,
-        "mission-a", 1, "d" * 64,
+        "mission-b", 1, "d" * 64,
     )
     assert a != AgentExecutionGate._envelope_hash(changed)
