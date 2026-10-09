@@ -159,8 +159,8 @@ class DarkWebRequestWorker:
         sources: list[dict] = []
         pulled = []
         findings = []
-        hibp_key = os.getenv("CYCLOTHONE_HIBP_KEY", "").strip() or os.getenv("SENTINEL_HIBP_KEY", "").strip()
-        github_token = os.getenv("CYCLOTHONE_GITHUB_TOKEN", "").strip() or os.getenv("SENTINEL_GITHUB_TOKEN", "").strip()
+        hibp_key = os.getenv("CYCLOTHONE_HIBP_KEY", "").strip()
+        github_token = os.getenv("CYCLOTHONE_GITHUB_TOKEN", "").strip()
         if "ransomwatch" in enabled:
             try:
                 pulled.extend(await asyncio.wait_for(RansomwatchPuller().pull(), timeout=35))
