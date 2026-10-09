@@ -7,14 +7,14 @@ from uuid import UUID
 from cyclothone.mobile_intelligence.provider import MobileProvider, ProviderUnavailable
 from cyclothone.storage.supabase_client import supabase
 
-E164 = re.compile(r"^\\+[1-9]\\d{6,14}$")
+E164 = re.compile(r"^\+[1-9]\d{6,14}$")
 CAPABILITIES = {"number_verification","sim_swap_check","sim_swap_date","device_swap_check","device_swap_date","device_identifier","device_type","location_retrieval","location_verification","reachability","roaming"}
 
 class MobileIntelligenceError(RuntimeError):
     pass
 
 def normalize_number(value: str) -> str:
-    raw = re.sub(r"[\\s().-]", "", value.strip())
+    raw = re.sub(r"[\s().-]", "", value.strip())
     if not E164.fullmatch(raw): raise MobileIntelligenceError("invalid_e164_number")
     return raw
 

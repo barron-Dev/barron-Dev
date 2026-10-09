@@ -1,3 +1,4 @@
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock
 from uuid import uuid4
 
@@ -40,10 +41,43 @@ def test_action_classification():
 
 @pytest.mark.asyncio
 async def test_high_impact_queued_for_approval():
+    from cyclothone.ai.envelope_issuer import EnvelopeIssueRequest
+    from cyclothone.ai.execution_gate import AgentEnvelope
+
+    tenant_id = uuid4()
+    agent_id = uuid4()
+    device_id = uuid4()
+    request = EnvelopeIssueRequest(
+        tenant_id=tenant_id, agent_id=agent_id, model_id="model-a",
+        provider_id="provider-a", tool_name="isolate_host",
+        action="isolate_host", args={}, target="device-1",
+    )
+    envelope = AgentEnvelope(
+        "env-approval", tenant_id, agent_id, "model-a", "provider-a",
+        "isolate_host", "isolate_host", {}, "device-1",
+        datetime.now(UTC), datetime.now(UTC) + timedelta(minutes=1),
+        "kid", "sig", "1", "b" * 64,
+    )
     dispatcher = AsyncMock()
-    orch = ResponseOrchestrator(dispatcher, FakeStore())
-    result = await orch.run_chain(tenant_id=uuid4(), case_id=uuid4(), device_id=uuid4(), plan=[ActionPlan("isolate_host", {}, True)], issued_by="test")
+    store = FakeStore()
+    issuer = AsyncMock()
+    issuer.issue = AsyncMock(return_value=envelope)
+    gate = AsyncMock()
+    orch = ResponseOrchestrator(
+        dispatcher, store, execution_gate=gate, envelope_issuer=issuer,
+        execution_authorizer=AsyncMock(),
+    )
+    result = await orch.run_chain(
+        tenant_id=tenant_id, case_id=uuid4(), device_id=device_id,
+        plan=[ActionPlan(
+            "isolate_host", {}, True, envelope_request=request, run_id=uuid4(),
+            model_id="model-a", provider_id="provider-a", target="device-1",
+        )],
+        issued_by="test",
+    )
     assert result.queued == ["1"]
+    issuer.issue.assert_awaited_once_with(request)
+    gate.validate.assert_awaited_once()
     dispatcher.issue.assert_not_called()
 
 

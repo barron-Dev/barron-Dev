@@ -158,7 +158,32 @@ class ResponseOrchestrator:
                 action_class = ACTION_CLASS.get(step.action, ActionClass.MEDIUM)
                 approval_required = step.requires_approval or action_class in (ActionClass.HIGH, ActionClass.CRITICAL)
 
-                if action_class in (ActionClass.MEDIUM, ActionClass.HIGH, ActionClass.CRITICAL) and not dry_run and step.run_id is None:
+                # Dry-run is a non-executing Control-plane path. It must not mint,
+                # validate, authorize, consume, or dispatch an AI execution envelope.
+                if dry_run:
+                    row_id = await self.store.create(
+                        tenant_id=tenant_id, case_id=case_id, device_id=device_id,
+                        action=step.action, args=step.args, status="approved",
+                        issued_by=issued_by, initiated_by_rule=initiated_by_rule,
+                        rollback_args=step.rollback, error="dry run: not dispatched",
+                    )
+                    dispatched.append(row_id)
+                    continue
+
+                # Enforce blast-radius control before any AI binding/envelope work.
+                if blast_rule_id and device_id and not await self.store.blast_allowed(blast_rule_id, blast_limit, tenant_id=tenant_id, device_id=device_id):
+                    row_id = await self.store.create(
+                        tenant_id=tenant_id, case_id=case_id, device_id=device_id,
+                        ai_run_id=step.run_id,
+                        action=step.action, args=step.args, status="rejected",
+                        issued_by=issued_by, initiated_by_rule=initiated_by_rule,
+                        rollback_args=step.rollback, error="blast radius exceeded",
+                    )
+                    rejected.append(row_id)
+                    reasons[row_id] = "blast radius exceeded"
+                    continue
+
+                if action_class in (ActionClass.MEDIUM, ActionClass.HIGH, ActionClass.CRITICAL) and step.run_id is None:
                     raise RuntimeError("canonical AI run binding is required for executable response actions")
 
                 if action_class in (ActionClass.MEDIUM, ActionClass.HIGH, ActionClass.CRITICAL):
@@ -221,18 +246,6 @@ class ResponseOrchestrator:
                             tenant_id=tenant_id,
                         )
 
-                if blast_rule_id and device_id and not await self.store.blast_allowed(blast_rule_id, blast_limit, tenant_id=tenant_id, device_id=device_id):
-                    row_id = await self.store.create(
-                        tenant_id=tenant_id, case_id=case_id, device_id=device_id,
-                        ai_run_id=step.run_id,
-                        action=step.action, args=step.args, status="rejected",
-                        issued_by=issued_by, initiated_by_rule=initiated_by_rule,
-                        rollback_args=step.rollback, error="blast radius exceeded",
-                    )
-                    rejected.append(row_id)
-                    reasons[row_id] = "blast radius exceeded"
-                    continue
-
                 if approval_required and not dry_run:
                     row_id = await self.store.create(
                         tenant_id=tenant_id, case_id=case_id, device_id=device_id,
@@ -252,16 +265,6 @@ class ResponseOrchestrator:
                         model_id=step.model_id, provider_id=step.provider_id, target=step.target,
                     )
                     queued.append(row_id)
-                    continue
-
-                if dry_run:
-                    row_id = await self.store.create(
-                        tenant_id=tenant_id, case_id=case_id, device_id=device_id,
-                        action=step.action, args=step.args, status="approved",
-                        issued_by=issued_by, initiated_by_rule=initiated_by_rule,
-                        rollback_args=step.rollback, error="dry run: not dispatched",
-                    )
-                    dispatched.append(row_id)
                     continue
 
                 row_id = await self._dispatch_step(tenant_id, case_id, device_id, step, issued_by, initiated_by_rule)
