@@ -26,6 +26,7 @@ const REQUEST_SUGGESTIONS=[
  "Check the HTTP response and content type",
  "Give me a concise risk summary and next steps"
 ];
+const DARK_WEB_SUGGESTIONS=REQUEST_SUGGESTIONS.filter(x=>x!=="Check the HTTP response and content type");
 
 function Progress({value}:{value:number|null}){if(value===null)return null;return <div className="mt-5"><div className="mb-2 flex justify-between text-[9px] uppercase tracking-[.15em] text-[#67848d]"><span>Live workflow progress</span><span className="text-[#c2f35a]">{value}%</span></div><div className="cyclo-battery"><span style={{width:Math.max(0,Math.min(100,value))+"%"}}/></div></div>}
 
