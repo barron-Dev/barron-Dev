@@ -31,7 +31,29 @@ function Progress({value}:{value:number|null}){if(value===null)return null;retur
 
 export default function RequestService(){ const [orgs,setOrgs]=useState<CustomerOrganization[]>([]),[org,setOrg]=useState(""),[service,setService]=useState("cybersecurity_assessment"),[urgency,setUrgency]=useState("normal"),[target,setTarget]=useState(""),[targetType,setTargetType]=useState("domain"),[description,setDescription]=useState(""),[verification,setVerification]=useState<any[]>([]),[error,setError]=useState<string|null>(null),[result,setResult]=useState<any>(null),[loading,setLoading]=useState(true);
  async function load(){setLoading(true);setError(null);try{const r=await getCustomerOrganizations();setOrgs(r.organizations);setOrg(r.organizations[0]?.id||"")}catch(e){setError(e instanceof Error?e.message:"Unable to load account")}finally{setLoading(false)}}
- useEffect(()=>{const requested=new URLSearchParams(window.location.search).get("service");if(requested&&SERVICES.some(x=>x[0]===requested))setService(requested);void load()},[]);
+ useEffect(()=>{const requested=new URLSearchParams(window.location.search).get("service");if(requested&&SERVICES.some(x=>x[0]===requested))setService(requested);void load()},[]);useEffect(()=>{
+  const id=result?.request_id;
+  if(!id||result?.service!=="dark_web_monitoring"||["succeeded","failed","blocked"].includes(result?.processing_state))return;
+  let cancelled=false;
+  let timer:ReturnType<typeof setTimeout>|undefined;
+  let delay=1500;
+  let attempts=0;
+  const poll=async()=>{
+    if(cancelled||attempts>=8)return;
+    attempts++;
+    try{
+      const state=await apiFetch<any>("/api/v1/customer/service-requests/"+encodeURIComponent(id)+"/result");
+      if(cancelled)return;
+      setResult((current:any)=>current?.request_id===id?{...current,...state,service:"dark_web_monitoring"}:current);
+      if(["succeeded","failed","blocked"].includes(state?.processing_state))return;
+    }catch(e){
+      if(!cancelled&&attempts>=8)setError(e instanceof Error?e.message:"Unable to read workflow result");
+    }
+    if(!cancelled&&attempts<8){timer=setTimeout(poll,delay);delay=Math.min(delay*1.7,10000)}
+  };
+  timer=setTimeout(poll,delay);
+  return()=>{cancelled=true;if(timer)clearTimeout(timer)};
+},[result?.request_id,result?.processing_state,result?.service]);
  async function submit(e:FormEvent){e.preventDefault();setError(null);setResult(null);try{const r=await apiFetch<any>("/api/v1/customer/service-requests",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({...(org?{organization_id:org}:{}),service_key:service,urgency,target:target.trim(),target_type:service==="dark_web_monitoring"?targetType:"url",description:[`Target: ${target.trim()}`,`Service objective: ${description.trim()}`].join("\n")})});setResult({...r,service});setTarget("");setDescription("")}catch(e){setError(e instanceof Error?e.message:"Service request failed")}}
  const current=orgs.find(x=>x.id===org); const guidance=SERVICE_GUIDANCE[service]||DEFAULT_GUIDANCE; const serviceName=SERVICES.find(x=>x[0]===service)?.[1]||service;
  const progress=typeof result?.progress_percent==="number"?result.progress_percent:typeof result?.progress==="number"?result.progress:null;
@@ -86,6 +108,26 @@ export default function RequestService(){ const [orgs,setOrgs]=useState<Customer
       </button>
     </section>
 
+    {result&&result.service==="dark_web_monitoring"&&<div className="border-t border-[#c2f35a]/20 py-6">
+      <div className="text-[9px] uppercase tracking-[.18em] text-[#c2f35a]">Dark Web request · {result.request_id||"request recorded"}</div>
+      <div className="mt-2 text-lg">{({queued:"Queued for execution",running:"Checking configured sources",succeeded:"Monitoring result ready",failed:"Execution failed",blocked:"Execution blocked"} as Record<string,string>)[result.processing_state||""]||"Request accepted"}</div>
+      <div className="mt-2 text-xs text-[#8ca6ad]">Target: {result.target||"—"} · State: {result.processing_state||"queued"} · Status: {result.status||"submitted"}</div>
+      {result.processing_state==="succeeded"&&<div className="mt-5 space-y-5">
+        <div className="rounded-2xl border border-white/10 bg-[#06181e]/70 p-4">
+          <div className="text-[9px] uppercase tracking-[.18em] text-[#4f8494]">Sources checked</div>
+          {(result.sources_checked||result.result?.sources_checked||[]).map((x:any,i:number)=><div key={i} className="mt-2 text-xs">{typeof x==="string"?x:x.source}</div>)}
+          <div className="mt-4 text-[9px] uppercase tracking-[.18em] text-[#4f8494]">Unavailable / failed</div>
+          {(result.sources_unavailable||result.result?.sources_unavailable||[]).length?(result.sources_unavailable||result.result?.sources_unavailable||[]).map((x:any,i:number)=><div key={i} className="mt-2 text-xs text-[#a9bdc2]">{x.source}: {x.reason||x.state}</div>):<div className="mt-2 text-xs">None reported</div>}
+        </div>
+        <div className="rounded-2xl border border-white/10 bg-[#06181e]/70 p-4">
+          <div className="text-[9px] uppercase tracking-[.18em] text-[#4f8494]">Findings & evidence</div>
+          {(result.findings||result.result?.findings||[]).length?(result.findings||result.result?.findings||[]).map((f:any,i:number)=><div key={i} className="mt-3 border-b border-white/10 pb-3 text-xs"><div className="font-medium">{f.matched_value||f.title||"Exposure signal"} <span className="ml-2 uppercase text-[#c2f35a]">{f.severity||f.label||"review"}</span></div><div className="mt-1 text-[#78939a]">Source: {f.source_id||f.source||"evidence"} · Collected: {f.collected_at||f.first_seen||"timestamp unavailable"}</div>{f.source_url&&<div className="mt-1 break-all text-[#78939a]">{f.source_url}</div>}{f.content_hash&&<div className="mt-1 break-all text-[#67848d]">SHA-256: {f.content_hash}</div>}</div>):<div className="mt-3 text-sm">No exact matches were confirmed in the sources checked.</div>}
+        </div>
+        {(result.recommendations||result.result?.recommendations||[]).map((x:string,i:number)=><div key={i} className="text-xs text-[#a9bdc2]">• {x}</div>)}
+        {result.case_id&&<a className="inline-block text-sm text-[#c2f35a] underline" href={"/customer/cases/"+encodeURIComponent(result.case_id)}>Open related case →</a>}
+      </div>}
+      {["failed","blocked"].includes(result.processing_state)&&<div className="mt-4 text-sm text-[#ff8ba0]">Execution did not complete. Error code: {result.failure_code||"execution_failed"}</div>}
+    </div>}
     {result&&<div className="border-t border-[#c2f35a]/20 py-6">
       <div className="text-[9px] uppercase tracking-[.18em] text-[#c2f35a]">Request accepted</div>
       <div className="mt-2 text-lg">The workflow has been recorded.</div>
