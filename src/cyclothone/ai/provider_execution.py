@@ -183,13 +183,25 @@ async def execute_openai_run(
             actual_cost_usd=result.cost_usd, actor=actor,
         )
         return result
-    except Exception as exc:
+    except Exception:
+        # Once the canonical claim succeeds, provider execution may have incurred
+        # billable usage even if the transport, parsing, settlement, or completion
+        # step fails. Never finalize as FAILED with the shared zero-cost default:
+        # that can erase cost evidence and make reconciliation impossible.
+        # STUCK is non-terminal and the claim RPC will not re-issue the provider call
+        # while the run remains outside AUTHORIZED.
         try:
-            await complete_response_execution(
-                run_id=run_id, outcome="FAILED",
-                error={"type": type(exc).__name__, "message": str(exc)[:1000]},
-                actor=actor,
-            )
+            await client.rpc(
+                "ai_transition_run",
+                {
+                    "p_run_id": str(run_id),
+                    "p_to": "STUCK",
+                    "p_reason": "provider_execution_outcome_requires_reconciliation",
+                    "p_actor": actor,
+                },
+            ).execute()
         except Exception:
+            # Preserve the original execution/settlement exception. If the database
+            # is unavailable, the run may remain RUNNING; claim remains fail-closed.
             pass
         raise
