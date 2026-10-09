@@ -62,6 +62,8 @@ class ServiceRequest(BaseModel):
     service_key: str
     urgency: str="normal"
     description: str=Field(min_length=10,max_length=10000)
+    target: str|None = Field(default=None, min_length=2, max_length=2000)
+    target_type: str|None = None
 
 class AdmissionDecisionRequest(BaseModel):
     reason: str|None=None
@@ -353,7 +355,7 @@ async def organizations(p:DeveloperPrincipal=Depends(principal)):
 @router.post("/customer/organizations")
 async def create_organization(body:OrgRequest,p:DeveloperPrincipal=Depends(principal)):
     if body.organization_type not in {"company","government","security_provider","developer","client","partner","individual"}:
-        raise HTTPException(400,detail="invalid organization type")
+        raise HTTPException(400,detail="invalid_organization_type")
     if not p.user_id:
         raise HTTPException(403,detail="user_identity_required")
     try:
@@ -375,184 +377,15 @@ async def create_organization(body:OrgRequest,p:DeveloperPrincipal=Depends(princ
         if "user_identity_required" in detail:
             raise HTTPException(403,detail="user_identity_required")
         if "invalid organization type" in detail:
-            raise HTTPException(400,detail="invalid organization type")
+            raise HTTPException(400,detail="invalid_organization_type")
         raise
     row=await supabase.select_one(
         "customer_organizations",
         "id,tenant_id,organization_type,legal_name,country_code,website_domain,registration_number,verification_status,admission_status,created_at,updated_at",
-        id=str(organization_id),
-        owner_user_id=p.user_id,
+        id=str(organization_id), owner_user_id=p.user_id,
     )
     if not row:
         raise HTTPException(500,detail="organization_creation_not_confirmed")
-    row=await supabase.select_one(
-        "customer_organizations",
-        "id,tenant_id,organization_type,legal_name,country_code,website_domain,registration_number,verification_status,admission_status,created_at,updated_at",
-        id=str(organization_id),
-        owner_user_id=p.user_id,
-    )
-    if body.service_key == "brand_protection":
-        import re
-        from datetime import datetime, UTC
-        target_match=re.search(r"^Target:\\s*(.+)$", description, re.MULTILINE | re.IGNORECASE)
-        target=(target_match.group(1).strip() if target_match else "")
-        if not target:
-            await supabase.update("service_requests", {"status":"blocked"}, id=str(row["id"]))
-            raise HTTPException(422, detail="brand_target_required")
-        target=target.lower().removeprefix("https://").removeprefix("http://").split("/")[0].split(":")[0]
-        if "." not in target:
-            await supabase.update("service_requests", {"status":"blocked"}, id=str(row["id"]))
-            raise HTTPException(422, detail="invalid_brand_target")
-        try:
-            from cyclothone.brand.typosquat import TyposquatScanner
-            brand=await supabase.insert_one("brands", {
-                "tenant_id":str(org["tenant_id"]),
-                "name":target,
-                "primary_domain":target,
-                "domains":[],
-                "keywords":[],
-                "trademarks":[],
-                "social_handles":[],
-                "app_ids":{},
-                "logo_url":None,
-                "similarity_min":0.75,
-                "created_by":p.user_id,
-            })
-            scan=await TyposquatScanner().scan_brand(brand)
-            threats=await supabase.select("brand_threats","id,kind,identifier,url,similarity,severity,status,first_seen",tenant_id=str(org["tenant_id"]),brand_id=str(brand["id"]))
-            summary={
-                "service":"brand_protection",
-                "target":target,
-                "checked":int(scan.get("checked",0)),
-                "resolved":int(scan.get("resolved",0)),
-                "threats_persisted":len(threats),
-                "threats":threats[:200],
-                "method":"real DNS typosquat discovery using Cyclothone Brand Protection engine",
-            }
-            await supabase.update("service_requests", {"status":"resolved"}, id=str(row["id"]))
-            return {**row, "status":"resolved", "result":summary}
-        except HTTPException:
-            raise
-        except Exception:
-            await supabase.update("service_requests", {"status":"blocked"}, id=str(row["id"]))
-            raise HTTPException(503, detail="brand_protection_unavailable")
-
-    if body.service_key == "dark_web_monitoring":
-        import re
-        target_match = re.search(r"^Target:\s*(.+)$", description, re.MULTILINE | re.IGNORECASE)
-        target = target_match.group(1).strip().lower() if target_match else ""
-        target = target.removeprefix("https://").removeprefix("http://").split("/")[0].split(":")[0]
-        if not target or "." not in target:
-            await supabase.update("service_requests", {"status":"blocked"}, id=str(row["id"]))
-            raise HTTPException(422, detail="dark_web_target_domain_required")
-        try:
-            from cyclothone.darkweb.matcher import DarkWebMatcher
-            from cyclothone.darkweb.pullers import GitHubCodeMonitor, HIBPPuller, RansomwatchPuller
-            tenant_id = str(org["tenant_id"])
-            watch = await supabase.insert_one("dw_watchlist", {
-                "tenant_id": tenant_id,
-                "kind": "domain",
-                "value": target,
-                "value_hash": __import__("hashlib").sha256(target.encode()).hexdigest(),
-                "label": f"Customer request: {target}",
-                "severity": "high",
-            })
-            enabled_rows = await supabase.select("dw_sources", "id,enabled", enabled=True)
-            enabled = {str(x["id"]) for x in enabled_rows}
-            findings = []
-            source_results = []
-            hibp_key = os.getenv("CYCLOTHONE_HIBP_KEY", "").strip() or os.getenv("SENTINEL_HIBP_KEY", "").strip()
-            github_token = os.getenv("CYCLOTHONE_GITHUB_TOKEN", "").strip() or os.getenv("SENTINEL_GITHUB_TOKEN", "").strip()
-            if "ransomwatch" in enabled:
-                findings.extend(await RansomwatchPuller().pull())
-                source_results.append("ransomwatch")
-            if hibp_key and "hibp" in enabled:
-                findings.extend(await HIBPPuller(hibp_key).pull_domain(target))
-                source_results.append("hibp")
-            if github_token and "github_code" in enabled:
-                findings.extend(await GitHubCodeMonitor(github_token).pull_domain(target))
-                source_results.append("github_code")
-            if not source_results:
-                await supabase.update("service_requests", {"status":"blocked"}, id=str(row["id"]))
-                raise HTTPException(503, detail="dark_web_sources_unavailable")
-            matcher = DarkWebMatcher()
-            ingested = 0
-            errors = 0
-            for finding in findings[:2000]:
-                result = await matcher.process({
-                    "source_id": finding.source_id, "kind": finding.kind,
-                    "matched_value": finding.matched_value, "context": finding.context,
-                    "severity": finding.severity, "source_url": finding.source_url,
-                    "metadata": finding.metadata,
-                })
-                ingested += int(result.get("matched", 0))
-                errors += int(result.get("errors", 0))
-            persisted = await supabase.select(
-                "dw_findings",
-                "id,source_id,kind,matched_value,context,source_url,severity,first_seen,watchlist_id,web_layer,collected_at",
-                tenant_id=tenant_id,
-                watchlist_id=str(watch["id"]),
-            )
-            alerts = await supabase.select("dw_alerts", "id,title,summary,severity,status,finding_id,created_at", tenant_id=tenant_id)
-            alerts = [a for a in alerts if any(str(a.get("finding_id")) == str(f.get("id")) for f in persisted)]
-            if errors:
-                await supabase.update("service_requests", {"status":"blocked"}, id=str(row["id"]))
-                raise HTTPException(503, detail="dark_web_ingestion_incomplete")
-            summary = {
-                "service":"dark_web_monitoring", "target":target,
-                "sources":source_results, "source_findings":len(findings),
-                "findings_persisted":len(persisted), "alerts":len(alerts),
-                "watchlist_id":str(watch["id"]), "ingested_matches":ingested,
-                "findings":persisted[:200], "alert_records":alerts[:200],
-                "method":"real configured dark-web monitoring sources with tenant watchlist matching",
-            }
-            await supabase.update("service_requests", {"status":"resolved"}, id=str(row["id"]))
-            return {**row, "status":"resolved", "result":summary}
-        except HTTPException:
-            raise
-        except Exception:
-            await supabase.update("service_requests", {"status":"blocked"}, id=str(row["id"]))
-            raise HTTPException(503, detail="dark_web_monitoring_unavailable")
-
-    if body.service_key == "compliance":
-        import re
-        from datetime import UTC, datetime, timedelta
-        framework_match = re.search(r"^Framework:\\s*([a-z0-9_\\-]+)$", description, re.MULTILINE | re.IGNORECASE)
-        framework = (framework_match.group(1).strip().lower() if framework_match else "soc2")
-        try:
-            from cyclothone.compliance.catalog import FRAMEWORKS
-            from cyclothone.compliance.service import ComplianceService
-            if framework not in FRAMEWORKS:
-                await supabase.update("service_requests", {"status":"blocked"}, id=str(row["id"]))
-                raise HTTPException(422, detail="unsupported_compliance_framework")
-            period_end = datetime.now(UTC)
-            period_start = period_end - timedelta(hours=24)
-            result = await ComplianceService().evaluate(
-                UUID(str(org["tenant_id"])), framework, period_start, period_end, UUID(str(p.user_id))
-            )
-            summary = {
-                "service":"compliance", "framework":framework,
-                "framework_name":FRAMEWORKS[framework]["name"],
-                "period": {"start":period_start.isoformat(), "end":period_end.isoformat()},
-                "run_id":result.get("run_id"),
-                "total_controls":int(result.get("total_controls",0)),
-                "passing":int(result.get("passing",0)),
-                "failing":int(result.get("failing",0)),
-                "partial":int(result.get("partial",0)),
-                "unknown":int(result.get("unknown",0)),
-                "overall_score":result.get("overall_score"),
-                "evidence_count":int(result.get("evidence_count",0)),
-                "controls":result.get("controls",[])[:200],
-                "method":"real tenant-scoped telemetry evaluation with evidence freshness",
-            }
-            await supabase.update("service_requests", {"status":"resolved"}, id=str(row["id"]))
-            return {**row, "status":"resolved", "result":summary}
-        except HTTPException:
-            raise
-        except Exception:
-            await supabase.update("service_requests", {"status":"blocked"}, id=str(row["id"]))
-            raise HTTPException(503, detail="compliance_unavailable")
-
     return row
 
 
@@ -673,131 +506,223 @@ async def review_verification(
     return {"status":review_status,"organization_id":organization_id}
 
 
+def _normalize_customer_target(raw: str, target_type: str) -> str:
+    value = raw.strip()
+    if not value or len(value) > 2000:
+        raise HTTPException(422, detail="invalid_target")
+    if target_type not in {"domain","url","email","brand","username","ip","other"}:
+        raise HTTPException(422, detail="invalid_target_type")
+    if target_type == "email":
+        if value.count("@") != 1 or not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", value):
+            raise HTTPException(422, detail="invalid_email_target")
+        return value.lower()
+    if target_type in {"domain","url"}:
+        candidate = value if "://" in value else f"https://{value}"
+        parsed = urlsplit(candidate)
+        if parsed.scheme not in {"http","https"} or not parsed.hostname or parsed.username or parsed.password:
+            raise HTTPException(422, detail="invalid_target")
+        host = parsed.hostname.rstrip(".").lower()
+        try:
+            address = ipaddress.ip_address(host)
+            if not address.is_global:
+                raise HTTPException(422, detail="private_or_internal_target")
+        except ValueError:
+            if "." not in host or host in {"localhost","localhost.localdomain"} or host.endswith((".local",".internal",".localhost")):
+                raise HTTPException(422, detail="private_or_internal_target")
+        if target_type == "domain":
+            if ":" in host:
+                raise HTTPException(422, detail="invalid_domain")
+            return host
+        return urlunsplit((parsed.scheme.lower(), parsed.netloc.lower(), parsed.path or "/", parsed.query, ""))
+    if target_type == "ip":
+        try:
+            address = ipaddress.ip_address(value)
+        except ValueError as exc:
+            raise HTTPException(422, detail="invalid_ip_target") from exc
+        if not address.is_global:
+            raise HTTPException(422, detail="private_or_internal_target")
+        return str(address)
+    if target_type in {"brand","username","other"}:
+        return value.strip()
+    raise HTTPException(422, detail="invalid_target_type")
+
+
+async def _customer_request_access(request_id: str, user_id: str) -> tuple[dict, dict]:
+    row = await supabase.select_one(
+        "service_requests",
+        "id,organization_id,requester_user_id,service_key,urgency,description,target,target_type,status,processing_state,attempts,started_at,completed_at,failure_code,result,created_at,updated_at",
+        id=request_id,
+    )
+    if not row:
+        raise HTTPException(404, detail="service_request_not_found")
+    organization_id = str(row["organization_id"])
+    member = await supabase.select_one(
+        "organization_members", "organization_id,user_id,role,status",
+        organization_id=organization_id, user_id=user_id, status="active",
+    )
+    org = await supabase.select_one(
+        "customer_organizations", "id,owner_user_id,tenant_id",
+        id=organization_id, owner_user_id=user_id,
+    )
+    if not member and not org:
+        raise HTTPException(404, detail="service_request_not_found")
+    return row, {"organization_id": organization_id, "tenant_id": (org or {}).get("tenant_id")}
+
+
+@router.get("/customer/service-requests/{request_id}/result")
+async def customer_service_request_result(request_id: str, p: DeveloperPrincipal=Depends(principal)):
+    if not p.user_id:
+        raise HTTPException(404, detail="service_request_not_found")
+    row, _ = await _customer_request_access(request_id, p.user_id)
+    result = row.get("result") or {}
+    return {
+        "request_id": row["id"], "service": row["service_key"], "target": row.get("target"),
+        "target_type": row.get("target_type"), "status": row["status"],
+        "processing_state": row.get("processing_state") or "queued",
+        "findings": result.get("findings", []), "evidence": result.get("evidence", []),
+        "sources_checked": result.get("sources_checked", []),
+        "sources_unavailable": result.get("sources_unavailable", []),
+        "recommendations": result.get("recommendations", []), "case_id": result.get("case_id"),
+        "created_at": row.get("created_at"), "started_at": row.get("started_at"),
+        "completed_at": row.get("completed_at"), "failure_code": row.get("failure_code"),
+        "result": result,
+    }
+
+
+@router.get("/customer/service-requests/{request_id}")
+async def customer_service_request_detail(request_id: str, p: DeveloperPrincipal=Depends(principal)):
+    if not p.user_id:
+        raise HTTPException(404, detail="service_request_not_found")
+    row, _ = await _customer_request_access(request_id, p.user_id)
+    return {
+        "request_id": row["id"], "service": row["service_key"], "target": row.get("target"),
+        "target_type": row.get("target_type"), "status": row["status"],
+        "processing_state": row.get("processing_state") or "queued",
+        "attempts": row.get("attempts", 0), "failure_code": row.get("failure_code"),
+        "created_at": row.get("created_at"), "started_at": row.get("started_at"),
+        "completed_at": row.get("completed_at"), "result": row.get("result") or {},
+        "poll_url": f"/api/v1/customer/service-requests/{row['id']}/result",
+    }
+
+
 @router.get("/customer/service-requests")
 async def service_requests(p:DeveloperPrincipal=Depends(principal)):
+    if not p.user_id:
+        raise HTTPException(401, detail="authentication_required")
+    memberships=await supabase.select("organization_members","organization_id",user_id=p.user_id,status="active")
     orgs=await supabase.select("customer_organizations","id",owner_user_id=p.user_id)
-    org_ids=[r["id"] for r in orgs]
+    org_ids=list({str(r["organization_id"]) for r in memberships} | {str(r["id"]) for r in orgs})
     rows=[]
     for org_id in org_ids:
-        rows.extend(await supabase.select("service_requests","id,organization_id,requester_user_id,service_key,urgency,description,status,created_at,updated_at",organization_id=org_id,requester_user_id=p.user_id))
+        rows.extend(await supabase.select(
+            "service_requests",
+            "id,organization_id,requester_user_id,service_key,urgency,description,target,target_type,status,processing_state,attempts,failure_code,created_at,updated_at",
+            organization_id=org_id,
+        ))
     return {"service_requests":rows}
+
 
 @router.post("/customer/service-requests")
 async def create_service_request(body:ServiceRequest,p:DeveloperPrincipal=Depends(principal)):
     if not p.user_id:
-        raise HTTPException(403,detail="user_identity_required")
+        raise HTTPException(401,detail="authentication_required")
+    if body.service_key not in {"cybersecurity_assessment","incident_response","threat_intelligence","brand_protection","dark_web_monitoring","soc_mdr","ai_security","physical_security","compliance","mobile_digital_intelligence","other"}:
+        raise HTTPException(400,detail="invalid_service_key")
+    if body.urgency not in {"low","normal","high","critical"}:
+        raise HTTPException(400,detail="invalid_urgency")
     organization_id=body.organization_id
     if organization_id:
-        org=await supabase.select_one("customer_organizations","id,tenant_id,admission_status",id=organization_id,owner_user_id=p.user_id)
-        if not org:
+        member=await supabase.select_one(
+            "organization_members","organization_id,user_id,role,status",
+            organization_id=organization_id,user_id=p.user_id,status="active",
+        )
+        org=await supabase.select_one(
+            "customer_organizations","id,owner_user_id,tenant_id,admission_status",
+            id=organization_id,owner_user_id=p.user_id,
+        )
+        if not org and not member:
             raise HTTPException(404,detail="organization_not_found")
+        if member and member.get("role") not in {"owner","admin","requester"} and not org:
+            raise HTTPException(403,detail="service_request_role_required")
+        if not org:
+            org=await supabase.select_one(
+                "customer_organizations","id,owner_user_id,tenant_id,admission_status",
+                id=organization_id,
+            )
     else:
         org=await supabase.select_one("customer_organizations","id,tenant_id,admission_status",owner_user_id=p.user_id,organization_type="individual")
         if not org:
-            organization_id=await supabase.rpc("create_customer_organization_for_user",{
-                "p_owner_user_id":p.user_id,
-                "p_type":"individual",
-                "p_legal_name":"Personal Workspace",
-                "p_country_code":None,
-                "p_domain":None,
-                "p_registration_number":None,
+            org_id=await supabase.rpc("create_customer_organization_for_user",{
+                "p_owner_user_id":p.user_id,"p_type":"individual","p_legal_name":"Personal Workspace",
+                "p_country_code":None,"p_domain":None,"p_registration_number":None,
             })
-            org=await supabase.select_one("customer_organizations","id,tenant_id,admission_status",id=str(organization_id),owner_user_id=p.user_id)
-        else:
-            organization_id=org["id"]
+            org=await supabase.select_one("customer_organizations","id,tenant_id,admission_status",id=str(org_id),owner_user_id=p.user_id)
+        organization_id=str(org["id"]) if org else None
     if not org or not org.get("tenant_id"):
-        raise HTTPException(503,detail="workspace_unavailable")
-    if body.service_key not in {"cybersecurity_assessment","incident_response","threat_intelligence","brand_protection","dark_web_monitoring","soc_mdr","ai_security","physical_security","compliance","mobile_digital_intelligence","other"}:
-        raise HTTPException(400,detail="invalid service")
-    if body.urgency not in {"low","normal","high","critical"}:
-        raise HTTPException(400,detail="invalid urgency")
-    if not p.user_id:
-        raise HTTPException(403,detail="user_identity_required")
-
+        raise HTTPException(409,detail="organization_tenant_required")
     description=body.description.strip()
+    target=body.target.strip() if body.target else ""
+    target_type=(body.target_type or ("domain" if body.service_key=="dark_web_monitoring" else "url")).strip().lower()
+    if not target:
+        match=re.search(r"^Target:\\s*(.+)$",description,re.MULTILINE|re.IGNORECASE)
+        target=match.group(1).strip() if match else ""
+    if body.service_key=="dark_web_monitoring":
+        if not target:
+            raise HTTPException(422,detail="dark_web_target_required")
+        target=_normalize_customer_target(target,target_type)
+    elif target:
+        target=_normalize_customer_target(target,target_type)
     row=await supabase.insert_one("service_requests",{
-        "organization_id":organization_id,
-        "requester_user_id":p.user_id,
-        "service_key":body.service_key,
-        "urgency":body.urgency,
-        "description":description,
+        "organization_id":organization_id,"requester_user_id":p.user_id,
+        "service_key":body.service_key,"urgency":body.urgency,"description":description,
+        "target":target or None,"target_type":target_type if target else None,
         "status":"submitted",
+        "processing_state":"queued" if body.service_key=="dark_web_monitoring" else "succeeded",
+        "result":{} if body.service_key=="dark_web_monitoring" else None,
     })
-
-    # Customer requests must enter a real service path. The first production
-    # service is a bounded, passive external assessment: it uses the existing
-    # SSRF-safe WebCrawler, never authenticates to the target, never exploits it,
-    # and records the resulting observations as customer-visible evidence.
-    if body.service_key == "cybersecurity_assessment":
-        import re
+    if body.service_key=="dark_web_monitoring":
+        return {
+            "request_id":row["id"],"status":row.get("status","submitted"),
+            "processing_state":row.get("processing_state","queued"),
+            "poll_url":f"/api/v1/customer/service-requests/{row['id']}/result",
+        }
+    # Preserve the existing synchronous passive-assessment path for other services.
+    if body.service_key=="cybersecurity_assessment":
         from urllib.parse import urlsplit
         from cyclothone.web.crawler import WebCrawler
-
-        target_match=re.search(r"^Target:\s*(.+)$", description, re.MULTILINE | re.IGNORECASE)
-        target=(target_match.group(1).strip() if target_match else "")
-        if not target:
-            await supabase.update("service_requests",{"status":"blocked"},id=str(row["id"]))
+        target_url=target or ""
+        if not target_url:
+            match=re.search(r"^Target:\\s*(.+)$",description,re.MULTILINE|re.IGNORECASE)
+            target_url=match.group(1).strip() if match else ""
+        if not target_url:
+            await supabase.update("service_requests",{"status":"blocked","processing_state":"blocked","failure_code":"cybersecurity_target_required"},id=str(row["id"]))
             raise HTTPException(422,detail="cybersecurity_target_required")
-        target_url=target if "://" in target else f"https://{target}"
+        target_url=target_url if "://" in target_url else f"https://{target_url}"
         parsed=urlsplit(target_url)
         if parsed.scheme not in {"http","https"} or not parsed.hostname:
-            await supabase.update("service_requests",{"status":"blocked"},id=str(row["id"]))
+            await supabase.update("service_requests",{"status":"blocked","processing_state":"blocked","failure_code":"invalid_cybersecurity_target"},id=str(row["id"]))
             raise HTTPException(422,detail="invalid_cybersecurity_target")
-
         try:
             pages=await WebCrawler().crawl(target_url,layer="surface",respect_robots=False,depth=0)
             if not pages:
-                await supabase.update("service_requests",{"status":"blocked"},id=str(row["id"]))
+                await supabase.update("service_requests",{"status":"blocked","processing_state":"blocked","failure_code":"target_unreachable"},id=str(row["id"]))
                 raise HTTPException(502,detail="target_unreachable")
             page=pages[0]
             findings=[]
-            if page.status_code >= 400:
-                findings.append({"severity":"high","title":"Target returned an error HTTP status","evidence":{"status_code":page.status_code}})
-            if page.credential_indicators:
-                findings.append({"severity":"critical","title":"Credential-pattern indicators exposed in public content","evidence":{"count":page.credential_indicators}})
-            if page.wallets:
-                findings.append({"severity":"high","title":"Cryptocurrency wallet indicators exposed in public content","evidence":{"count":len(page.wallets)}})
-            if page.emails:
-                findings.append({"severity":"medium","title":"Email addresses exposed in public content","evidence":{"count":len(page.emails)}})
-            if not findings:
-                findings.append({"severity":"informational","title":"No configured public-content exposure indicators observed","evidence":{"status_code":page.status_code,"content_type":page.content_type}})
-
-            rank={"critical":4,"high":3,"medium":2,"low":1,"informational":0}
-            severity=max((f["severity"] for f in findings),key=lambda x:rank[x])
-            summary={
-                "target":str(page.url),
-                "status_code":page.status_code,
-                "content_type":page.content_type,
-                "observed_emails":len(page.emails),
-                "observed_urls":len(page.urls),
-                "observed_wallets":len(page.wallets),
-                "credential_indicators":page.credential_indicators,
-                "finding_count":len(findings),
-                "findings":findings,
-                "method":"bounded passive public HTTP assessment",
-            }
-            case_number=await supabase.rpc("next_case_number",{"p_tenant":str(org["tenant_id"])})
-            case=await supabase.insert_one("crime_cases",{
-                "tenant_id":str(org["tenant_id"]),
-                "case_number":str(case_number),
-                "title":f"Cybersecurity Assessment — {parsed.hostname}",
-                "category":"other",
-                "severity":severity,
-                "status":"open",
-                "summary":f"Passive external assessment completed for {parsed.hostname}. {len(findings)} observations recorded.",
-                "evidence":[{"type":"cybersecurity_assessment","target":str(page.url),"content_hash":page.content_hash,"observations":summary}],
-            })
-            await supabase.insert_one("customer_case_links",{
-                "organization_id":organization_id,
-                "service_request_id":str(row["id"]),
-                "case_id":str(case["id"]),
-            })
-            await supabase.update("service_requests",{"status":"resolved"},id=str(row["id"]))
-            return {**row,"status":"resolved","case_id":case["id"],"result":summary}
+            if page.status_code>=400: findings.append({"severity":"high","title":"Target returned an error HTTP status","evidence":{"status_code":page.status_code}})
+            if page.credential_indicators: findings.append({"severity":"critical","title":"Credential-pattern indicators exposed in public content","evidence":{"count":page.credential_indicators}})
+            if page.wallets: findings.append({"severity":"high","title":"Cryptocurrency wallet indicators exposed in public content","evidence":{"count":len(page.wallets)}})
+            if page.emails: findings.append({"severity":"medium","title":"Email addresses exposed in public content","evidence":{"count":len(page.emails)}})
+            if not findings: findings.append({"severity":"informational","title":"No configured public-content exposure indicators observed","evidence":{"status_code":page.status_code,"content_type":page.content_type}})
+            summary={"target":str(page.url),"status_code":page.status_code,"content_type":page.content_type,
+                "observed_emails":len(page.emails),"observed_urls":len(page.urls),"observed_wallets":len(page.wallets),
+                "credential_indicators":page.credential_indicators,"finding_count":len(findings),"findings":findings,
+                "method":"bounded passive public HTTP assessment"}
+            await supabase.update("service_requests",{"status":"resolved","processing_state":"succeeded","result":summary,"completed_at":datetime.now(UTC).isoformat()},id=str(row["id"]))
+            return {**row,"status":"resolved","processing_state":"succeeded","result":summary}
         except HTTPException:
             raise
         except Exception:
-            await supabase.update("service_requests",{"status":"blocked"},id=str(row["id"]))
+            await supabase.update("service_requests",{"status":"blocked","processing_state":"failed","failure_code":"cybersecurity_assessment_unavailable"},id=str(row["id"]))
             raise HTTPException(503,detail="cybersecurity_assessment_unavailable")
-
     return row
