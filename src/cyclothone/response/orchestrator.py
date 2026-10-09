@@ -158,7 +158,11 @@ class ResponseOrchestrator:
                 action_class = ACTION_CLASS.get(step.action, ActionClass.MEDIUM)
                 approval_required = step.requires_approval or action_class in (ActionClass.HIGH, ActionClass.CRITICAL)
 
-                if action_class in (ActionClass.MEDIUM, ActionClass.HIGH, ActionClass.CRITICAL) and not dry_run and step.run_id is None:
+                # Dry-run is a non-executing Control-plane path. It must not mint,
+                # validate, authorize, consume, or dispatch an AI execution envelope.
+                # Enforce the Control-plane blast boundary before any AI envelope
+                # or run-binding work so an exceeded limit fails closed immediately.
+                if action_class in (ActionClass.MEDIUM, ActionClass.HIGH, ActionClass.CRITICAL) and step.run_id is None:
                     raise RuntimeError("canonical AI run binding is required for executable response actions")
 
                 if action_class in (ActionClass.MEDIUM, ActionClass.HIGH, ActionClass.CRITICAL):
