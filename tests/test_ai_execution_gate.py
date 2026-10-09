@@ -293,7 +293,8 @@ async def test_destructive_orchestrator_mints_and_consumes_authoritative_envelop
     issuer.issue = AsyncMock(return_value=env)
     gate = AsyncMock()
     store = AsyncMock()
-    store.create = AsyncMock(return_value="1")
+    case_action_id = str(uuid4())
+    store.create = AsyncMock(return_value=case_action_id)
     store.update = AsyncMock()
     dispatcher = AsyncMock()
     dispatcher.issue = AsyncMock(return_value={"id": "cmd-1"})
@@ -307,7 +308,7 @@ async def test_destructive_orchestrator_mints_and_consumes_authoritative_envelop
         issued_by="test",
     )
 
-    assert result.dispatched == ["1"]
+    assert result.dispatched == [case_action_id]
     issuer.issue.assert_awaited_once_with(request)
     gate.validate.assert_awaited_once()
     gate.consume.assert_awaited_once()

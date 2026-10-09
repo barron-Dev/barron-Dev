@@ -31,7 +31,7 @@ def phash(data: bytes) -> str:
             coeffs.append(au*av*s)
     ac=coeffs[1:]
     med=sorted(ac)[len(ac)//2]
-    bits=sum(1<<i for i,c in enumerate(ac) if c>=med)
+    bits=sum(1<<i for i,c in enumerate(ac) if c>med)
     return f"{bits:016x}"
 
 def content_digest(data: bytes) -> str:

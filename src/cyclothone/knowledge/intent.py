@@ -36,7 +36,7 @@ def classify(query: str) -> Intent:
     for kind, pattern in _PATTERNS:
         hits = pattern.findall(q)
         if hits:
-            scores[kind] = len(hits)
+            scores[kind] = 1
             matched[kind] = [str(hit) for hit in hits]
 
     if not scores:
