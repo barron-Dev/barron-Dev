@@ -692,7 +692,7 @@ async def create_service_request(body:ServiceRequest,p:DeveloperPrincipal=Depend
         from cyclothone.web.crawler import WebCrawler
         target_url=target or ""
         if not target_url:
-            match=re.search(r"^Target:\\s*(.+)$",description,re.MULTILINE|re.IGNORECASE)
+            match=re.search(r"^Target:\s*(.+)$",description,re.MULTILINE|re.IGNORECASE)
             target_url=match.group(1).strip() if match else ""
         if not target_url:
             await supabase.update("service_requests",{"status":"blocked","processing_state":"blocked","failure_code":"cybersecurity_target_required"},id=str(row["id"]))
