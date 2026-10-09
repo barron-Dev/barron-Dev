@@ -12,9 +12,9 @@ alter table public.ai_runs
   add constraint ai_runs_workload_layer_check
   check (
     workload_layer is null
-    or workload_layer in (
-      'GENERAL','CUSTOMER_OPERATIONS','REASONING','SECURITY',
-      'WEB_RESEARCH','THREAT_INTELLIGENCE','DARK_WEB','CRITICAL'
+    or (
+      workload_layer = upper(trim(workload_layer))
+      and length(workload_layer) between 1 and 64
     )
   );
 
@@ -45,10 +45,7 @@ declare
   r public.ai_runs;
   v_workload_layer text := upper(trim(p_workload_layer));
 begin
-  if v_workload_layer is null or v_workload_layer not in (
-    'GENERAL','CUSTOMER_OPERATIONS','REASONING','SECURITY',
-    'WEB_RESEARCH','THREAT_INTELLIGENCE','DARK_WEB','CRITICAL'
-  ) then
+  if v_workload_layer is null or length(v_workload_layer) not between 1 and 64 then
     raise exception 'invalid_workload_layer';
   end if;
 
