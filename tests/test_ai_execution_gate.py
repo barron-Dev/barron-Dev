@@ -9,6 +9,13 @@ from cyclothone.ai.execution_gate import AgentEnvelope, AgentExecutionDenied
 def envelope():
     return AgentEnvelope("env-1", uuid4(), uuid4(), "model-a", "provider-a", "kill_process", "kill_process", {"pid": 7}, "device-1", datetime.now(UTC), datetime.now(UTC) + timedelta(minutes=1), "kid", "sig", "1", "a" * 64, "mission-a", 1, "d" * 64)
 
+def mission_kwargs(env):
+    return {
+        "expected_mission_id": env.mission_id,
+        "expected_mission_version": env.mission_version,
+        "expected_mission_hash": env.mission_hash,
+    }
+
 def test_envelope_canonical_binds_security_context():
     env = envelope()
     assert env.canonical()["tenant_id"] == str(env.tenant_id)
@@ -22,7 +29,7 @@ async def test_invalid_signature_fails_closed_before_replay():
     gate = __import__("cyclothone.ai.execution_gate", fromlist=["AgentExecutionGate"]).AgentExecutionGate(Replay())
     env = envelope()
     with pytest.raises(AgentExecutionDenied, match="invalid envelope signature"):
-        await gate.authorize(envelope=env, tenant_id=env.tenant_id, expected_model_id="model-a", expected_provider_id="provider-a", twin=AsyncMock())
+        await gate.authorize(envelope=env, tenant_id=env.tenant_id, expected_model_id="model-a", expected_provider_id="provider-a", twin=AsyncMock(), **mission_kwargs(env))
 
 @pytest.mark.asyncio
 async def test_destructive_orchestrator_requires_gate():
@@ -68,6 +75,7 @@ async def test_approval_required_validates_without_consuming_replay(monkeypatch)
         expected_model_id=env.model_id,
         expected_provider_id=env.provider_id,
         twin=twin,
+        **mission_kwargs(env),
     )
 
     assert result["authorized"] is True
@@ -105,6 +113,7 @@ async def test_denied_policy_is_not_treated_as_approval(monkeypatch):
             expected_model_id=env.model_id,
             expected_provider_id=env.provider_id,
             twin=AsyncMock(),
+            **mission_kwargs(env),
         )
 
 
@@ -219,7 +228,8 @@ async def test_envelope_issuer_signs_only_bound_agent(monkeypatch):
         raise AssertionError(f"unexpected table: {table}")
 
     monkeypatch.setattr("cyclothone.ai.envelope_issuer.supabase.select_one", select_one)
-    async def sign(digest):
+    async def sign(digest, *, purpose):
+        assert purpose == "AI_ENVELOPE"
         assert len(digest) == 64
         return ComplianceSignature(signature_b64="sig", kid="kid-1")
     monkeypatch.setattr("cyclothone.ai.envelope_issuer.sign_digest", sign)
@@ -254,6 +264,7 @@ async def test_destructive_orchestrator_rejects_client_supplied_envelope_without
         tenant_id=tenant, case_id=uuid4(), device_id=uuid4(),
         plan=[ActionPlan("kill_process", {"pid": 7}, agent_envelope=envelope(), model_id="model-a", provider_id="provider-a", target="device-1")],
         issued_by="test",
+        dry_run=True,
     )
     assert result.rejected == ["1"]
     assert "issuance request" in result.reasons["1"]
@@ -270,30 +281,34 @@ async def test_destructive_orchestrator_mints_and_consumes_authoritative_envelop
     env = AgentEnvelope(
         "env-issued", tenant, agent, "model-a", "provider-a", "kill_process", "kill_process",
         {"pid": 7}, "device-1", datetime.now(UTC), datetime.now(UTC) + timedelta(minutes=1),
-        "kid", "sig", "1", "b" * 64,
+        "kid", "sig", "1", "b" * 64, "mission-a", 1, "d" * 64,
     )
+    run_id = uuid4()
     request = EnvelopeIssueRequest(
         tenant_id=tenant, agent_id=agent, model_id="model-a", provider_id="provider-a",
         tool_name="kill_process", action="kill_process", args={"pid": 7}, target="device-1",
+        mission_id="mission-a", mission_version=1, mission_hash="d" * 64,
     )
     issuer = AsyncMock()
     issuer.issue = AsyncMock(return_value=env)
     gate = AsyncMock()
     store = AsyncMock()
-    store.create = AsyncMock(return_value="1")
+    case_action_id = str(uuid4())
+    store.create = AsyncMock(return_value=case_action_id)
     store.update = AsyncMock()
     dispatcher = AsyncMock()
     dispatcher.issue = AsyncMock(return_value={"id": "cmd-1"})
 
     result = await ResponseOrchestrator(
-        dispatcher, store, execution_gate=gate, envelope_issuer=issuer
+        dispatcher, store, execution_gate=gate, envelope_issuer=issuer,
+        execution_authorizer=AsyncMock(return_value={"allowed": True, "committed": True}),
     ).run_chain(
         tenant_id=tenant, case_id=uuid4(), device_id=uuid4(),
-        plan=[ActionPlan("kill_process", {"pid": 7}, envelope_request=request)],
+        plan=[ActionPlan("kill_process", {"pid": 7}, envelope_request=request, run_id=run_id)],
         issued_by="test",
     )
 
-    assert result.dispatched == ["1"]
+    assert result.dispatched == [case_action_id]
     issuer.issue.assert_awaited_once_with(request)
     gate.validate.assert_awaited_once()
     gate.consume.assert_awaited_once()
@@ -328,6 +343,6 @@ def test_mission_binding_changes_envelope_canonical_digest():
         env.envelope_id, env.tenant_id, env.agent_id, env.model_id, env.provider_id,
         env.tool_name, env.action, env.args, env.target, env.issued_at, env.expires_at,
         env.signer_kid, env.signature_b64, env.version, env.binding_hash,
-        "mission-a", 1, "d" * 64,
+        "mission-a", 2, "d" * 64,
     )
     assert a != AgentExecutionGate._envelope_hash(changed)

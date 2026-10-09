@@ -3,6 +3,8 @@ from __future__ import annotations
 import base64
 import binascii
 
+from cryptography.exceptions import InvalidSignature
+
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
@@ -35,7 +37,7 @@ def verify_ed25519_pem_signature(
             return False
         key.verify(signature, _hash_message(signed_payload_hash))
         return True
-    except (ValueError, TypeError, binascii.Error):
+    except (ValueError, TypeError, binascii.Error, InvalidSignature):
         return False
 
 
@@ -54,5 +56,5 @@ def verify_ed25519_raw_signature(
             _hash_message(signed_payload_hash),
         )
         return True
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, InvalidSignature):
         return False

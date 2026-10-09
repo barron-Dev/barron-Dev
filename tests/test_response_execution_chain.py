@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
+from unittest.mock import AsyncMock
 from uuid import UUID, uuid4
 
 import pytest
 
+from cyclothone.ai.envelope_issuer import EnvelopeIssueRequest
+from cyclothone.ai.execution_gate import AgentEnvelope
 from cyclothone.response.orchestrator import ActionPlan, ResponseOrchestrator
 from cyclothone.response.rollback import RollbackService
 
@@ -46,17 +50,71 @@ class Dispatcher:
         return {"id": str(uuid4()), "status": "pending"}
 
 
+def trusted_plan(action, args, *, requires_approval=False):
+    agent_id = uuid4()
+    mission_id = "mission-test"
+    mission_hash = "a" * 64
+    request = EnvelopeIssueRequest(
+        tenant_id=TENANT, agent_id=agent_id, model_id="model-test",
+        provider_id="provider-test", tool_name=action, action=action,
+        args=args, target=str(DEVICE), mission_id=mission_id,
+        mission_version=1, mission_hash=mission_hash,
+    )
+    return ActionPlan(
+        action, args, requires_approval=requires_approval,
+        envelope_request=request, model_id=request.model_id,
+        provider_id=request.provider_id, target=request.target,
+        mission_id=mission_id, mission_version=1, mission_hash=mission_hash,
+        run_id=uuid4(),
+    )
+
+
+def trusted_orchestrator(dispatcher, store, monkeypatch):
+    import cyclothone.response.orchestrator as orchestrator_module
+
+    monkeypatch.setattr("cyclothone.twin.service.DigitalTwinService", lambda tenant_id: object())
+    monkeypatch.setattr(orchestrator_module, "create_response_execution_approval", AsyncMock(return_value={}))
+    monkeypatch.setattr(orchestrator_module, "complete_response_execution", AsyncMock(return_value={}))
+    issuer = AsyncMock()
+
+    async def issue(request):
+        now = datetime.now(UTC)
+        return AgentEnvelope(
+            envelope_id="env-" + uuid4().hex, tenant_id=request.tenant_id,
+            agent_id=request.agent_id, model_id=request.model_id,
+            provider_id=request.provider_id, tool_name=request.tool_name,
+            action=request.action, args=request.args, target=request.target,
+            issued_at=now, expires_at=now + timedelta(minutes=5),
+            signer_kid="test-kid", signature_b64="test-signature",
+            version="1", binding_hash="b" * 64,
+            mission_id=request.mission_id, mission_version=request.mission_version,
+            mission_hash=request.mission_hash,
+        )
+
+    issuer.issue.side_effect = issue
+    gate = AsyncMock()
+    gate.validate.return_value = {
+        "authorized": True, "requires_approval": False,
+        "simulation_id": "sim-test", "impact_score": 0.1,
+        "recommendation": "approve",
+    }
+    return ResponseOrchestrator(
+        dispatcher, store, execution_gate=gate, envelope_issuer=issuer,
+        execution_authorizer=AsyncMock(return_value={"allowed": True, "committed": True}),
+    )
+
+
 @pytest.mark.asyncio
-async def test_medium_action_dispatches_and_high_action_waits_for_approval():
+async def test_medium_action_dispatches_and_high_action_waits_for_approval(monkeypatch):
     store = Store()
     dispatcher = Dispatcher()
-    result = await ResponseOrchestrator(dispatcher, store).run_chain(
+    result = await trusted_orchestrator(dispatcher, store, monkeypatch).run_chain(
         tenant_id=TENANT,
         case_id=CASE,
         device_id=DEVICE,
         plan=[
-            ActionPlan("block_ip", {"ip": "203.0.113.10"}),
-            ActionPlan("isolate_host", {}, requires_approval=False),
+            trusted_plan("block_ip", {"ip": "203.0.113.10"}),
+            trusted_plan("isolate_host", {}, requires_approval=False),
         ],
         issued_by="test",
     )
@@ -67,34 +125,36 @@ async def test_medium_action_dispatches_and_high_action_waits_for_approval():
 
 
 @pytest.mark.asyncio
-async def test_rejected_approval_never_dispatches():
+async def test_rejected_approval_never_dispatches(monkeypatch):
     store = Store()
     dispatcher = Dispatcher()
-    result = await ResponseOrchestrator(dispatcher, store).run_chain(
+    orchestrator = trusted_orchestrator(dispatcher, store, monkeypatch)
+    result = await orchestrator.run_chain(
         tenant_id=TENANT, case_id=CASE, device_id=DEVICE,
-        plan=[ActionPlan("isolate_host", {})], issued_by="test",
+        plan=[trusted_plan("isolate_host", {})], issued_by="test",
     )
     action_id = UUID(result.queued[0])
-    await ResponseOrchestrator(dispatcher, store).reject(action_id, UUID("44444444-4444-4444-4444-444444444444"), "denied")
+    await orchestrator.reject(action_id, UUID("44444444-4444-4444-4444-444444444444"), "denied")
     assert store.rows[str(action_id)]["status"] == "rejected"
     assert dispatcher.calls == []
 
 
 @pytest.mark.asyncio
-async def test_approval_dispatch_failure_returns_to_pending():
+async def test_approval_dispatch_failure_returns_to_pending(monkeypatch):
     store = Store()
 
     class FailingDispatcher(Dispatcher):
         async def issue(self, **kwargs):
             raise RuntimeError("agent queue unavailable")
 
-    result = await ResponseOrchestrator(FailingDispatcher(), store).run_chain(
+    orchestrator = trusted_orchestrator(FailingDispatcher(), store, monkeypatch)
+    result = await orchestrator.run_chain(
         tenant_id=TENANT, case_id=CASE, device_id=DEVICE,
-        plan=[ActionPlan("isolate_host", {})], issued_by="test",
+        plan=[trusted_plan("isolate_host", {})], issued_by="test",
     )
     action_id = UUID(result.queued[0])
     with pytest.raises(RuntimeError):
-        await ResponseOrchestrator(FailingDispatcher(), store).approve(action_id, UUID("44444444-4444-4444-4444-444444444444"))
+        await orchestrator.approve(action_id, UUID("44444444-4444-4444-4444-444444444444"))
     assert store.rows[str(action_id)]["status"] == "pending_approval"
 
 
