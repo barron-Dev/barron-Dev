@@ -63,6 +63,11 @@ begin
   returning r.*;
 end $$;
 
+-- PostgreSQL cannot replace an existing function while changing its return type.
+-- Remove the live legacy boolean-returning signature before creating this interim
+-- lifecycle signature; the next coordinated migration installs the fenced RPC.
+drop function if exists public.complete_service_request(uuid,text,text,jsonb,text);
+
 create or replace function public.complete_service_request(
   p_id uuid, p_state text, p_status text, p_result jsonb, p_failure_code text default null
 ) returns void
