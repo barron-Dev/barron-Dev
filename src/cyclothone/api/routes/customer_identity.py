@@ -664,7 +664,7 @@ async def create_service_request(body:ServiceRequest,p:DeveloperPrincipal=Depend
     target=body.target.strip() if body.target else ""
     target_type=(body.target_type or ("domain" if body.service_key=="dark_web_monitoring" else "url")).strip().lower()
     if not target:
-        match=re.search(r"^Target:\\s*(.+)$",description,re.MULTILINE|re.IGNORECASE)
+        match=re.search(r"^Target:\s*(.+)$",description,re.MULTILINE|re.IGNORECASE)
         target=match.group(1).strip() if match else ""
     if body.service_key=="dark_web_monitoring":
         if not target:
@@ -682,8 +682,8 @@ async def create_service_request(body:ServiceRequest,p:DeveloperPrincipal=Depend
     })
     if body.service_key=="dark_web_monitoring":
         return {
-            "request_id":row["id"],"status":row.get("status","submitted"),
-            "processing_state":row.get("processing_state","queued"),
+            "request_id":row["id"],"service":body.service_key,"target":target,"target_type":target_type,
+            "status":row.get("status","submitted"),"processing_state":row.get("processing_state","queued"),
             "poll_url":f"/api/v1/customer/service-requests/{row['id']}/result",
         }
     # Preserve the existing synchronous passive-assessment path for other services.
