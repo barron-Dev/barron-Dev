@@ -4,7 +4,7 @@ from cyclothone.knowledge.search import KnowledgeSearch
 
 
 def test_intent_is_deterministic_and_tie_breaks_by_declared_order():
-    result = classify("how do I configure the API?")
+    result = classify("API tutorial")
     assert result.kind == "api"
     assert result.confidence == 0.5
 
