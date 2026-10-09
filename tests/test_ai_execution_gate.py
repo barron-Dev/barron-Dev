@@ -287,7 +287,7 @@ async def test_destructive_orchestrator_mints_and_consumes_authoritative_envelop
     issuer.issue = AsyncMock(return_value=env)
     gate = AsyncMock()
     store = AsyncMock()
-    store.create = AsyncMock(return_value="1")
+    store.create = AsyncMock(return_value=str(uuid4()))
     store.update = AsyncMock()
     dispatcher = AsyncMock()
     dispatcher.issue = AsyncMock(return_value={"id": "cmd-1"})
