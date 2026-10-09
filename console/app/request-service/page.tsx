@@ -26,13 +26,35 @@ const REQUEST_SUGGESTIONS=[
  "Check the HTTP response and content type",
  "Give me a concise risk summary and next steps"
 ];
+const DARK_WEB_SUGGESTIONS=REQUEST_SUGGESTIONS.filter(x=>x!=="Check the HTTP response and content type");
 
 function Progress({value}:{value:number|null}){if(value===null)return null;return <div className="mt-5"><div className="mb-2 flex justify-between text-[9px] uppercase tracking-[.15em] text-[#67848d]"><span>Live workflow progress</span><span className="text-[#c2f35a]">{value}%</span></div><div className="cyclo-battery"><span style={{width:Math.max(0,Math.min(100,value))+"%"}}/></div></div>}
 
-export default function RequestService(){ const [orgs,setOrgs]=useState<CustomerOrganization[]>([]),[org,setOrg]=useState(""),[service,setService]=useState("cybersecurity_assessment"),[urgency,setUrgency]=useState("normal"),[target,setTarget]=useState(""),[description,setDescription]=useState(""),[verification,setVerification]=useState<any[]>([]),[error,setError]=useState<string|null>(null),[result,setResult]=useState<any>(null),[loading,setLoading]=useState(true);
+export default function RequestService(){ const [orgs,setOrgs]=useState<CustomerOrganization[]>([]),[org,setOrg]=useState(""),[service,setService]=useState("cybersecurity_assessment"),[urgency,setUrgency]=useState("normal"),[target,setTarget]=useState(""),[targetType,setTargetType]=useState("domain"),[description,setDescription]=useState(""),[verification,setVerification]=useState<any[]>([]),[error,setError]=useState<string|null>(null),[result,setResult]=useState<any>(null),[loading,setLoading]=useState(true);
  async function load(){setLoading(true);setError(null);try{const r=await getCustomerOrganizations();setOrgs(r.organizations);setOrg(r.organizations[0]?.id||"")}catch(e){setError(e instanceof Error?e.message:"Unable to load account")}finally{setLoading(false)}}
- useEffect(()=>{const requested=new URLSearchParams(window.location.search).get("service");if(requested&&SERVICES.some(x=>x[0]===requested))setService(requested);void load()},[]);
- async function submit(e:FormEvent){e.preventDefault();setError(null);setResult(null);try{const r=await apiFetch<any>("/api/v1/customer/service-requests",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({...(org?{organization_id:org}:{}),service_key:service,urgency,description:[`Target: ${target.trim()}`,`Service objective: ${description.trim()}`].join("\n")})});setResult(r);setTarget("");setDescription("")}catch(e){setError(e instanceof Error?e.message:"Service request failed")}}
+ useEffect(()=>{const requested=new URLSearchParams(window.location.search).get("service");if(requested&&SERVICES.some(x=>x[0]===requested))setService(requested);void load()},[]);useEffect(()=>{
+  const id=result?.request_id;
+  if(!id||result?.service!=="dark_web_monitoring"||["succeeded","failed","blocked"].includes(result?.processing_state))return;
+  let cancelled=false;
+  let timer:ReturnType<typeof setTimeout>|undefined;
+  let delay=1500;
+  const poll=async()=>{
+    if(cancelled)return;
+    try{
+      const state=await apiFetch<any>("/api/v1/customer/service-requests/"+encodeURIComponent(id)+"/result");
+      if(cancelled)return;
+      setResult((current:any)=>current?.request_id===id?{...current,...state,service:"dark_web_monitoring"}:current);
+      if(["succeeded","failed","blocked"].includes(state?.processing_state))return;
+    }catch(e){
+      // A transient poll failure must not strand a still-running server-side request.
+      if(!cancelled)setError(e instanceof Error?e.message:"Unable to read workflow result");
+    }
+    if(!cancelled){timer=setTimeout(poll,delay);delay=Math.min(Math.round(delay*1.7),15000)}
+  };
+  timer=setTimeout(poll,delay);
+  return()=>{cancelled=true;if(timer)clearTimeout(timer)};
+},[result?.request_id,result?.processing_state,result?.service]);
+ async function submit(e:FormEvent){e.preventDefault();setError(null);setResult(null);try{const r=await apiFetch<any>("/api/v1/customer/service-requests",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({...(org?{organization_id:org}:{}),service_key:service,urgency,target:target.trim(),target_type:service==="dark_web_monitoring"?targetType:"url",description:[`Target: ${target.trim()}`,`Service objective: ${description.trim()}`].join("\n")})});setResult({...r,service});setTarget("");setDescription("")}catch(e){setError(e instanceof Error?e.message:"Service request failed")}}
  const current=orgs.find(x=>x.id===org); const guidance=SERVICE_GUIDANCE[service]||DEFAULT_GUIDANCE; const serviceName=SERVICES.find(x=>x[0]===service)?.[1]||service;
  const progress=typeof result?.progress_percent==="number"?result.progress_percent:typeof result?.progress==="number"?result.progress:null;
  const stage=typeof result?.stage==="string"?result.stage:null;
@@ -55,7 +77,7 @@ export default function RequestService(){ const [orgs,setOrgs]=useState<Customer
     <section className="border-b border-white/10 py-7">
       <label className="block text-xs font-medium">1. Service
         <select value={service} onChange={e=>setService(e.target.value)} className="mt-3 w-full border-b border-white/15 bg-transparent py-3 text-base outline-none focus:border-[#c2f35a]/50">
-          {SERVICES.map(x=><option key={x[0]} value={x[0]}>{x[1]}</option>)}
+          {SERVICES.map(x=><option key={x[0]} value={x[0]}>{x[1]}{x[0]==="dark_web_monitoring"?" — Limited coverage (1 of 5 sources live)":""}</option>)}
         </select>
       </label>
       <p className="mt-2 text-[11px] leading-5 text-[#78939a]">{guidance.prompt} {guidance.help}</p>
@@ -65,13 +87,13 @@ export default function RequestService(){ const [orgs,setOrgs]=useState<Customer
       <label className="block text-xs font-medium">2. Target
         <input required minLength={2} maxLength={2000} value={target} onChange={e=>setTarget(e.target.value)} className="mt-3 w-full border-b border-white/15 bg-transparent py-3 text-base outline-none focus:border-[#c2f35a]/50" placeholder={guidance.placeholder}/>
       </label>
-      <p className="mt-2 text-[11px] leading-5 text-[#78939a]">{service==="dark_web_monitoring"?"Enter the domain you want monitored for real exposure signals.":"Enter the website or system you want checked."}</p>
+      {service==="dark_web_monitoring"&&<select aria-label="Target type" value={targetType} onChange={e=>setTargetType(e.target.value)} className="mt-4 w-full border-b border-white/15 bg-transparent py-3 text-sm outline-none focus:border-[#c2f35a]/50"><option value="domain">Domain</option><option value="brand">Brand</option><option value="email">Email address</option><option value="username">Username</option><option value="ip">Public IP address</option><option value="url">URL</option><option value="other">Other approved target</option></select>}<p className="mt-2 text-[11px] leading-5 text-[#78939a]">{service==="dark_web_monitoring"?"Limited coverage: 1 of 5 sources currently live. Results will list checked and unavailable sources.":"Enter the website or system you want checked."}</p>
     </section>
 
     <section className="border-b border-white/10 py-7">
       <label className="block text-xs font-medium">3. What do you need?
         <textarea required minLength={10} maxLength={10000} value={description} onChange={e=>setDescription(e.target.value)} rows={5} className="mt-3 w-full resize-y border-b border-white/15 bg-transparent py-3 text-sm leading-6 outline-none focus:border-[#c2f35a]/50" placeholder="Choose a suggestion or tell Cyclothone what you want to find out."/>
-      <div className="mt-4 flex flex-wrap gap-2">{REQUEST_SUGGESTIONS.map(s=><button type="button" key={s} onClick={()=>setDescription(s)} className="rounded-full border border-white/10 bg-white/[0.035] px-3 py-2 text-[10px] text-[#a9bdc2] transition hover:border-[#c2f35a]/35 hover:bg-white/[0.07] hover:text-[#e8f1f3]">{s}</button>)}</div>
+      <div className="mt-4 flex flex-wrap gap-2">{(service==="dark_web_monitoring"?DARK_WEB_SUGGESTIONS:REQUEST_SUGGESTIONS).map(s=><button type="button" key={s} onClick={()=>setDescription(s)} className="rounded-full border border-white/10 bg-white/[0.035] px-3 py-2 text-[10px] text-[#a9bdc2] transition hover:border-[#c2f35a]/35 hover:bg-white/[0.07] hover:text-[#e8f1f3]">{s}</button>)}</div>
       </label>
     </section>
 
@@ -86,7 +108,27 @@ export default function RequestService(){ const [orgs,setOrgs]=useState<Customer
       </button>
     </section>
 
-    {result&&<div className="border-t border-[#c2f35a]/20 py-6">
+    {result&&result.service==="dark_web_monitoring"&&<div className="border-t border-[#c2f35a]/20 py-6">
+      <div className="text-[9px] uppercase tracking-[.18em] text-[#c2f35a]">Dark Web request · {result.request_id||"request recorded"}</div>
+      <div className="mt-2 text-lg">{({queued:"Queued for execution",running:"Checking configured sources",succeeded:"Monitoring result ready",failed:"Execution failed",blocked:"Execution blocked"} as Record<string,string>)[result.processing_state||""]||"Request accepted"}</div>
+      <div className="mt-2 text-xs text-[#8ca6ad]">Target: {result.target||"—"} · State: {result.processing_state||"queued"} · Status: {result.status||"submitted"}</div>
+      {result.processing_state==="succeeded"&&<div className="mt-5 space-y-5">
+        <div className="rounded-2xl border border-white/10 bg-[#06181e]/70 p-4">
+          <div className="text-[9px] uppercase tracking-[.18em] text-[#4f8494]">Sources checked</div>
+          {(result.sources_checked||result.result?.sources_checked||[]).map((x:any,i:number)=><div key={i} className="mt-2 text-xs">{typeof x==="string"?x:x.source}</div>)}
+          <div className="mt-4 text-[9px] uppercase tracking-[.18em] text-[#4f8494]">Unavailable / failed</div>
+          {(result.sources_unavailable||result.result?.sources_unavailable||[]).length?(result.sources_unavailable||result.result?.sources_unavailable||[]).map((x:any,i:number)=><div key={i} className="mt-2 text-xs text-[#a9bdc2]">{x.source}: {x.reason||x.state}</div>):<div className="mt-2 text-xs">None reported</div>}
+        </div>
+        <div className="rounded-2xl border border-white/10 bg-[#06181e]/70 p-4">
+          <div className="text-[9px] uppercase tracking-[.18em] text-[#4f8494]">Findings & evidence</div>
+          {(result.findings||result.result?.findings||[]).length?(result.findings||result.result?.findings||[]).map((f:any,i:number)=><div key={i} className="mt-3 border-b border-white/10 pb-3 text-xs"><div className="font-medium">{f.matched_value||f.title||"Exposure signal"} <span className="ml-2 uppercase text-[#c2f35a]">{f.severity||f.label||"review"}</span></div><div className="mt-1 text-[#78939a]">Source: {f.source_id||f.source||"evidence"} · Collected: {f.collected_at||f.first_seen||"timestamp unavailable"}</div>{f.source_url&&<div className="mt-1 break-all text-[#78939a]">{f.source_url}</div>}{f.content_hash&&<div className="mt-1 break-all text-[#67848d]">SHA-256: {f.content_hash}</div>}</div>):<div className="mt-3 text-sm">No exact matches were confirmed in the sources checked.</div>}
+        </div>
+        {(result.recommendations||result.result?.recommendations||[]).map((x:string,i:number)=><div key={i} className="text-xs text-[#a9bdc2]">• {x}</div>)}
+        {result.case_id&&<a className="inline-block text-sm text-[#c2f35a] underline" href={"/customer/cases/"+encodeURIComponent(result.case_id)}>Open related case →</a>}
+      </div>}
+      {["failed","blocked"].includes(result.processing_state)&&<div className="mt-4 text-sm text-[#ff8ba0]">Execution did not complete. Error code: {result.failure_code||"execution_failed"}</div>}
+    </div>}
+    {result&&result.service!=="dark_web_monitoring"&&<div className="border-t border-[#c2f35a]/20 py-6">
       <div className="text-[9px] uppercase tracking-[.18em] text-[#c2f35a]">Request accepted</div>
       <div className="mt-2 text-lg">The workflow has been recorded.</div>
       {stage&&<div className="mt-2 text-xs text-[#8ca6ad]">Live stage: <span className="text-[#c2f35a]">{stage}</span></div>}
