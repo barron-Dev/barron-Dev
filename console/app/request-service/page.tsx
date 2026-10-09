@@ -77,7 +77,7 @@ export default function RequestService(){ const [orgs,setOrgs]=useState<Customer
     <section className="border-b border-white/10 py-7">
       <label className="block text-xs font-medium">1. Service
         <select value={service} onChange={e=>setService(e.target.value)} className="mt-3 w-full border-b border-white/15 bg-transparent py-3 text-base outline-none focus:border-[#c2f35a]/50">
-          {SERVICES.map(x=><option key={x[0]} value={x[0]}>{x[1]}{x[0]==="dark_web_monitoring"?" — Limited coverage (1 of 5 sources live)":""}</option>)}
+          {SERVICES.map(x=><option key={x[0]} value={x[0]}>{x[1]}{x[0]==="dark_web_monitoring"?" — source coverage checked at runtime":""}</option>)}
         </select>
       </label>
       <p className="mt-2 text-[11px] leading-5 text-[#78939a]">{guidance.prompt} {guidance.help}</p>
@@ -87,7 +87,7 @@ export default function RequestService(){ const [orgs,setOrgs]=useState<Customer
       <label className="block text-xs font-medium">2. Target
         <input required minLength={2} maxLength={2000} value={target} onChange={e=>setTarget(e.target.value)} className="mt-3 w-full border-b border-white/15 bg-transparent py-3 text-base outline-none focus:border-[#c2f35a]/50" placeholder={guidance.placeholder}/>
       </label>
-      {service==="dark_web_monitoring"&&<select aria-label="Target type" value={targetType} onChange={e=>setTargetType(e.target.value)} className="mt-4 w-full border-b border-white/15 bg-transparent py-3 text-sm outline-none focus:border-[#c2f35a]/50"><option value="domain">Domain</option><option value="brand">Brand</option><option value="email">Email address</option><option value="username">Username</option><option value="ip">Public IP address</option><option value="url">URL</option><option value="other">Other approved target</option></select>}<p className="mt-2 text-[11px] leading-5 text-[#78939a]">{service==="dark_web_monitoring"?"Limited coverage: 1 of 5 sources currently live. Results will list checked and unavailable sources.":"Enter the website or system you want checked."}</p>
+      {service==="dark_web_monitoring"&&<select aria-label="Target type" value={targetType} onChange={e=>setTargetType(e.target.value)} className="mt-4 w-full border-b border-white/15 bg-transparent py-3 text-sm outline-none focus:border-[#c2f35a]/50"><option value="domain">Domain</option><option value="brand">Brand</option><option value="email">Email address</option><option value="username">Username</option><option value="ip">Public IP address</option><option value="url">URL</option><option value="other">Other approved target</option></select>}<p className="mt-2 text-[11px] leading-5 text-[#78939a]">{service==="dark_web_monitoring"?"Source availability is checked when the workflow runs. Results will list checked and unavailable sources.":"Enter the website or system you want checked."}</p>
     </section>
 
     <section className="border-b border-white/10 py-7">
