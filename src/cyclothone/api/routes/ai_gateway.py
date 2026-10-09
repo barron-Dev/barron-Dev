@@ -186,6 +186,7 @@ async def start_model_run(
                 "p_request_fingerprint": request_fingerprint,
                 "p_trace_id": body.trace_id,
                 "p_correlation_id": body.correlation_id,
+                "p_workload_layer": body.workload_layer.strip().upper(),
             },
         ).execute()
         row = result.data if isinstance(result.data, dict) else None
@@ -204,6 +205,7 @@ async def start_model_run(
             "provider_id": str(row["provider_id"]),
             "provider_binding_version": int(row["provider_binding_version"]),
             "run_state": str(row["run_state"]),
+            "workload_layer": str(row["workload_layer"]),
             "request_fingerprint": str(row["request_fingerprint"]),
         }
     except ModelRoutingDenied as exc:
@@ -225,7 +227,7 @@ async def execute_model_run(
     client = await supabase._ensure()
     try:
         response = await client.table("ai_runs").select(
-            "id,tenant_id,provider_id,model_id,run_state"
+            "id,tenant_id,provider_id,model_id,run_state,workload_layer"
         ).eq("id", str(run_id)).eq("tenant_id", str(tenant_id)).limit(1).execute()
     except Exception as exc:
         raise HTTPException(503, "AI run authority unavailable") from exc
@@ -248,6 +250,7 @@ async def execute_model_run(
         "provider_id": str(run["provider_id"]),
         "model_id": str(run["model_id"]),
         "run_state": "COMPLETED",
+        "workload_layer": str(run["workload_layer"]),
         "output_text": result.output_text,
         "usage": {
             "tokens_in": result.tokens_in,
