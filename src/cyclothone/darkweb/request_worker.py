@@ -4,7 +4,6 @@ import asyncio
 import hashlib
 import logging
 import os
-import socket
 from datetime import UTC, datetime
 from urllib.parse import urlsplit
 
@@ -19,22 +18,13 @@ ALLOWED_TYPES = {"domain", "url", "email", "brand", "username", "ip", "other"}
 
 
 def _is_public_host(host: str) -> bool:
+    import ipaddress
     try:
-        import ipaddress
-        address = ipaddress.ip_address(host)
-        return address.is_global
+        return ipaddress.ip_address(host).is_global
     except ValueError:
         host = host.rstrip(".").lower()
-        if not host or host in {"localhost", "localhost.localdomain"} or "." not in host:
-            return False
-        try:
-            infos = socket.getaddrinfo(host, None, type=socket.SOCK_STREAM)
-        except OSError:
-            # A DNS failure is not evidence of a private address. The source
-            # engines query public feeds and do not connect to the target.
-            return True
-        import ipaddress
-        return all(ipaddress.ip_address(item[4][0].split("%", 1)[0]).is_global for item in infos)
+        return bool(host and "." in host and host not in {"localhost", "localhost.localdomain"}
+                    and not host.endswith((".local", ".internal", ".localhost", ".test", ".invalid")))
 
 
 def normalize_target(value: str, target_type: str) -> str:
@@ -112,16 +102,20 @@ class DarkWebRequestWorker:
                 await asyncio.wait_for(self._process(row), timeout=150)
             except asyncio.CancelledError:
                 raise
-            except Exception:
-                logger.exception("dark-web request processing failed id=%s", row.get("id"))
+            except ValueError as exc:
+                logger.warning("dark-web request rejected id=%s reason=%s", row.get("id"), str(exc))
                 try:
                     await supabase.rpc("complete_service_request", {
-                        "p_id": row["id"], "p_state": "failed", "p_status": "blocked",
-                        "p_result": {"service": "dark_web_monitoring", "error": "processing_failed"},
-                        "p_failure_code": "processing_failed",
+                        "p_id": row["id"], "p_state": "blocked", "p_status": "blocked",
+                        "p_result": {"service": "dark_web_monitoring", "error": "invalid_target"},
+                        "p_failure_code": str(exc)[:80] or "invalid_target",
                     })
                 except Exception:
-                    logger.exception("failed to persist dark-web request failure id=%s", row.get("id"))
+                    logger.exception("failed to persist dark-web request rejection id=%s", row.get("id"))
+            except Exception:
+                # Keep the lease. Once it expires, the claim RPC retries the real
+                # request; the sweeper blocks it after three attempts.
+                logger.exception("dark-web request processing failed id=%s; lease will expire for retry", row.get("id"))
 
     async def _process(self, request: dict) -> None:
         request_id = str(request["id"])
@@ -137,7 +131,9 @@ class DarkWebRequestWorker:
         tenant_id = str(org["tenant_id"])
         watch_kind = {"domain": "domain", "url": "domain", "email": "email", "brand": "company_name",
                       "username": "username", "ip": "ip", "other": "other"}[target_type]
-        watch_value = target.lower()
+        watch_value = (urlsplit(target).hostname or "").lower() if target_type == "url" else target.lower()
+        if not watch_value:
+            raise ValueError("invalid_target")
         watch_hash = hashlib.sha256(watch_value.encode()).hexdigest()
         existing = await supabase.select_one(
             "dw_watchlist", "id,tenant_id,kind,value,value_hash,severity",
