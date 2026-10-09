@@ -159,16 +159,17 @@ class DarkWebRequestWorker:
         sources: list[dict] = []
         pulled = []
         findings = []
-        hibp_key = os.getenv("CYCLOTHONE_HIBP_KEY", "").strip() or os.getenv("SENTINEL_HIBP_KEY", "").strip()
-        github_token = os.getenv("CYCLOTHONE_GITHUB_TOKEN", "").strip() or os.getenv("SENTINEL_GITHUB_TOKEN", "").strip()
-        if "ransomwatch" in enabled:
+        hibp_key = os.getenv("CYCLOTHONE_HIBP_KEY", "").strip()
+        github_token = os.getenv("CYCLOTHONE_GITHUB_TOKEN", "").strip()
+        if "ransomwatch" in enabled and target_type in {"domain", "brand"}:
             try:
                 pulled.extend(await asyncio.wait_for(RansomwatchPuller().pull(), timeout=35))
                 sources.append({"source": "ransomwatch", "state": "checked"})
             except Exception:
                 sources.append({"source": "ransomwatch", "state": "failed", "reason": "source_request_failed"})
         else:
-            sources.append({"source": "ransomwatch", "state": "unavailable", "reason": "disabled"})
+            reason = "disabled" if "ransomwatch" not in enabled else "unsupported_target_type"
+            sources.append({"source": "ransomwatch", "state": "unavailable", "reason": reason})
         if "hibp" in enabled and hibp_key and target_type == "domain":
             try:
                 pulled.extend(await asyncio.wait_for(HIBPPuller(hibp_key).pull_domain(target), timeout=25))
@@ -187,6 +188,15 @@ class DarkWebRequestWorker:
         else:
             sources.append({"source": "github_code", "state": "unavailable",
                             "reason": "missing_key" if not github_token else ("unsupported_target_type" if target_type != "domain" else "disabled")})
+
+        # These providers can be ingested by the background scheduler, but this
+        # request worker does not query them synchronously. Do not claim coverage
+        # just because a provider is globally enabled.
+        for source_id in ("pastebin_public", "telegram_public"):
+            if source_id in enabled:
+                sources.append({"source": source_id, "state": "unavailable", "reason": "not_queried_for_request"})
+            else:
+                sources.append({"source": source_id, "state": "unavailable", "reason": "disabled"})
 
         # Persist only exact target matches. The global feed itself is still
         # useful for retro-sweep but a company-name resemblance is never silently

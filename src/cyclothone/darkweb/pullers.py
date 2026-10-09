@@ -51,7 +51,7 @@ class HIBPPuller:
             async with httpx.AsyncClient(timeout=20.0) as client:
                 response = await client.get(
                     f"{self.BASE}/breacheddomain/{domain}",
-                    headers={"hibp-api-key": self.api_key, "user-agent": "sentinel-dw/1.0"},
+                    headers={"hibp-api-key": self.api_key, "user-agent": "cyclothone-darkweb/1.0"},
                 )
                 if response.status_code == 404:
                     return []
@@ -106,7 +106,7 @@ class TelegramPublicMonitor:
         for channel in self.channels:
             try:
                 async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
-                    response = await client.get(f"https://t.me/s/{channel}", headers={"user-agent": "sentinel-dw/1.0"})
+                    response = await client.get(f"https://t.me/s/{channel}", headers={"user-agent": "cyclothone-darkweb/1.0"})
                     response.raise_for_status()
                     html = response.text
                 for email in dict.fromkeys(EMAIL_RE.findall(html)):
@@ -126,7 +126,7 @@ class PastePublicMonitor:
     async def pull(self) -> list[Finding]:
         try:
             async with httpx.AsyncClient(timeout=15.0) as client:
-                response = await client.get(self.FEED, headers={"user-agent": "sentinel-dw/1.0"})
+                response = await client.get(self.FEED, headers={"user-agent": "cyclothone-darkweb/1.0"})
                 response.raise_for_status()
                 text = response.text
         except Exception as exc:
@@ -142,7 +142,7 @@ class GitHubCodeMonitor:
         self.token = token
 
     async def pull_domain(self, domain: str) -> list[Finding]:
-        headers = {"authorization": f"Bearer {self.token}", "accept": "application/vnd.github+json", "user-agent": "sentinel-dw/1.0"}
+        headers = {"authorization": f"Bearer {self.token}", "accept": "application/vnd.github+json", "user-agent": "cyclothone-darkweb/1.0"}
         out: list[Finding] = []
         failures = 0
         async with httpx.AsyncClient(timeout=20.0) as client:
