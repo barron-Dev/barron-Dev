@@ -231,7 +231,7 @@ class DarkWebRequestWorker:
             ("hibp", hibp_call, 25, hibp_reason),
             ("github_code", (lambda: GitHubCodeMonitor(github_token).pull_domain(provider_domain)) if github_token and provider_domain else None, 65, github_reason),
             ("pastebin_public", PastePublicMonitor().pull if public_target_supported else None, 50, paste_reason),
-            ("telegram_public", telegram_monitor.pull if telegram_monitor and public_target_supported else None, 45, telegram_reason),
+            ("telegram_public", telegram_monitor.pull if telegram_monitor and public_target_supported else None, 90, telegram_reason),
         ]
         provider_results = await asyncio.gather(*(
             run_source(source_id, pull, timeout, reason)
