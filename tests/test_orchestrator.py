@@ -39,11 +39,13 @@ def test_action_classification():
 
 
 @pytest.mark.asyncio
-async def test_high_impact_queued_for_approval():
+async def test_high_impact_requires_canonical_run_binding_before_approval_queue():
     dispatcher = AsyncMock()
     orch = ResponseOrchestrator(dispatcher, FakeStore())
     result = await orch.run_chain(tenant_id=uuid4(), case_id=uuid4(), device_id=uuid4(), plan=[ActionPlan("isolate_host", {}, True)], issued_by="test")
-    assert result.queued == ["1"]
+    assert result.queued == []
+    assert len(result.rejected) == 1
+    assert "canonical AI run binding" in result.reasons[result.rejected[0]]
     dispatcher.issue.assert_not_called()
 
 
@@ -60,7 +62,7 @@ async def test_dry_run_never_dispatches():
 async def test_blast_radius_fails_closed():
     dispatcher = AsyncMock()
     orch = ResponseOrchestrator(dispatcher, FakeStore(allowed=False))
-    result = await orch.run_chain(tenant_id=uuid4(), case_id=uuid4(), device_id=uuid4(), plan=[ActionPlan("isolate_host", {}, True)], issued_by="test", blast_rule_id=uuid4(), blast_limit=1)
+    result = await orch.run_chain(tenant_id=uuid4(), case_id=uuid4(), device_id=uuid4(), plan=[ActionPlan("scan_now", {}, True)], issued_by="test", blast_rule_id=uuid4(), blast_limit=1)
     assert result.rejected == ["1"]
     assert result.reasons["1"] == "blast radius exceeded"
     dispatcher.issue.assert_not_called()
