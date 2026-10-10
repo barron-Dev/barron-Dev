@@ -15,6 +15,13 @@ from cyclothone.streaming.pipeline import ChangeEventPipeline
 logger = logging.getLogger(__name__)
 
 
+def _progress_percent(processed: int, total: int) -> int:
+    """Calculate progress from actual processed records, never elapsed time."""
+    if total <= 0:
+        return 100 if processed == 0 else 0
+    return min(100, max(0, int((processed / total) * 100)))
+
+
 class DarkWebScheduler:
     GLOBAL_INTERVAL = 15 * 60
     DOMAIN_INTERVAL = 6 * 3600
@@ -199,7 +206,7 @@ class DarkWebScheduler:
                 errors += 1
                 logger.warning("dark web change-event outbox write failed for source=%s", finding.source_id, exc_info=True)
             if index == total or index % 25 == 0:
-                progress = int((index / total) * 100) if total else 100
+                progress = _progress_percent(index, total)
                 if "watchlist_match" in steps_by_key:
                     steps_by_key["watchlist_match"].update({
                         "status": "completed" if index == total else "running",
