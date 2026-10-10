@@ -40,9 +40,11 @@ DEFAULT_PUBLIC_TELEGRAM_CHANNELS = (
 )
 
 
-def configured_telegram_channels() -> list[str]:
-    """Resolve configured/default public usernames; reject invite/private URLs.
+def configured_telegram_channels(*, use_defaults: bool = True) -> list[str]:
+    """Resolve public usernames; reject invite/private URLs.
 
+    The scheduler may use legacy defaults. Customer-triggered scans must opt in
+    via environment configuration until candidate reachability has been checked.
     An explicitly configured empty value intentionally disables the source.
     """
     configured = os.getenv("CYCLOTHONE_DW_TELEGRAM_CHANNELS")
@@ -50,8 +52,8 @@ def configured_telegram_channels() -> list[str]:
         configured = os.getenv("SENTINEL_DW_TELEGRAM_CHANNELS")
     raw_channels = (
         list(DEFAULT_PUBLIC_TELEGRAM_CHANNELS)
-        if configured is None
-        else configured.split(",")
+        if configured is None and use_defaults
+        else ([] if configured is None else configured.split(","))
     )
 
     channels: list[str] = []
