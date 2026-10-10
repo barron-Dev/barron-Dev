@@ -2,23 +2,27 @@ from unittest.mock import patch
 
 import pytest
 
-from cyclothone.darkweb.pullers import PastePublicMonitor, _paste_ids_from_feed
+from cyclothone.darkweb.pullers import PastePublicMonitor, _paste_entries_from_feed
 
 
-def test_paste_feed_parser_accepts_only_pastebin_ids():
-    feed = """<?xml version="1.0"?>
-    <rss><channel>
-      <item><link>https://pastebin.com/AbCd1234</link></item>
-      <item><link>https://attacker.example/anything</link></item>
-      <item><link>https://pastebin.com/raw/AbCd1234</link></item>
-      <item><link>https://pastebin.com/ZXcv9876</link></item>
-    </channel></rss>"""
+def test_paste_feed_parser_accepts_only_valid_pastebin_ca_entries():
+    feed = """{
+      "items": [
+        {"id":"2abcdefghj","url":"https://pastebin.ca/p/2abcdefghj","raw_url":"https://raw.anybin.ca/raw/2abcdefghj"},
+        {"id":"2abcdefghj","url":"https://pastebin.ca/p/2abcdefghj","raw_url":"https://raw.anybin.ca/raw/2abcdefghj"},
+        {"id":"3bcdefghjk","url":"https://pastebin.ca/p/3bcdefghjk","raw_url":"https://raw.anybin.ca/raw/3bcdefghjk"},
+        {"id":"4cdefghjkm","url":"https://pastebin.ca/p/4cdefghjkm","raw_url":"https://attacker.example/raw/4cdefghjkm"}
+      ]
+    }"""
 
-    assert _paste_ids_from_feed(feed) == ["AbCd1234", "ZXcv9876"]
+    assert _paste_entries_from_feed(feed) == [
+        ("2abcdefghj", "https://raw.anybin.ca/raw/2abcdefghj", "https://pastebin.ca/p/2abcdefghj"),
+        ("3bcdefghjk", "https://raw.anybin.ca/raw/3bcdefghjk", "https://pastebin.ca/p/3bcdefghjk"),
+    ]
 
 
-def test_paste_feed_parser_fails_closed_on_invalid_xml():
-    assert _paste_ids_from_feed("<rss><item>") == []
+def test_paste_feed_parser_fails_closed_on_invalid_json():
+    assert _paste_entries_from_feed("{invalid json") == []
 
 
 class _Response:
@@ -43,9 +47,9 @@ class _Client:
         self.urls.append(url)
         if url == PastePublicMonitor.FEED:
             return _Response(
-                "<rss><channel><item><link>https://pastebin.com/AbCd1234</link></item></channel></rss>"
+                '{"items":[{"id":"2abcdefghj","url":"https://pastebin.ca/p/2abcdefghj","raw_url":"https://raw.anybin.ca/raw/2abcdefghj"}]}'
             )
-        if url == "https://pastebin.com/raw/AbCd1234":
+        if url == "https://raw.anybin.ca/raw/2abcdefghj":
             return _Response("exposed identifier: security@owned-example.com; password=not-retained")
         raise AssertionError(f"Unexpected URL requested: {url}")
 
@@ -59,10 +63,10 @@ async def test_paste_monitor_reads_raw_content_and_returns_source_specific_evide
     assert len(findings) == 1
     finding = findings[0]
     assert finding.matched_value == "security@owned-example.com"
-    assert finding.source_url == "https://pastebin.com/AbCd1234"
-    assert finding.metadata == {"paste_id": "AbCd1234"}
+    assert finding.source_url == "https://pastebin.ca/p/2abcdefghj"
+    assert finding.metadata == {"paste_id": "2abcdefghj"}
     assert "not-retained" not in repr(finding)
     assert client.urls == [
         PastePublicMonitor.FEED,
-        "https://pastebin.com/raw/AbCd1234",
+        "https://raw.anybin.ca/raw/2abcdefghj",
     ]
