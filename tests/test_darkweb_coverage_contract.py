@@ -1,7 +1,11 @@
 import pytest
 from unittest.mock import AsyncMock
 
-from cyclothone.darkweb.scheduler import DarkWebScheduler
+from cyclothone.darkweb.scheduler import (
+    DEFAULT_PUBLIC_TELEGRAM_CHANNELS,
+    DarkWebScheduler,
+    _configured_telegram_channels,
+)
 from cyclothone.darkweb.request_worker import _coverage_state
 
 
@@ -33,6 +37,22 @@ def test_archived_ransomwatch_is_not_counted_as_fresh_coverage():
     ]) == "partial"
 
 
+def test_telegram_defaults_use_only_the_supplied_public_handles(monkeypatch):
+    monkeypatch.delenv("CYCLOTHONE_DW_TELEGRAM_CHANNELS", raising=False)
+    monkeypatch.delenv("SENTINEL_DW_TELEGRAM_CHANNELS", raising=False)
+
+    assert _configured_telegram_channels() == list(DEFAULT_PUBLIC_TELEGRAM_CHANNELS)
+    assert len(_configured_telegram_channels()) == 13
+
+
+def test_telegram_env_normalizes_public_urls_and_deduplicates(monkeypatch):
+    monkeypatch.setenv(
+        "CYCLOTHONE_DW_TELEGRAM_CHANNELS",
+        "@gladdos69_official,https://t.me/s/ObserverCloud,t.me/observercloud,https://t.me/+privateInvite",
+    )
+
+    assert _configured_telegram_channels() == ["gladdos69_official", "ObserverCloud"]
+
 
 @pytest.mark.asyncio
 async def test_scheduler_does_not_poll_archived_ransomwatch(monkeypatch):
@@ -50,3 +70,19 @@ async def test_scheduler_does_not_poll_archived_ransomwatch(monkeypatch):
     mark_source.assert_awaited_once_with("ransomwatch", "historical_only_archived_feed", pulled=False)
     run_pull.assert_awaited_once()
     assert run_pull.await_args.args[0] == "pastebin_public"
+
+
+@pytest.mark.asyncio
+async def test_scheduler_marks_telegram_unavailable_when_explicitly_unconfigured(monkeypatch):
+    scheduler = DarkWebScheduler()
+    monkeypatch.setenv("CYCLOTHONE_DW_TELEGRAM_CHANNELS", "")
+    monkeypatch.setattr(scheduler, "_enabled_sources", AsyncMock(return_value={"telegram_public"}))
+    mark_source = AsyncMock()
+    run_pull = AsyncMock()
+    monkeypatch.setattr(scheduler, "_mark_source", mark_source)
+    monkeypatch.setattr(scheduler, "_run_pull", run_pull)
+
+    await scheduler._global_tick()
+
+    mark_source.assert_awaited_once_with("telegram_public", "unavailable_missing_channel", pulled=False)
+    run_pull.assert_not_awaited()
