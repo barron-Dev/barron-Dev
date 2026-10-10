@@ -174,7 +174,7 @@ def build_change_event(finding: object, *, collected_at: datetime | None = None)
     }))
     subject_id = _sha256(f"{kind}:{value}")
     event_type = _classify(source_id, kind, metadata)
-    relevance = str(metadata.get("relevance") or "FUZZY").upper()
+    relevance = str(metadata.get("relevance") or "OTHER").upper()
     if relevance not in {"EXACT", "FUZZY"}:
         relevance = "OTHER"
     reliability = SOURCE_RELIABILITY.get(source_id, 5)
