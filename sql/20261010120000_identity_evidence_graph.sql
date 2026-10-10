@@ -76,7 +76,7 @@ create table if not exists public.identity_evidence (
     references public.identity_entities(tenant_id, id) on delete cascade,
   foreign key (tenant_id, relationship_id)
     references public.identity_relationships(tenant_id, id) on delete cascade,
-  unique (tenant_id, source_id, content_hash, entity_id, relationship_id)
+  unique nulls not distinct (tenant_id, source_id, content_hash, entity_id, relationship_id)
 );
 
 create index if not exists identity_entities_tenant_type_idx
