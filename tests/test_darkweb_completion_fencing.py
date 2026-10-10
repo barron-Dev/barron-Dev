@@ -32,3 +32,22 @@ async def test_completion_passes_claim_attempt_as_fencing_token(monkeypatch):
             "p_failure_code": None,
         },
     )
+
+
+
+@pytest.mark.asyncio
+async def test_completion_rejected_by_fence_is_not_treated_as_success(monkeypatch):
+    rpc = AsyncMock(return_value=False)
+    monkeypatch.setattr("cyclothone.darkweb.request_worker.supabase.rpc", rpc)
+    worker = DarkWebRequestWorker()
+
+    with pytest.raises(RuntimeError, match="completion_fence_rejected"):
+        await worker._complete(
+            {"id": "00000000-0000-0000-0000-000000000001", "attempts": 2},
+            "succeeded",
+            "resolved",
+            {"coverage": "partial"},
+            None,
+        )
+
+    rpc.assert_awaited_once()
