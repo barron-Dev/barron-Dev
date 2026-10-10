@@ -131,6 +131,14 @@ class DarkWebMatcher:
         try:
             response = await supabase._retry(_do, attempts=2)
             row = (response.data or [{}])[0] if isinstance(response.data, list) else (response.data or {})
+            if tenant_id and watchlist_id:
+                try:
+                    await supabase.rpc("enqueue_dw_attribution_job", {
+                        "p_tenant_id": tenant_id, "p_watchlist_id": watchlist_id,
+                    })
+                except Exception as exc:
+                    logger.warning("attribution enqueue failed for tenant-scoped finding error=%s", type(exc).__name__)
+                    return {"finding_id": row.get("finding_id"), "alert_id": row.get("alert_id"), "detection_id": row.get("detection_id"), "error": "attribution_queue_failed"}
             return {"finding_id": row.get("finding_id"), "alert_id": row.get("alert_id"), "detection_id": row.get("detection_id")}
         except Exception as exc:
             logger.exception("dark web finding ingestion failed source=%s", finding.get("source_id"))

@@ -1,28 +1,38 @@
 # Cyclothone DW — Adversary Attribution & Threat Actor Profiling
 
-## Implemented on the feature branch
+## Implemented in the feature branch
 
-- Deterministic probabilistic attribution engine with seven weighted signals: infrastructure 0.25, ATT&CK/TTP 0.20, malware 0.15, behavioural 0.15, victimology 0.10, identity markers 0.10, temporal 0.05.
-- Diamond Model output always contains adversary, capability, infrastructure, and victim vertices; unknown vertices are explicit.
-- ATT&CK technique-ID syntax validation, observed-action to Cyber Kill Chain phase mapping, and technique overlap scoring across campaigns.
-- Four confidence tiers with per-signal explanations. CONFIRMED/SUSPECTED require at least two signal families, two independent source identifiers, and infrastructure or identity overlap; every assessment remains analyst-review-required.
-- Privacy-minimized behavioural summaries: UTC activity histograms, vocabulary richness and average sentence length, infrastructure/registrar/tool preferences and operational descriptors. Raw messages, typo signatures, biometric traits and inferred real-world identity are not stored by this helper.
-- Server-side persistence orchestrator that compares a complete activity cluster with existing profiles, enriches profiles for suspected/high-confidence associations, and creates a provisional activity-cluster profile when no known profile reaches POSSIBLE. It never invents a named actor.
-- PostgreSQL tables for actor profiles, attribution assessments, actor relationships and evidence records, with RLS enabled and direct anon/authenticated access revoked.
+- Seven-signal probabilistic scoring with the requested weights, explicit missing-signal handling, per-signal explanation and conservative confidence guardrails.
+- All four Diamond Model vertices are populated; unknown vertices remain explicit. ATT&CK syntax validation and Cyber Kill Chain phase mapping are included.
+- Cross-source activity-cluster assembly uses source IDs, record IDs, stable tenant-scoped cluster IDs, hashed evidence references, and a bounded evidence record allowlist.
+- The dark-web matcher enqueues attribution work for a tenant/watchlist match. The API lifespan starts a worker that claims jobs atomically, reads tenant-owned findings, assembles a cluster, scores it, stores evidence/assessment, and emits a durable alert-outbox event.
+- Profiles and assessments are tenant-scoped for provisional/customer-derived data. Public actor profiles are read-only to customer findings; one tenant's provisional profiles and relationship evidence are not visible to another tenant's API.
+- Analyst review endpoints, tenant-filtered assessment/actor APIs, relationship listing, ATT&CK catalogue lookup, optional Leiden communities, and encrypted-secret HMAC-signed webhook registration/delivery are implemented.
+- MITRE Enterprise ATT&CK STIX catalogue synchronization is implemented behind the environment flag CYCLOTHONE_ATTACK_CATALOG_SYNC_ENABLED=true, with a configurable official STIX URL and database state.
+- Added SQL migrations for profile/assessment/evidence tables, tenant-scoped jobs, atomic job claiming/retry, alert outbox, encrypted webhook registrations/delivery ledger, ATT&CK catalogue cache, and idempotency indexes.
+- Added focused tests for cluster assembly, evidence provenance, graph shape, and HMAC signature determinism.
 
-## Confidence and evidence controls
+## Runtime configuration required
 
-The score follows the specified weighted composite. Missing signals score zero; they are not imputed. The engine preserves both the raw-score tier and the guarded tier, records per-signal scores and reasons, and keeps analyst review required. CONFIRMED is a review queue tier, not an automatic public assertion. Behavioural similarities and temporal correlations are weak, spoofable evidence and must not be used to identify a private person.
+- Apply sql/20261010170000_dw_attribution_profiling.sql, sql/20261010180000_dw_attribution_execution.sql, and sql/20261010190000_dw_attack_catalogue.sql through the approved migration process.
+- Assign developer API keys/OAuth apps the scopes threat-intel:read, threat-intel:review, and threat-intel:manage as appropriate.
+- For outbound webhooks set CYCLOTHONE_WEBHOOK_ALLOWED_HOSTS to an explicit comma-separated host allowlist and set CYCLOTHONE_WEBHOOK_ENCRYPTION_KEY to a valid Fernet key. No host is contacted unless allowlisted. Outbound delivery uses HMAC-SHA256 over timestamp.body, timestamp/signature headers and an idempotency key.
+- To synchronize MITRE ATT&CK, set CYCLOTHONE_ATTACK_CATALOG_SYNC_ENABLED=true. The worker refreshes the official Enterprise ATT&CK STIX bundle no more than every six hours and records the last success/error. If outbound network access is blocked, it reports failure rather than claiming the catalogue is fresh.
+- Leiden community detection runs only when the attribution-graph extra is installed. Without igraph and leidenalg, the API returns status=unavailable and the real bipartite graph; it does not invent communities.
+- Ensure database migrations and required scopes exist before enabling the API. The worker logs schema/config failures and retries queued jobs with bounded exponential backoff.
 
-## Important release boundary
+## Attribution and privacy controls
 
-This commit adds code and an unapplied migration only. It does not change production. It does not claim that Neo4j/APOC triggers, a GNN, Leiden community detection, Censys, VoidAccess, Flare, Recorded Future/Mandiant, EUREKHA, external forum tools, or any other third-party integration is installed or authorized. ATT&CK IDs are syntax-checked here; a current MITRE ATT&CK catalogue lookup is still needed to validate technique existence and metadata. The current streaming finding shape does not reliably supply a complete cross-source activity cluster, so assess_activity_cluster must be called by the authorized cluster assembler/worker; it is not invoked for every individual finding. No CI, Vercel build, deployment, migration, or secret/infrastructure change was run or requested.
+- Scores are probabilistic association estimates, never proof of real-world identity. Every assessment stays review-gated. A numerical CONFIRMED tier is not an automatic public allegation.
+- Infrastructure overlap has the strongest weight; TTP, malware, behaviour, victimology, identity markers and timing are independently explained. Temporal/behavioural similarities alone never create actor relationships.
+- Raw message content and matched identifiers are not copied into the change-event payload. Evidence stores hashes, source provenance, allowlisted metadata and sanitized source URLs; query strings and fragments are removed.
+- Public profiles are not enriched with customer watchlist identifiers. Customer-derived provisional profiles, assessments, evidence and relationships are tenant-scoped.
+- Third-party feeds/tools (Censys, Flare, VoidAccess, Recorded Future/Mandiant, EUREKHA, Neo4j/APOC, GNN, forum/Telegram tools) are not represented as installed or live without separate verified integration work and credentials. Leiden is optional and is not a GNN; no 91.2% accuracy claim is made.
+- These commits are code and unapplied migrations only. No CI, Vercel build/deployment, migration, or production configuration change was run.
 
-## Remaining before production claim
+## Remaining external release gates
 
-1. Wire the cluster assembler to call assess_activity_cluster with stable cluster IDs, independent source provenance, preserved evidence IDs and all four Diamond vertices.
-2. Add an authenticated analyst review/override API and customer-safe read API with tenant authorization; never expose global profiles or raw evidence directly to browsers.
-3. Add source-of-truth graph integration (Neo4j or PostgreSQL graph tables), idempotent graph updates, relationship reconciliation and tested cycle/recursion prevention.
-4. Add ATT&CK catalogue sync, CAPEC relationships and validated technique/community clustering; implement Leiden only when the graph data and runtime dependency are actually present.
-5. Implement durable alert routing for new provisional clusters and material profile changes, with signed outbound webhooks and event-time evidence preservation.
-6. Apply the migration through the approved release process, then run one consolidated CI/runtime/E2E verification block. None of those production steps is claimed complete.
+1. Apply migrations and provision runtime environment variables/API scopes.
+2. Install the graph extra if Leiden is required in production.
+3. Run one consolidated CI/test block and verify worker, tenant isolation, migration constraints, official catalogue sync, webhook signatures and live end-to-end evidence with approved credentials.
+4. Validate current ATT&CK technique IDs against the synchronized catalogue before presenting them as recognized techniques.
