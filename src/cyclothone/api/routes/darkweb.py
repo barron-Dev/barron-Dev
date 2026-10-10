@@ -183,6 +183,27 @@ async def open_case(alert_id: UUID, principal: DeveloperPrincipal = Depends(auth
 
 
 
+def _sanitize_global_detection(row: dict) -> dict:
+    """Remove identifying payloads from unmatched, tenant-global detections.
+
+    Raw identifiers may be used internally for exact watchlist matching, but
+    must not be disclosed to every tenant merely because tenant_id is NULL.
+    Only a small source-metadata allowlist is exposed for global detections.
+    """
+    safe_metadata_keys = {"exposure_layer", "published", "breach", "paste_id", "channel", "group"}
+    metadata = row.get("source_metadata")
+    safe_metadata = {
+        key: value for key, value in metadata.items()
+        if key in safe_metadata_keys and isinstance(value, (str, int, float, bool, type(None)))
+    } if isinstance(metadata, dict) else {}
+    sanitized = dict(row)
+    sanitized["matched_value"] = "[redacted]"
+    sanitized["context"] = "Public-source detection; identifier details are withheld until matched to an authorized tenant watchlist."
+    sanitized["source_url"] = None
+    sanitized["source_metadata"] = safe_metadata
+    return sanitized
+
+
 @router.get("/findings")
 async def findings(
     source_id: str | None = None,
@@ -200,7 +221,13 @@ async def findings(
         if severity:
             q = q.eq("severity", severity)
         return await q.order("first_seen", desc=True).limit(limit).execute()
-    return list((await supabase._retry(_do, attempts=2)).data or [])
+    rows = list((await supabase._retry(_do, attempts=2)).data or [])
+    # Tenant-matched findings are visible only to their tenant. Global detections
+    # are shared as sanitized records, never with raw identifiers or payload URLs.
+    return [
+        _sanitize_global_detection(row) if row.get("tenant_id") is None else row
+        for row in rows
+    ]
 
 
 @router.get("/sources")
