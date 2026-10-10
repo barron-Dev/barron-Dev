@@ -51,3 +51,18 @@ async def test_completion_rejected_by_fence_is_not_treated_as_success(monkeypatc
         )
 
     rpc.assert_awaited_once()
+
+
+def test_finding_persistence_requires_database_confirmation_of_finding_and_alert():
+    from cyclothone.darkweb.request_worker import _require_recorded_finding
+
+    recorded = _require_recorded_finding([{"finding_id": 123, "alert_id": "alert-1", "detection_id": "detection-1"}])
+    assert recorded["finding_id"] == 123
+
+
+@pytest.mark.parametrize("response", [None, [], [{}], [{"finding_id": 123}], [{"alert_id": "alert-1"}]])
+def test_finding_persistence_rejects_unconfirmed_rpc_results(response):
+    from cyclothone.darkweb.request_worker import _require_recorded_finding
+
+    with pytest.raises(RuntimeError, match="finding_persistence_unconfirmed"):
+        _require_recorded_finding(response)
