@@ -66,7 +66,7 @@ class DarkWebScheduler:
         for pull in (RansomwatchPuller(), PastePublicMonitor()):
             if pull.SOURCE in enabled:
                 await self._run_pull(pull.SOURCE, pull.pull)
-        channels_value = os.getenv("CYCLOTHONE_DW_TELEGRAM_CHANNELS", "").strip()
+        channels_value = (os.getenv("CYCLOTHONE_DW_TELEGRAM_CHANNELS") or os.getenv("SENTINEL_DW_TELEGRAM_CHANNELS") or "").strip()
         channels = [x.strip() for x in channels_value.split(",") if x.strip()]
         if channels and "telegram_public" in enabled:
             monitor = TelegramPublicMonitor(channels)
@@ -74,8 +74,8 @@ class DarkWebScheduler:
 
     async def _domain_tick(self) -> None:
         domains = await self._tenant_domains()
-        hibp_key = os.getenv("CYCLOTHONE_HIBP_KEY", "").strip()
-        github_token = os.getenv("CYCLOTHONE_GITHUB_TOKEN", "").strip()
+        hibp_key = (os.getenv("CYCLOTHONE_HIBP_KEY") or os.getenv("SENTINEL_HIBP_KEY") or "").strip()
+        github_token = (os.getenv("CYCLOTHONE_GITHUB_TOKEN") or os.getenv("SENTINEL_GITHUB_TOKEN") or "").strip()
         enabled = await self._enabled_sources()
         for domain in domains:
             if hibp_key and "hibp" in enabled:
