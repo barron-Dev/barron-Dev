@@ -68,6 +68,37 @@ class HIBPPuller:
                 findings.append(Finding(self.SOURCE, "email", email, "Identifier appeared in a reported breach.", "high", None, {"breach": str(breach), "domain": domain}))
         return findings
 
+    async def pull_account(self, email: str) -> list[Finding]:
+        """Check one explicitly supplied email address using HIBP's account endpoint."""
+        email = normalize(email)
+        if "@" not in email or email.count("@") != 1 or len(email) > 320:
+            return []
+        from urllib.parse import quote
+
+        try:
+            async with httpx.AsyncClient(timeout=20.0) as client:
+                response = await client.get(
+                    f"{self.BASE}/breachedaccount/{quote(email, safe='')}",
+                    params={"truncateResponse": "false", "includeUnverified": "false"},
+                    headers={"hibp-api-key": self.api_key, "user-agent": "cyclothone-darkweb/1.0"},
+                )
+                if response.status_code == 404:
+                    return []
+                response.raise_for_status()
+                breaches = response.json()
+        except Exception as exc:
+            raise RuntimeError("HIBP account pull failed") from exc
+        return [
+            Finding(
+                self.SOURCE, "email", email,
+                "Email identifier appeared in a reported breach.",
+                "high", None,
+                {"breach": str(breach.get("Name") or breach.get("Title") or "reported breach")},
+            )
+            for breach in (breaches or [])
+            if isinstance(breach, dict)
+        ]
+
 
 def _domain_from_victim_title(title: str) -> str | None:
     """Return a domain only when the victim title itself is exactly a hostname/URL.
