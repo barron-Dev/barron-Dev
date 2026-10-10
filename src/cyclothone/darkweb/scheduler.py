@@ -8,15 +8,13 @@ from datetime import UTC, datetime
 
 from cyclothone.darkweb.matcher import DarkWebMatcher
 from cyclothone.darkweb.pullers import GitHubCodeMonitor, HIBPPuller, PastePublicMonitor, TelegramPublicMonitor
+from cyclothone.darkweb.telegram_config import (
+    DEFAULT_PUBLIC_TELEGRAM_CHANNELS,  # noqa: F401 — compatibility export
+    configured_telegram_channels,
+)
 from cyclothone.storage.supabase_client import supabase
 
 logger = logging.getLogger(__name__)
-
-# Compatibility wrapper; request scans import the same shared resolver directly.
-from cyclothone.darkweb.telegram_config import (
-    DEFAULT_PUBLIC_TELEGRAM_CHANNELS,
-    configured_telegram_channels,
-)
 
 
 def _configured_telegram_channels() -> list[str]:
