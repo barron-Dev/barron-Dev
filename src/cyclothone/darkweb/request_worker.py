@@ -105,13 +105,16 @@ class DarkWebRequestWorker:
             except ValueError as exc:
                 logger.warning("dark-web request rejected id=%s reason=%s", row.get("id"), str(exc))
                 try:
-                    await supabase.rpc("complete_service_request", {
-                        "p_id": row["id"], "p_attempt": int(row["attempts"]),
-                        "p_state": "blocked", "p_status": "blocked",
-                        "p_result": {"service": "dark_web_monitoring", "error": "invalid_target"},
-                        "p_failure_code": str(exc)[:80] or "invalid_target",
-                    })
+                    await self._complete(
+                        row,
+                        "blocked",
+                        "blocked",
+                        {"service": "dark_web_monitoring", "error": "invalid_target"},
+                        str(exc)[:80] or "invalid_target",
+                    )
                 except Exception:
+                    # Includes a rejected fencing token; never bypass the RPC
+                    # fence with a direct table update or an unfenced retry.
                     logger.exception("failed to persist dark-web request rejection id=%s", row.get("id"))
             except Exception:
                 # Keep the lease. Once it expires, the claim RPC retries the real
