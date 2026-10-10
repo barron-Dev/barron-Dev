@@ -10,7 +10,7 @@ from cyclothone.mobile_intelligence.advanced import (
 
 
 def test_ss7_anomaly_blocks_high_rate():
-    detector = SS7Anomaly()
+    detector = SS7Anomaly(window_ms=1_000)
     result = None
     for i in range(101):
         result = detector.observe("gt-a", "ATI", i * 10)
