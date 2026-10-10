@@ -27,7 +27,7 @@ def test_telegram_config_normalizes_and_deduplicates_public_handles():
             "CYCLOTHONE_DW_TELEGRAM_CHANNELS": (
                 "@ChannelOne,https://t.me/s/ChannelTwo,channelone,"
                 "https://t.me/+privateInvite,https://example.com/channel,"
-                "invalid handle,short"
+                "invalid handle,tiny"
             )
         },
         clear=True,
