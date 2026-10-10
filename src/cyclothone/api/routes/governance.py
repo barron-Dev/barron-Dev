@@ -50,7 +50,14 @@ async def create_privacy_request(
         "updated_by": principal.user_id,
     }
     try:
-        return await supabase.insert_one("governance_privacy_requests", row)
+        async def _insert():
+            return await (await supabase._ensure()).table("governance_privacy_requests").insert(row).select(
+                "id,request_type,subject_ref,status,request_summary,due_at,resolution_summary,created_at,updated_at,resolved_at"
+            ).execute()
+        rows = (await supabase._retry(_insert, attempts=2)).data or []
+        if not rows:
+            raise RuntimeError("insert returned no privacy request row")
+        return rows[0]
     except Exception as exc:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "privacy request could not be recorded") from exc
 
@@ -86,7 +93,7 @@ async def transition_privacy_request(
     tenant_id = _tenant(principal)
     async def _find():
         return await (await supabase._ensure()).table("governance_privacy_requests").select(
-            "id,status,tenant_id"
+            "id,status,tenant_id,due_at,resolution_summary"
         ).eq("id", str(request_id)).eq("tenant_id", tenant_id).limit(1).execute()
     try:
         rows = (await supabase._retry(_find, attempts=2)).data or []
@@ -109,8 +116,8 @@ async def transition_privacy_request(
         now = datetime.now(UTC).isoformat()
         patch = {
             "status": body.status,
-            "resolution_summary": body.resolution_summary.strip() if body.resolution_summary else None,
-            "due_at": body.due_at.astimezone(UTC).isoformat() if body.due_at else None,
+            "resolution_summary": body.resolution_summary.strip() if body.resolution_summary is not None else rows[0].get("resolution_summary"),
+            "due_at": body.due_at.astimezone(UTC).isoformat() if body.due_at else rows[0].get("due_at"),
             "updated_by": principal.user_id,
             "updated_at": now,
             "resolved_at": now if body.status in {"fulfilled", "rejected"} else None,
@@ -118,7 +125,7 @@ async def transition_privacy_request(
         async def _update():
             return await (await supabase._ensure()).table("governance_privacy_requests").update(patch).eq(
                 "id", str(request_id)
-            ).eq("tenant_id", tenant_id).select(
+            ).eq("tenant_id", tenant_id).eq("status", current).select(
                 "id,request_type,subject_ref,status,request_summary,due_at,resolution_summary,created_at,updated_at,resolved_at"
             ).limit(1).execute()
         updated = (await supabase._retry(_update, attempts=2)).data or []
