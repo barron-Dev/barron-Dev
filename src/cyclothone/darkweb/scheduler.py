@@ -3,14 +3,73 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 import time
 from datetime import UTC, datetime
+from urllib.parse import urlsplit
 
 from cyclothone.darkweb.matcher import DarkWebMatcher
 from cyclothone.darkweb.pullers import GitHubCodeMonitor, HIBPPuller, PastePublicMonitor, TelegramPublicMonitor
 from cyclothone.storage.supabase_client import supabase
 
 logger = logging.getLogger(__name__)
+
+# Public handles supplied for Cyclothone's existing Telegram ingestion path.
+# Availability is deliberately not asserted here; every channel is checked at runtime.
+DEFAULT_PUBLIC_TELEGRAM_CHANNELS = (
+    "gladdos69_official",
+    "arvin_club",
+    "cveNotify",
+    "bugatti_cloud",
+    "joker_reborn",
+    "ObserverCloud",
+    "darkstormteambackup2",
+    "snatch_info",
+    "bl00dy_Ransomware_Gang",
+    "Stormous",
+    "Openbullet",
+    "Forum",
+    "AresLoader",
+)
+
+
+def _configured_telegram_channels() -> list[str]:
+    """Resolve configured/default public usernames and reject invite/private URLs."""
+    configured = os.getenv("CYCLOTHONE_DW_TELEGRAM_CHANNELS")
+    if configured is None:
+        configured = os.getenv("SENTINEL_DW_TELEGRAM_CHANNELS")
+    raw_channels = (
+        list(DEFAULT_PUBLIC_TELEGRAM_CHANNELS)
+        if configured is None
+        else configured.split(",")
+    )
+
+    channels: list[str] = []
+    seen: set[str] = set()
+    for raw in raw_channels:
+        value = raw.strip()
+        if not value:
+            continue
+        if "://" in value or value.lower().startswith(("t.me/", "telegram.me/")):
+            parsed = urlsplit(value if "://" in value else f"https://{value}")
+            if (parsed.hostname or "").lower() not in {"t.me", "www.t.me", "telegram.me", "www.telegram.me"}:
+                continue
+            parts = [part for part in parsed.path.split("/") if part]
+            if parts and parts[0].lower() == "s":
+                parts = parts[1:]
+            # Invite links and non-channel paths are intentionally excluded.
+            if len(parts) != 1 or parts[0].startswith("+") or parts[0].lower() == "joinchat":
+                continue
+            value = parts[0]
+        else:
+            value = value.lstrip("@")
+        if not re.fullmatch(r"[A-Za-z0-9_]{5,32}", value):
+            continue
+        key = value.lower()
+        if key not in seen:
+            seen.add(key)
+            channels.append(value)
+    return channels
 
 
 class DarkWebScheduler:
@@ -69,11 +128,12 @@ class DarkWebScheduler:
         paste = PastePublicMonitor()
         if paste.SOURCE in enabled:
             await self._run_pull(paste.SOURCE, paste.pull)
-        channels_value = (os.getenv("CYCLOTHONE_DW_TELEGRAM_CHANNELS") or os.getenv("SENTINEL_DW_TELEGRAM_CHANNELS") or "").strip()
-        channels = [x.strip() for x in channels_value.split(",") if x.strip()]
+        channels = _configured_telegram_channels()
         if channels and "telegram_public" in enabled:
             monitor = TelegramPublicMonitor(channels)
             await self._run_pull(monitor.SOURCE, monitor.pull)
+        elif "telegram_public" in enabled:
+            await self._mark_source("telegram_public", "unavailable_missing_channel", pulled=False)
 
     async def _domain_tick(self) -> None:
         domains = await self._tenant_domains()
