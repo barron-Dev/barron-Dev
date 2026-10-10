@@ -194,55 +194,43 @@ class DarkWebRequestWorker:
             if value.strip()
         ]
         provider_domain = watch_value if target_type in {"domain", "url"} else ""
-        if "ransomwatch" in enabled and target_type in {"domain", "url", "brand"}:
+        async def run_source(source_id: str, pull, timeout: int, unavailable_reason: str | None = None):
+            if source_id not in enabled:
+                return {"source": source_id, "state": "unavailable", "reason": "disabled"}, []
+            if unavailable_reason:
+                return {"source": source_id, "state": "unavailable", "reason": unavailable_reason}, []
+            if pull is None:
+                return {"source": source_id, "state": "unavailable", "reason": "unsupported_target_type"}, []
             try:
-                pulled.extend(await asyncio.wait_for(RansomwatchPuller().pull(), timeout=35))
-                sources.append({"source": "ransomwatch", "state": "checked"})
+                findings = await asyncio.wait_for(pull(), timeout=timeout)
+                return {"source": source_id, "state": "checked"}, findings
             except Exception:
-                sources.append({"source": "ransomwatch", "state": "failed", "reason": "source_request_failed"})
-        else:
-            reason = "disabled" if "ransomwatch" not in enabled else "unsupported_target_type"
-            sources.append({"source": "ransomwatch", "state": "unavailable", "reason": reason})
-        if "hibp" in enabled and hibp_key and provider_domain:
-            try:
-                pulled.extend(await asyncio.wait_for(HIBPPuller(hibp_key).pull_domain(provider_domain), timeout=25))
-                sources.append({"source": "hibp", "state": "checked"})
-            except Exception:
-                sources.append({"source": "hibp", "state": "failed", "reason": "source_request_failed"})
-        else:
-            reason = "missing_key" if not hibp_key else ("unsupported_target_type" if not provider_domain else "disabled")
-            sources.append({"source": "hibp", "state": "unavailable", "reason": reason})
-        if "github_code" in enabled and github_token and provider_domain:
-            try:
-                pulled.extend(await asyncio.wait_for(GitHubCodeMonitor(github_token).pull_domain(provider_domain), timeout=65))
-                sources.append({"source": "github_code", "state": "checked"})
-            except Exception:
-                sources.append({"source": "github_code", "state": "failed", "reason": "source_request_failed"})
-        else:
-            reason = "missing_key" if not github_token else ("unsupported_target_type" if not provider_domain else "disabled")
-            sources.append({"source": "github_code", "state": "unavailable", "reason": reason})
+                logger.warning("dark-web provider request failed source=%s request_id=%s", source_id, request_id, exc_info=True)
+                return {"source": source_id, "state": "failed", "reason": "source_request_failed"}, []
 
-        # Query public sources during the customer request too; scheduler-only
-        # ingestion must not be mistaken for request-specific coverage.
-        if "pastebin_public" in enabled:
-            try:
-                pulled.extend(await asyncio.wait_for(PastePublicMonitor().pull(), timeout=20))
-                sources.append({"source": "pastebin_public", "state": "checked"})
-            except Exception:
-                sources.append({"source": "pastebin_public", "state": "failed", "reason": "source_request_failed"})
-        else:
-            sources.append({"source": "pastebin_public", "state": "unavailable", "reason": "disabled"})
-
-        if "telegram_public" in enabled and telegram_channels:
-            try:
-                monitor = TelegramPublicMonitor(telegram_channels)
-                pulled.extend(await asyncio.wait_for(monitor.pull(), timeout=45))
-                sources.append({"source": "telegram_public", "state": "checked"})
-            except Exception:
-                sources.append({"source": "telegram_public", "state": "failed", "reason": "source_request_failed"})
-        else:
-            reason = "disabled" if "telegram_public" not in enabled else "missing_channels"
-            sources.append({"source": "telegram_public", "state": "unavailable", "reason": reason})
+        ransom_reason = None if target_type in {"domain", "url", "brand"} else "unsupported_target_type"
+        hibp_reason = "missing_key" if not hibp_key else ("unsupported_target_type" if not provider_domain else None)
+        github_reason = "missing_key" if not github_token else ("unsupported_target_type" if not provider_domain else None)
+        public_target_supported = target_type in {"domain", "url", "email"}
+        paste_reason = None if public_target_supported else "unsupported_target_type"
+        telegram_reason = (
+            "unsupported_target_type" if not public_target_supported
+            else ("missing_channels" if not telegram_channels else None)
+        )
+        telegram_monitor = TelegramPublicMonitor(telegram_channels) if telegram_channels else None
+        provider_specs = [
+            ("ransomwatch", RansomwatchPuller().pull if not ransom_reason else None, 35, ransom_reason),
+            ("hibp", (lambda: HIBPPuller(hibp_key).pull_domain(provider_domain)) if hibp_key and provider_domain else None, 25, hibp_reason),
+            ("github_code", (lambda: GitHubCodeMonitor(github_token).pull_domain(provider_domain)) if github_token and provider_domain else None, 65, github_reason),
+            ("pastebin_public", PastePublicMonitor().pull if public_target_supported else None, 50, paste_reason),
+            ("telegram_public", telegram_monitor.pull if telegram_monitor and public_target_supported else None, 45, telegram_reason),
+        ]
+        provider_results = await asyncio.gather(*(
+            run_source(source_id, pull, timeout, reason)
+            for source_id, pull, timeout, reason in provider_specs
+        ))
+        sources = [status for status, _ in provider_results]
+        pulled = [finding for _, batch in provider_results for finding in batch]
 
         # A completed search requires at least one provider call to succeed.
         # An empty result from a checked source is a valid zero-match result;
