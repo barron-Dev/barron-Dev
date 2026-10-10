@@ -41,8 +41,11 @@ def test_telegram_defaults_use_only_the_supplied_public_handles(monkeypatch):
     monkeypatch.delenv("CYCLOTHONE_DW_TELEGRAM_CHANNELS", raising=False)
     monkeypatch.delenv("SENTINEL_DW_TELEGRAM_CHANNELS", raising=False)
 
-    assert _configured_telegram_channels() == list(DEFAULT_PUBLIC_TELEGRAM_CHANNELS)
-    assert len(_configured_telegram_channels()) == 13
+    channels = _configured_telegram_channels()
+    assert channels == list(DEFAULT_PUBLIC_TELEGRAM_CHANNELS)
+    assert len(channels) == 25
+    assert {"opendataleaks", "baseleak", "NullLeak", "DWI_OFFICIAL", "DarkfeedNews", "txtbaseslog", "Developer_Astra", "darkside_hubb", "TXT_LOG_ALIEN", "LeakBase", "CodeBreachLab", "ExploitService"}.issubset(set(channels))
+    assert "Ares private channel" not in channels
 
 
 def test_telegram_env_normalizes_public_urls_and_deduplicates(monkeypatch):
