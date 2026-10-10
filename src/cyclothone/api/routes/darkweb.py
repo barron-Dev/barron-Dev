@@ -222,11 +222,23 @@ async def findings(
             q = q.eq("severity", severity)
         return await q.order("first_seen", desc=True).limit(limit).execute()
     rows = list((await supabase._retry(_do, attempts=2)).data or [])
-    # Tenant-matched findings are visible only to their tenant. Global detections
-    # are shared as sanitized records, never with raw identifiers or payload URLs.
+    # Prefer a tenant-scoped match over the corresponding sanitized global row,
+    # avoiding duplicate detections when the same source item is both globally
+    # collected and later matched to this tenant's authorized watchlist.
+    tenant_match_keys = {
+        (str(row.get("source_id")), str(row.get("kind")), str(row.get("matched_value", "")).strip().lower())
+        for row in rows if row.get("tenant_id") is not None
+    }
+    visible = [
+        row for row in rows
+        if row.get("tenant_id") is not None
+        or (str(row.get("source_id")), str(row.get("kind")), str(row.get("matched_value", "")).strip().lower()) not in tenant_match_keys
+    ]
+    # Global detections are shared only as sanitized records, never with raw
+    # identifiers or payload URLs.
     return [
         _sanitize_global_detection(row) if row.get("tenant_id") is None else row
-        for row in rows
+        for row in visible
     ]
 
 
