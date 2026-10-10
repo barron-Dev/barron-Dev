@@ -96,7 +96,7 @@ class DarkWebScheduler:
         try:
             findings = (await pull())[:2000]
             await self._update_run(run_id, {
-                "stage": "records_normalized", "progress_percent": 25,
+                "stage": "records_normalized", "progress_percent": 0,
                 "discovered_count": len(findings), "processed_count": 0,
                 "matched_count": 0, "alert_count": 0, "error_count": 0,
                 "detail": "Source response parsed into normalized findings.",
@@ -176,16 +176,16 @@ class DarkWebScheduler:
                 errors += 1
                 logger.warning("dark web change-event outbox write failed for source=%s", finding.source_id, exc_info=True)
             if index == total or index % 25 == 0:
-                progress = 25 + int((index / total) * 65) if total else 90
+                progress = int((index / total) * 100) if total else 100
                 await self._update_run(run_id, {
-                    "stage": "matching_and_persisting", "progress_percent": min(progress, 90),
+                    "stage": "matching_and_persisting", "progress_percent": min(progress, 100),
                     "processed_count": index, "matched_count": matched,
                     "alert_count": alerts, "error_count": errors,
                     "detail": f"Processed {index} of {total} returned findings.",
                 })
         if total == 0:
             await self._update_run(run_id, {
-                "stage": "matching_and_persisting", "progress_percent": 90,
+                "stage": "matching_and_persisting", "progress_percent": 100,
                 "processed_count": 0, "detail": "Source returned zero findings; no findings were fabricated.",
             })
         return {"matched": matched, "alerts": alerts, "errors": errors}
