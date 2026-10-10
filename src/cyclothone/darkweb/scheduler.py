@@ -167,11 +167,18 @@ class DarkWebScheduler:
         try:
             findings = await pull()
             result = await self._ingest(findings)
-            source_status = "degraded" if result["errors"] else "ok"
+            monitor = getattr(pull, "__self__", None)
+            channel_status = getattr(monitor, "channel_status", {})
+            failed_channels = [channel for channel, state in channel_status.items() if state != "checked"]
+            source_status = "degraded" if result["errors"] or failed_channels else "ok"
+            for channel, state in channel_status.items():
+                logger.info("dark web source=%s channel=%s state=%s", source_id, channel, state)
             await self._mark_source(source_id, source_status)
             logger.info(
-                "dark web source=%s completed findings=%d matched=%d alerts=%d errors=%d duration_ms=%d",
-                source_id, len(findings), result["matched"], result["alerts"], result["errors"], int((time.monotonic() - started) * 1000),
+                "dark web source=%s completed findings=%d matched=%d alerts=%d errors=%d channels_checked=%d channels_failed=%d duration_ms=%d",
+                source_id, len(findings), result["matched"], result["alerts"], result["errors"],
+                sum(state == "checked" for state in channel_status.values()), len(failed_channels),
+                int((time.monotonic() - started) * 1000),
             )
         except asyncio.CancelledError:
             raise
