@@ -18,7 +18,7 @@ CONFIDENCE_TIERS = (
     (0.75, "CONFIRMED"), (0.50, "SUSPECTED"),
     (0.30, "POSSIBLE"), (0.0, "INSUFFICIENT"),
 )
-ATTACK_ID = re.compile(r"^T[0-9]{4}(?:\\.[0-9]{3})?$")
+ATTACK_ID = re.compile(r"^T[0-9]{4}(?:\.[0-9]{3})?$")
 DIAMOND_VERTICES = ("adversary", "capability", "infrastructure", "victim")
 KILL_CHAIN_PHASES = {
     "reconnaissance": ("forum_target_mention", "scanning_activity", "target_research"),
@@ -34,7 +34,10 @@ KILL_CHAIN_PHASES = {
 def _strings(values: Iterable[Any] | None) -> set[str]:
     if values is None or isinstance(values, (str, bytes, dict)):
         return set()
-    return {str(v).strip().lower() for v in values if str(v).strip()}
+    try:
+        return {str(v).strip().lower() for v in values if str(v).strip()}
+    except TypeError:
+        return set()
 
 
 def _jaccard(left: Iterable[Any] | None, right: Iterable[Any] | None) -> float:
@@ -234,7 +237,7 @@ def extract_behavioural_fingerprint(activity: dict[str, Any]) -> dict[str, Any]:
     hours = Counter(str(v.hour) for v in timestamps)
     days = Counter(str(v.weekday()) for v in timestamps)
     messages = [str(v) for v in activity.get("messages", []) if isinstance(v, str) and v.strip()]
-    words = [re.findall(r"[\\w'-]+", m.lower()) for m in messages]
+    words = [re.findall(r"[\w'-]+", m.lower()) for m in messages]
     flat = [w for row in words for w in row]
     features: dict[str, Any] = {
         "active_hours": sorted(hours, key=int), "active_days": sorted(days, key=int),
