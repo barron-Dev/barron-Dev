@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
 import re
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from urllib.parse import urlsplit
 
@@ -119,19 +121,89 @@ class TelegramPublicMonitor:
         return out
 
 
+def _paste_ids_from_feed(text: str) -> list[str]:
+    """Extract only Pastebin paste IDs from feed entries; never fetch arbitrary feed URLs."""
+    try:
+        root = ET.fromstring(text)
+    except ET.ParseError:
+        return []
+    paste_ids: list[str] = []
+    seen: set[str] = set()
+    for element in root.iter():
+        tag = element.tag.rsplit("}", 1)[-1].lower()
+        if tag not in {"item", "entry"}:
+            continue
+        link = ""
+        for child in element:
+            if child.tag.rsplit("}", 1)[-1].lower() == "link":
+                link = str(child.attrib.get("href") or child.text or "").strip()
+                if link:
+                    break
+        if not link:
+            continue
+        parsed = urlsplit(link if "://" in link else f"https://pastebin.com{link}")
+        if parsed.scheme != "https" or (parsed.hostname or "").lower() not in {"pastebin.com", "www.pastebin.com"}:
+            continue
+        parts = [part for part in parsed.path.split("/") if part]
+        paste_id = parts[-1] if parts and parts[-1] != "raw" else (parts[-2] if len(parts) > 1 else "")
+        if not re.fullmatch(r"[A-Za-z0-9]{4,32}", paste_id) or paste_id in seen:
+            continue
+        seen.add(paste_id)
+        paste_ids.append(paste_id)
+    return paste_ids[:20]
+
+
 class PastePublicMonitor:
     SOURCE = "pastebin_public"
     FEED = "https://pastebin.com/feed/"
 
     async def pull(self) -> list[Finding]:
         try:
-            async with httpx.AsyncClient(timeout=15.0) as client:
+            async with httpx.AsyncClient(timeout=10.0) as client:
                 response = await client.get(self.FEED, headers={"user-agent": "cyclothone-darkweb/1.0"})
                 response.raise_for_status()
-                text = response.text
+                paste_ids = _paste_ids_from_feed(response.text)
+                if not paste_ids:
+                    return []
+                semaphore = asyncio.Semaphore(5)
+
+                async def fetch_paste(paste_id: str):
+                    async with semaphore:
+                        raw = await client.get(
+                            f"https://pastebin.com/raw/{paste_id}",
+                            headers={"user-agent": "cyclothone-darkweb/1.0"},
+                        )
+                        raw.raise_for_status()
+                        return paste_id, raw.text
+
+                results = await asyncio.gather(
+                    *(fetch_paste(paste_id) for paste_id in paste_ids),
+                    return_exceptions=True,
+                )
         except Exception as exc:
             raise RuntimeError("public paste feed pull failed") from exc
-        return [Finding(self.SOURCE, "email", normalize(email), "Monitored identifier appeared in a public paste feed.", "medium", self.FEED, {}) for email in dict.fromkeys(EMAIL_RE.findall(text))]
+
+        successful = 0
+        findings: list[Finding] = []
+        for result in results:
+            if isinstance(result, BaseException):
+                logger.warning("public paste item fetch failed", exc_info=result)
+                continue
+            paste_id, content = result
+            successful += 1
+            for email in dict.fromkeys(EMAIL_RE.findall(content)):
+                findings.append(Finding(
+                    self.SOURCE,
+                    "email",
+                    normalize(email),
+                    "Identifier appeared in public paste content; paste contents are not retained.",
+                    "medium",
+                    f"https://pastebin.com/{paste_id}",
+                    {"paste_id": paste_id},
+                ))
+        if paste_ids and successful == 0:
+            raise RuntimeError("all public paste item fetches failed")
+        return findings
 
 
 class GitHubCodeMonitor:
