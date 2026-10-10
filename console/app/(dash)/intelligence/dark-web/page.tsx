@@ -7,6 +7,7 @@ import { ServiceEmpty, ServiceError, ServiceLoading } from "../../../../componen
 type Row = Record<string, unknown>;
 type Watch = Row & { id?: string; kind?: string; value?: string; label?: string; severity?: string };
 type Alert = Row & { id?: string; title?: string; severity?: string; status?: string; case_id?: string | null };
+type SourceHealth = Row & { id?: string; name?: string; enabled?: boolean; health?: string; last_pull_at?: string | null; configuration_ready?: boolean };
 
 const input = "w-full border border-[#1a2330] bg-[#090c11] px-3 py-2 text-xs text-[#e8eef6] outline-none focus:border-[#40556f]";
 const button = "border border-[#2a394d] bg-[#0b1118] px-3 py-2 text-[10px] uppercase tracking-[.12em] text-[#d7e1ec] disabled:opacity-40";
@@ -19,6 +20,7 @@ export default function DarkWeb() {
   const [alerts,setAlerts]=useState<Alert[]>([]);
   const [stats,setStats]=useState<Row|null>(null);
   const [findings,setFindings]=useState<Row[]>([]);
+  const [sources,setSources]=useState<SourceHealth[]>([]);
   const [loading,setLoading]=useState(true);
   const [busy,setBusy]=useState("");
   const [error,setError]=useState("");
@@ -31,14 +33,15 @@ export default function DarkWeb() {
   async function load(){
     setLoading(true); setError("");
     try{
-      const [w,a,s,f]=await Promise.all([
+      const [w,a,s,f,src]=await Promise.all([
         apiFetch<Watch[]>("/api/v1/darkweb/watchlist"),
         apiFetch<Alert[]>("/api/v1/darkweb/alerts"),
         apiFetch<Row>("/api/v1/darkweb/stats"),
-        apiFetch<Row[]>("/api/v1/darkweb/findings")
+        apiFetch<Row[]>("/api/v1/darkweb/findings"),
+        apiFetch<SourceHealth[]>("/api/v1/darkweb/sources").catch(()=>[])
       ]);
       setWatchlist(Array.isArray(w)?w:[]); setAlerts(Array.isArray(a)?a:[]);
-      setStats(s??null); setFindings(Array.isArray(f)?f:[]);
+      setStats(s??null); setFindings(Array.isArray(f)?f:[]); setSources(Array.isArray(src)?src:[]);
     }catch(e){setError(e instanceof Error?e.message:"Could not load dark web intelligence");}
     finally{setLoading(false);}
   }
@@ -101,6 +104,12 @@ export default function DarkWeb() {
             </div>
             <p className="mt-4 text-xs text-[#687789]">Results come from the configured intelligence sources. No result is shown unless Cyclothone has real data for your organization.</p>
           </div>
+        </section>
+
+        <section className="border border-[#1a2330] bg-[#0a0e14] p-5">
+          <div className="text-sm font-medium">Intelligence source health</div>
+          <p className="mt-1 text-xs text-[#687789]">Operational state from the service. “Healthy” means a recent pull succeeded; it does not guarantee a finding.</p>
+          {sources.length===0?<ServiceEmpty title="Source health not available" detail="The source-health endpoint is not reachable for this session, or no sources are configured."/>:<div className="mt-3 grid gap-2 sm:grid-cols-2">{sources.map(source=><div key={String(source.id)} className="flex items-center gap-3 border border-[#141d28] p-3"><div className="mr-auto"><div className="text-xs">{String(source.name??source.id??"Source")}</div><div className="text-[10px] text-[#687789]">{source.enabled?"Enabled":"Disabled"} · {source.last_pull_at?`Last pull ${String(source.last_pull_at)}`:"No recorded pull"}</div></div><span className="border border-[#26384a] px-2 py-1 text-[10px] uppercase">{String(source.health??"unknown").replaceAll("_"," ")}</span></div>)}</div>}
         </section>
 
         <section className="border border-[#1a2330] bg-[#0a0e14] p-5">
