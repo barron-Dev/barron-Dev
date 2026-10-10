@@ -21,8 +21,18 @@ def test_paste_feed_parser_accepts_only_valid_pastebin_ca_entries():
     ]
 
 
-def test_paste_feed_parser_fails_closed_on_invalid_json():
-    assert _paste_entries_from_feed("{invalid json") == []
+def test_paste_feed_parser_rejects_invalid_json_instead_of_reporting_zero_results():
+    with pytest.raises(ValueError, match="paste_feed_invalid_json"):
+        _paste_entries_from_feed("{invalid json")
+
+
+def test_paste_feed_parser_rejects_unexpected_schema():
+    with pytest.raises(ValueError, match="paste_feed_invalid_schema"):
+        _paste_entries_from_feed('{"results": []}')
+
+
+def test_paste_feed_parser_accepts_a_valid_empty_feed():
+    assert _paste_entries_from_feed('{"items": []}') == []
 
 
 class _Response:
