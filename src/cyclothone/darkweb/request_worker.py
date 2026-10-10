@@ -198,10 +198,33 @@ class DarkWebRequestWorker:
             else:
                 sources.append({"source": source_id, "state": "unavailable", "reason": "disabled"})
 
+        # A completed search requires at least one provider call to succeed.
+        # An empty result from a checked source is a valid zero-match result;
+        # all-failed/all-unavailable is not a successful search.
+        if not any(source["state"] == "checked" for source in sources):
+            failure_result = {
+                "service": "dark_web_monitoring",
+                "target": watch_value,
+                "target_type": target_type,
+                "outcome": "source_unavailable",
+                "coverage": "none",
+                "sources_checked": [],
+                "sources_unavailable": [source for source in sources if source["state"] != "checked"],
+                "findings": [],
+                "evidence": [],
+                "alerts": [],
+                "completed_at": datetime.now(UTC).isoformat(),
+            }
+            await self._complete(
+                request, "failed", "failed", failure_result, "no_source_checked"
+            )
+            return
+
         # Persist only exact target matches. The global feed itself is still
         # useful for retro-sweep but a company-name resemblance is never silently
         # promoted to a confirmed match.
         evidence = []
+        persistence_failures = 0
         for item in exact:
             evidence.append({
                 "source": item.get("source_id"), "collected_at": item.get("collected_at") or item.get("first_seen"),
@@ -226,7 +249,13 @@ class DarkWebRequestWorker:
                 evidence.append({"source": finding.source_id, "collected_at": datetime.now(UTC).isoformat(),
                                  "content_hash": tenant_hash, "source_url": finding.source_url})
             except Exception:
+                persistence_failures += 1
                 logger.warning("unable to persist customer dark-web match", exc_info=True)
+
+        # Never report a completed search if one or more exact matches could not
+        # be durably persisted. Let the lease expire so the request can retry.
+        if persistence_failures:
+            raise RuntimeError("finding_persistence_incomplete")
 
         # Re-read tenant-scoped findings for this watchlist and keep result evidence bounded.
         persisted = await supabase.select(
@@ -284,8 +313,12 @@ class DarkWebRequestWorker:
     async def _complete(self, request: dict, state: str, status: str, result: dict, failure_code: str | None) -> None:
         # The attempt number is a fencing token: a stale worker cannot overwrite
         # a newer lease or a terminal result after its lease has been reclaimed.
-        await supabase.rpc("complete_service_request", {
+        completed = await supabase.rpc("complete_service_request", {
             "p_id": str(request["id"]), "p_attempt": int(request["attempts"]),
             "p_state": state, "p_status": status,
             "p_result": result, "p_failure_code": failure_code,
         })
+        if completed is not True:
+            # False means the lease/attempt fence rejected this completion.
+            # Do not claim success or try an unfenced fallback write.
+            raise RuntimeError("completion_fence_rejected")
