@@ -7,11 +7,29 @@ from typing import Any
 from cyclothone.identity_graph import canonicalize, identifier_hash
 
 _SECRET_PATTERNS = (
-    re.compile(r"(?i)\\b(password|passwd|secret|api[_-]?key|access[_-]?token|refresh[_-]?token|cookie|authorization)\\s*[:=]\\s*[^\\s,;]+"),
-    re.compile(r"(?i)\\b(bearer)\\s+[a-z0-9._~+/-]+=*"),
+    re.compile(r"(?i)\b(password|passwd|secret|api[_-]?key|access[_-]?token|refresh[_-]?token|cookie|authorization)\s*[:=]\s*[^\s,;]+"),
+    re.compile(r"(?i)\b(bearer)\s+[a-z0-9._~+/-]+=*"),
 )
-_KIND_TO_ENTITY = {"domain": "domain", "email": "email", "username": "username", "company_name": "organization"}
+_KIND_TO_ENTITY = {
+    "domain": "domain", "email": "email", "username": "username",
+    "company_name": "organization", "phone": "phone", "ip": "ip_address",
+    "executive_name": "person", "wallet": "breach_record",
+    "api_key_hash": "breach_record", "employee_id": "breach_record",
+    "customer_id": "breach_record",
+}
 _SUPPORTED_MODULES = {"darkweb", "breach", "code", "infra", "social"}
+_MODULE_SOURCE_TOKENS = {
+    "darkweb": ("darkweb", "dark_web", "ransomwatch", "pastebin", "telegram_public"),
+    "breach": ("breach", "hibp", "xposedornot", "leak_lookup", "hudsonrock"),
+    "code": ("github", "code_search"),
+    "infra": ("shodan", "censys", "virustotal", "internetdb"),
+    "social": ("social", "maigret", "telegram_public"),
+}
+
+
+def _source_matches_module(source: dict[str, Any], module: str) -> bool:
+    searchable = " ".join(str(source.get(key) or "") for key in ("id", "name", "kind", "web_layer")).casefold()
+    return any(token in searchable for token in _MODULE_SOURCE_TOKENS[module])
 
 
 def normalize_target(kind: str, value: str) -> str:
@@ -38,7 +56,7 @@ def build_integration_matrix(sources: list[dict[str, Any]], *, evidence_count: i
     """Report observed stages honestly; unknown stages remain unknown, never inferred green."""
     rows: list[dict[str, Any]] = []
     for module in sorted(_SUPPORTED_MODULES):
-        relevant = [row for row in sources if module in str(row.get("kind") or "").lower() or module in str(row.get("id") or "").lower() or module in str(row.get("name") or "").lower()]
+        relevant = [row for row in sources if _source_matches_module(row, module)]
         enabled = [row for row in relevant if row.get("enabled") is True]
         successful = [row for row in enabled if row.get("last_status") == "ok" and row.get("last_pull_at")]
         rows.append({
@@ -46,8 +64,8 @@ def build_integration_matrix(sources: list[dict[str, Any]], *, evidence_count: i
             "configured": bool(relevant),
             "enabled_sources": len(enabled),
             "authenticated": "unknown",
-            "source_reachable": bool(successful),
-            "collection_successful": bool(successful),
+            "source_reachable": "not_probed",
+            "last_collection_successful": bool(successful),
             "records_normalized": "unknown",
             "results_persisted": evidence_count > 0 if module == "darkweb" else "unknown",
             "evidence_provenance_stored": "unknown",
@@ -56,7 +74,7 @@ def build_integration_matrix(sources: list[dict[str, Any]], *, evidence_count: i
             "customer_ui_receives_results": "not_verified",
             "production_e2e_verified": False,
             "last_success_at": max((str(row.get("last_pull_at")) for row in successful), default=None),
-            "blocker": None if successful else "source not configured/enabled or no successful pull recorded",
+            "blocker": "live source reachability has not been probed" if relevant else "no source configured for this module",
         })
     return rows
 
@@ -85,7 +103,7 @@ def build_report(*, target_kind: str, canonical_target: str, watch_id: str, find
         matching_source_ids = {
             str(source.get("id"))
             for source in sources
-            if any(module in str(source.get("kind") or "").lower() or module in str(source.get("name") or "").lower() or module in str(source.get("id") or "").lower() for module in requested)
+            if any(_source_matches_module(source, module) for module in requested)
         }
         selected = [row for row in safe_findings if row["source_id"] in matching_source_ids]
     severity_counts = {level: sum(1 for row in selected if row["severity"] == level) for level in ("critical", "high", "medium", "low")}
