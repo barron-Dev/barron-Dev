@@ -190,7 +190,7 @@ async def list_source_runs(principal: DeveloperPrincipal = Depends(authenticate_
     _require(principal, "darkweb:read")
     async def _do():
         return await (await supabase._ensure()).table("dw_source_runs").select(
-            "id,source_id,status,stage,progress_percent,discovered_count,processed_count,matched_count,alert_count,error_count,detail,started_at,updated_at,completed_at"
+            "id,source_id,target_label,process_steps,status,stage,progress_percent,discovered_count,processed_count,matched_count,alert_count,error_count,detail,started_at,updated_at,completed_at"
         ).order("started_at", desc=True).limit(100).execute()
     try:
         rows = (await supabase._retry(_do, attempts=2)).data or []

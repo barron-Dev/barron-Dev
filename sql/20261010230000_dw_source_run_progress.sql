@@ -2,6 +2,8 @@
 create table if not exists public.dw_source_runs (
     id uuid primary key default gen_random_uuid(),
     source_id text not null references public.dw_sources(id) on delete cascade,
+    target_label text,
+    process_steps jsonb not null default '[]'::jsonb check (jsonb_typeof(process_steps) = 'array'),
     status text not null default 'running' check (status in ('running','ok','degraded','failed','cancelled')),
     stage text not null default 'connecting_to_source',
     progress_percent integer not null default 0 check (progress_percent between 0 and 100),
