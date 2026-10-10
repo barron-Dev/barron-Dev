@@ -70,6 +70,15 @@ def _coverage_state(sources: list[dict]) -> str:
     return "partial"
 
 
+def _require_recorded_finding(response: object) -> dict:
+    """Require the database RPC to confirm a durable finding and alert."""
+    rows = response if isinstance(response, list) else [response]
+    for row in rows:
+        if isinstance(row, dict) and row.get("finding_id") is not None and row.get("alert_id"):
+            return row
+    raise RuntimeError("finding_persistence_unconfirmed")
+
+
 def _finding_matches_target(finding: object, watch_kind: str, watch_value: str) -> bool:
     """Match a provider finding to the monitored identifier without fuzzy guesses.
 
@@ -296,13 +305,14 @@ class DarkWebRequestWorker:
             meta["customer_match"] = "exact"
             tenant_hash = hashlib.sha256(f"{getattr(finding, 'source_id', '')}:{hashlib.sha256((str(finding.matched_value).strip().lower()).encode()).hexdigest()}:{watch_id}".encode()).hexdigest()
             try:
-                row = await supabase.rpc("record_dw_finding", {
+                recorded = await supabase.rpc("record_dw_finding", {
                     "p_source_id": finding.source_id, "p_content_hash": tenant_hash,
                     "p_kind": finding.kind, "p_matched_value": str(finding.matched_value).strip().lower(),
                     "p_context": finding.context, "p_severity": finding.severity,
                     "p_source_url": finding.source_url, "p_metadata": meta,
                     "p_tenant_id": tenant_id, "p_watchlist_id": watch_id,
                 })
+                _require_recorded_finding(recorded)
                 evidence.append({"source": finding.source_id, "collected_at": datetime.now(UTC).isoformat(),
                                  "content_hash": tenant_hash, "source_url": finding.source_url})
             except Exception:
