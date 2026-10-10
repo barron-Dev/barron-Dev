@@ -3,7 +3,7 @@ from uuid import uuid4
 
 import pytest
 
-from cyclothone.darkweb.matcher import DarkWebMatcher, max_severity
+from cyclothone.darkweb.matcher import DarkWebMatcher, _finding_content_hash, max_severity
 from cyclothone.darkweb.pullers import Finding, normalize, value_hash
 
 
@@ -53,3 +53,28 @@ async def test_watchlist_match_fans_out_per_tenant():
         })
     assert result == {"matched": 2, "alerts": 2, "errors": 0}
     assert record.await_count == 2
+
+
+
+def test_finding_identity_is_scoped_per_tenant_and_watchlist():
+    finding = {
+        "source_id": "hibp",
+        "kind": "email",
+        "matched_value": "User@Example.com",
+    }
+    metadata = {"exposure_layer": "surface", "breach": "Example"}
+    tenant_a = _finding_content_hash(finding, metadata, "tenant-a", "watch-a")
+    tenant_b = _finding_content_hash(finding, metadata, "tenant-b", "watch-b")
+    watch_b = _finding_content_hash(finding, metadata, "tenant-a", "watch-b")
+    global_key = _finding_content_hash(finding, metadata, None, None)
+
+    assert len({tenant_a, tenant_b, watch_b, global_key}) == 4
+    assert tenant_a == _finding_content_hash(finding, metadata, "tenant-a", "watch-a")
+
+
+def test_finding_identity_is_stable_across_metadata_key_order():
+    finding = {"source_id": "hibp", "kind": "email", "matched_value": "user@example.com"}
+    left = _finding_content_hash(finding, {"a": 1, "b": 2}, "tenant-a", "watch-a")
+    right = _finding_content_hash(finding, {"b": 2, "a": 1}, "tenant-a", "watch-a")
+
+    assert left == right
