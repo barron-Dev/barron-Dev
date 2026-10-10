@@ -43,15 +43,16 @@
 | `CodeBreachLab` | — | NOT_IN_CATALOG |
 | `ExploitService` | Exploit Service | ONLINE |
 
-## Request-path discrepancy
+## Request-path safety boundary
 
-- The scheduler resolves the 25 defaults when `CYCLOTHONE_DW_TELEGRAM_CHANNELS` is unset.
-- The customer request worker currently reads only `CYCLOTHONE_DW_TELEGRAM_CHANNELS` / legacy `SENTINEL_DW_TELEGRAM_CHANNELS` and treats an unset value as an empty list. Therefore the scheduler's default handles are **not automatically used by customer-triggered scans**.
-- This is a code-path mismatch, not a source-availability conclusion. The customer request may correctly report `missing_channels` even while the continuous scheduler has default candidates.
+- Both paths now use the shared resolver in `telegram_config.py`.
+- The continuous scheduler retains the 25 legacy candidates for its existing polling path.
+- Customer-triggered scans use `configured_telegram_channels(use_defaults=False)`: if neither environment variable is set, Telegram is marked unavailable instead of silently enabling unverified candidates.
+- This is intentional fail-closed behavior. Configure only handles that have been checked for current public reachability; the upstream ONLINE/OFFLINE labels are not enough.
 
 ## Safe next action
 
-- Reuse one shared configuration resolver for both scheduler and request worker so the source inventory and runtime request path cannot drift.
-- Keep the inventory as a catalog; do not automatically enable all 853 upstream handles.
-- Before using a handle for a customer scan, validate its public preview at runtime and report per-channel checked/failed status.
-- Keep offline and unknown handles out of default activation until current public reachability is established.
+- Recover and reconcile the separate user-provided 1,031-record inventory; it has not yet been recovered in full.
+- Keep the catalog separate from active monitoring configuration; do not automatically enable all 853 upstream handles.
+- Add only deliberately configured public handles and preserve per-channel checked/failed status in customer evidence.
+- Do not report Telegram as checked when no channels are configured.
