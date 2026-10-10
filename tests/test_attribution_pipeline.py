@@ -5,13 +5,14 @@ from cyclothone.attribution.graph import build_actor_technique_bipartite_graph
 
 def test_cluster_has_all_diamond_vertices_and_deduplicates_infrastructure():
     records = [
-        {"record_id": "1", "source_name": "feed-a", "infrastructure": {"domains": ["EXAMPLE.COM", "example.com"]}, "attack_techniques": ["T1059.001"], "evidence_hash": "a" * 64},
+        {"record_id": "1", "source_name": "feed-a", "infrastructure": {"domains": ["EXAMPLE.COM", "example.com"]}, "attack_techniques": ["T1059.001"], "capec_ids": ["CAPEC-66"], "evidence_hash": "a" * 64},
         {"record_id": "2", "source_name": "feed-b", "infrastructure": {"domains": ["example.com"]}, "attack_techniques": ["T1059.001"], "evidence_hash": "b" * 64},
     ]
     result = assemble_activity_cluster(records, tenant_id="tenant-1", cluster_key="watch-1")
     assert set(result["diamond_model"]) == {"adversary", "capability", "infrastructure", "victim"}
     assert result["infrastructure"]["domains"] == ["example.com"]
     assert result["independent_sources"] == ["feed-a", "feed-b"]
+    assert result["capec_ids"] == ["CAPEC-66"]
     assert result["activity_cluster_id"] == assemble_activity_cluster(records, tenant_id="tenant-1", cluster_key="watch-1")["activity_cluster_id"]
 
 
@@ -26,10 +27,10 @@ def test_cluster_rejects_missing_provenance():
 
 def test_bipartite_graph_contains_actor_technique_edges():
     graph = build_actor_technique_bipartite_graph([
-        {"actor_id": "actor-1", "primary_name": "Cluster 1", "attack_techniques": ["T1059.001", "T1566.001"]}
+        {"actor_id": "actor-1", "primary_name": "Cluster 1", "attack_techniques": ["T1059.001", "T1566.001"], "capec_ids": ["CAPEC-66"]}
     ])
-    assert len(graph["nodes"]) == 3
-    assert len(graph["edges"]) == 2
+    assert len(graph["nodes"]) == 4
+    assert len(graph["edges"]) == 3
     assert all(edge["source"].startswith("actor:") and edge["target"].startswith("technique:") for edge in graph["edges"])
 
 

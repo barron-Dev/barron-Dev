@@ -39,6 +39,7 @@ async def process_attribution_job(job: dict[str, Any]) -> dict[str, Any]:
             "evidence_type": "INFRASTRUCTURE" if row.get("kind") in {"domain", "ip"} else "SOURCE_REPORT",
             "infrastructure": metadata.get("infrastructure") if isinstance(metadata, dict) else {},
             "attack_techniques": metadata.get("attack_techniques", []) if isinstance(metadata, dict) else [],
+            "capec_ids": metadata.get("capec_ids", []) if isinstance(metadata, dict) else [],
             "malware_families": metadata.get("malware_families", []) if isinstance(metadata, dict) else [],
             "target_sectors": metadata.get("target_sectors", []) if isinstance(metadata, dict) else [],
             "target_regions": metadata.get("target_regions", []) if isinstance(metadata, dict) else [],

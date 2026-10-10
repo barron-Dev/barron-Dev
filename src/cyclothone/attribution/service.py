@@ -33,13 +33,25 @@ def _safe_source_url(value: Any) -> str | None:
 def _merge_profile(profile: dict[str, Any], evidence: dict[str, Any]) -> dict[str, Any]:
     """Merge tenant-local intelligence only; never put customer identifiers in global CTI."""
     merged = dict(profile)
-    for key in ("attack_techniques", "malware_hashes", "malware_families", "target_sectors", "target_regions", "tools", "major_campaigns", "evolution_notes", "independent_sources"):
+    for key in ("attack_techniques", "capec_ids", "malware_hashes", "malware_families", "target_sectors", "target_regions", "tools", "major_campaigns", "evolution_notes", "independent_sources", "source_evidence_ids"):
         if key in evidence:
             merged[key] = _merge_unique(merged.get(key), evidence.get(key))
     infra = dict(merged.get("infrastructure") or {})
     for key, values in (evidence.get("infrastructure") or {}).items():
         infra[key] = _merge_unique(infra.get(key), values)
     merged["infrastructure"] = infra
+    if evidence.get("diamond_model"):
+        diamond = dict(merged.get("diamond_model") or {})
+        for vertex in ("adversary", "capability", "infrastructure", "victim"):
+            old_vertex = dict(diamond.get(vertex) or {})
+            new_vertex = dict((evidence.get("diamond_model") or {}).get(vertex) or {})
+            for key, value in new_vertex.items():
+                if isinstance(value, list):
+                    old_vertex[key] = _merge_unique(old_vertex.get(key), value)
+                elif value == "observed" or key not in old_vertex:
+                    old_vertex[key] = value
+            diamond[vertex] = old_vertex
+        merged["diamond_model"] = diamond
     if evidence.get("behavioural_features"):
         history = list(merged.get("behavioural_history") or [])[-9:]
         history.append({"observed_at": datetime.now(UTC).isoformat(), "features": evidence["behavioural_features"]})
@@ -72,11 +84,13 @@ async def assess_activity_cluster(activity: dict[str, Any]) -> dict[str, Any]:
     matched = best if best and best[2]["tier"] in {"CONFIRMED", "SUSPECTED", "POSSIBLE"} else None
     now = datetime.now(UTC).isoformat()
     provisional_created = False
+    event_type = "ATTRIBUTION_TIER_CHANGED"
 
     if matched:
         _, row, assessment = matched
         actor_id = str(row["actor_id"])
-        if row.get("tenant_id") == tenant_id and assessment["tier"] in {"CONFIRMED", "SUSPECTED"}:
+        if row.get("tenant_id") == tenant_id and assessment["tier"] in {"CONFIRMED", "SUSPECTED", "POSSIBLE"}:
+            event_type = "PROFILE_CHANGED"
             profile_json = _merge_profile(dict(row.get("profile") or {}), activity)
             await client.table("dw_actor_profiles").update({
                 "profile": profile_json, "last_activity": now,
@@ -91,9 +105,14 @@ async def assess_activity_cluster(activity: dict[str, Any]) -> dict[str, Any]:
         # enrich the same provisional cluster instead of creating duplicate actors.
         actor_id = "cluster-" + _canonical_hash({"tenant": tenant_id, "cluster": cluster_id})[:32]
         actor_name = str(activity.get("provisional_name") or f"Unattributed activity cluster {actor_id[-8:]}")[:200]
-        profile_json = {
+        existing_result = await client.table("dw_actor_profiles").select(
+            "profile,aliases,first_seen,source_count,profile_version"
+        ).eq("actor_id", actor_id).eq("tenant_id", tenant_id).limit(1).execute()
+        existing = (existing_result.data or [{}])[0]
+        base_profile = {
             "diamond_model": activity.get("diamond_model") or {},
             "attack_techniques": sorted(set(activity.get("attack_techniques") or [])),
+            "capec_ids": sorted(set(activity.get("capec_ids") or [])),
             "infrastructure": activity.get("infrastructure") or {},
             "malware_families": sorted(set(activity.get("malware_families") or [])),
             "target_sectors": sorted(set(activity.get("target_sectors") or [])),
@@ -101,20 +120,38 @@ async def assess_activity_cluster(activity: dict[str, Any]) -> dict[str, Any]:
             "behavioural_features": activity.get("behavioural_features") or {},
             "source_evidence_ids": sorted(set(activity.get("source_evidence_ids") or [])),
             "independent_sources": sorted(set(activity.get("independent_sources") or [])),
-            "provisional_reason": "No existing profile passed the POSSIBLE association threshold; not a real-world identity claim.",
+            "provisional_reason": "No existing profile passed the POSSIBLE association threshold; this is not a real-world identity claim.",
         }
+        profile_json = _merge_profile(dict(existing.get("profile") or {}), activity) if existing.get("profile") else base_profile
+        profile_json["source_evidence_ids"] = _merge_unique(profile_json.get("source_evidence_ids"), activity.get("source_evidence_ids"))
+        profile_json["independent_sources"] = _merge_unique(profile_json.get("independent_sources"), activity.get("independent_sources"))
+        old_diamond = dict(profile_json.get("diamond_model") or {})
+        new_diamond = activity.get("diamond_model") or {}
+        for vertex in ("adversary", "capability", "infrastructure", "victim"):
+            old_vertex = dict(old_diamond.get(vertex) or {})
+            new_vertex = dict(new_diamond.get(vertex) or {})
+            for key, value in new_vertex.items():
+                if isinstance(value, list):
+                    old_vertex[key] = _merge_unique(old_vertex.get(key), value)
+                elif value == "observed" or key not in old_vertex:
+                    old_vertex[key] = value
+            old_diamond[vertex] = old_vertex
+        profile_json["diamond_model"] = old_diamond
         await client.table("dw_actor_profiles").upsert({
             "actor_id": actor_id, "tenant_id": tenant_id, "primary_name": actor_name, "actor_type": "UNKNOWN",
-            "aliases": sorted(set(activity.get("aliases") or [])), "attribution_confidence": "INSUFFICIENT",
-            "profile": profile_json, "first_seen": now, "last_activity": now,
-            "source_count": len(set(activity.get("independent_sources") or [])),
-            "analyst_review_required": True, "provisional": True, "profile_version": 1,
+            "aliases": _merge_unique(existing.get("aliases"), activity.get("aliases")),
+            "attribution_confidence": "INSUFFICIENT", "profile": profile_json,
+            "first_seen": existing.get("first_seen") or now, "last_activity": now,
+            "source_count": len(set(profile_json.get("independent_sources") or [])),
+            "analyst_review_required": True, "provisional": True,
+            "profile_version": int(existing.get("profile_version") or 0) + 1,
             "review_status": "pending", "updated_at": now,
         }, on_conflict="actor_id").execute()
         assessment = compute_attribution(evidence, ActorProfile(actor_id=actor_id, primary_name=actor_name))
         assessment["tier"] = "INSUFFICIENT"
         assessment["reporting_language"] = "Cyclothone DW has insufficient evidence to associate this cluster with a known actor; provisional cluster created for analyst review."
-        provisional_created = True
+        provisional_created = not bool(existing.get("first_seen"))
+        event_type = "PROVISIONAL_ACTOR_CREATED" if provisional_created else "PROFILE_CHANGED"
 
     for record in (activity.get("evidence_records") or []):
         if not isinstance(record, dict):
@@ -186,6 +223,8 @@ async def assess_activity_cluster(activity: dict[str, Any]) -> dict[str, Any]:
         "diamond_model": activity.get("diamond_model") or {},
         "attack_techniques": activity.get("attack_techniques") or [],
         "kill_chain_phases": activity.get("kill_chain_phases") or [],
+        "unified_kill_chain_phases": activity.get("unified_kill_chain_phases") or [],
+        "capec_ids": activity.get("capec_ids") or [],
         "source_evidence_ids": activity.get("source_evidence_ids") or [],
         "independent_source_count": len(set(activity.get("independent_sources") or [])),
         "analyst_review_required": True, "review_status": "pending",
@@ -195,7 +234,7 @@ async def assess_activity_cluster(activity: dict[str, Any]) -> dict[str, Any]:
     ).select("assessment_id").execute()
     assessment_id = (saved.data or [{}])[0].get("assessment_id")
     if assessment_id:
-        event_type = "PROVISIONAL_ACTOR_CREATED" if provisional_created else "ATTRIBUTION_TIER_CHANGED"
+        event_fingerprint = _canonical_hash({"cluster": cluster_id, "actor": actor_id, "event_type": event_type, "score": assessment["score"], "tier": assessment["tier"], "evidence": sorted(activity.get("source_evidence_ids") or [])})
         alert_payload = {
             "event_type": event_type, "assessment_id": assessment_id, "actor_id": actor_id,
             "activity_cluster_id": cluster_id, "score": assessment["score"], "tier": assessment["tier"],
@@ -204,6 +243,6 @@ async def assess_activity_cluster(activity: dict[str, Any]) -> dict[str, Any]:
         }
         await client.table("dw_attribution_alert_outbox").upsert({
             "tenant_id": tenant_id, "assessment_id": assessment_id,
-            "event_type": event_type, "payload": alert_payload,
-        }, on_conflict="tenant_id,assessment_id,event_type").execute()
+            "event_type": event_type, "event_fingerprint": event_fingerprint, "payload": alert_payload,
+        }, on_conflict="tenant_id,assessment_id,event_type,event_fingerprint").execute()
     return {"actor_id": actor_id, "tier": assessment["tier"], "score": assessment["score"], "analyst_review_required": True, "assessment_id": assessment_id, "provisional_created": provisional_created}

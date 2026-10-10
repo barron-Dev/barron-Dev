@@ -6,7 +6,7 @@ import re
 from datetime import UTC, datetime
 from typing import Any
 
-from cyclothone.attribution.engine import build_diamond_model, map_kill_chain_phase, validate_attack_techniques
+from cyclothone.attribution.engine import build_diamond_model, map_kill_chain_phase, map_unified_kill_chain_phase, validate_attack_techniques, validate_capec_ids
 
 _HASH = re.compile(r"^[a-f0-9]{64}$")
 _ALLOWED_INFRA = {"domains", "ips", "hosting_providers", "tls_certificates", "c2_frameworks"}
@@ -48,6 +48,7 @@ def assemble_activity_cluster(records: list[dict[str, Any]], *, tenant_id: str, 
 
     infrastructure: dict[str, set[str]] = {k: set() for k in _ALLOWED_INFRA}
     techniques: set[str] = set()
+    capec_ids: set[str] = set()
     malware_hashes: set[str] = set()
     malware_families: set[str] = set()
     tools: set[str] = set()
@@ -73,6 +74,7 @@ def assemble_activity_cluster(records: list[dict[str, Any]], *, tenant_id: str, 
             for key in _ALLOWED_INFRA:
                 infrastructure[key].update(v.lower() for v in _list(infra.get(key)))
         techniques.update(validate_attack_techniques(item.get("attack_techniques") or item.get("techniques")))
+        capec_ids.update(validate_capec_ids(item.get("capec_ids") or item.get("capec_references")))
         malware_hashes.update(v.lower() for v in _list(item.get("malware_hashes")) if _HASH.fullmatch(v.lower()))
         malware_families.update(_list(item.get("malware_families")))
         tools.update(_list(item.get("tools")))
@@ -104,7 +106,7 @@ def assemble_activity_cluster(records: list[dict[str, Any]], *, tenant_id: str, 
     infra_json = {k: sorted(v) for k, v in infrastructure.items()}
     activity = {
         "activity_cluster_id": cluster_id, "tenant_id": tenant_id,
-        "infrastructure": infra_json, "attack_techniques": sorted(techniques),
+        "infrastructure": infra_json, "attack_techniques": sorted(techniques), "capec_ids": sorted(capec_ids),
         "malware_hashes": sorted(malware_hashes), "malware_families": sorted(malware_families),
         "tools": sorted(tools), "target_sectors": sorted(sectors), "target_regions": sorted(regions),
         "aliases": sorted(aliases), "emails": sorted(emails), "pgp_fingerprints": sorted(pgp),
@@ -113,10 +115,10 @@ def assemble_activity_cluster(records: list[dict[str, Any]], *, tenant_id: str, 
         "independent_sources": sorted(sources), "evidence_records": evidence_records,
         "diamond_model": build_diamond_model({
             "adversary": {"handles": adversary_handles, "aliases": aliases, "known_associations": known_associations},
-            "capability": {"malware_hashes": malware_hashes, "malware_families": malware_families, "tools": tools, "attack_techniques": techniques},
+            "capability": {"malware_hashes": malware_hashes, "malware_families": malware_families, "tools": tools, "attack_techniques": techniques, "capec_ids": capec_ids},
             "infrastructure": infra_json,
             "victim": {"sectors": sectors, "regions": regions, "organisation_sizes": org_sizes},
         }),
-        "kill_chain_phases": map_kill_chain_phase(actions), "assembled_at": datetime.now(UTC).isoformat(),
+        "kill_chain_phases": map_kill_chain_phase(actions), "unified_kill_chain_phases": map_unified_kill_chain_phase(actions), "assembled_at": datetime.now(UTC).isoformat(),
     }
     return activity

@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
 from cyclothone.attribution.alerts import _public_https_url
-from cyclothone.attribution.graph import detect_communities
+from cyclothone.attribution.graph import build_actor_ecosystem_graph, detect_communities
 from cyclothone.developer.auth import DeveloperPrincipal, authenticate_request
 from cyclothone.storage.supabase_client import supabase
 
@@ -78,6 +78,7 @@ async def list_actor_profiles(limit: int = Query(default=100, ge=1, le=500), pri
             "tenant_owned": row.get("tenant_id") == tenant_id,
             "diamond_model": profile.get("diamond_model") or {},
             "attack_techniques": profile.get("attack_techniques") or [],
+            "capec_ids": profile.get("capec_ids") or [],
             "malware_families": profile.get("malware_families") or [],
             "target_sectors": profile.get("target_sectors") or [],
             "target_regions": profile.get("target_regions") or [],
@@ -114,7 +115,7 @@ async def list_assessments(
     tenant_id = str(_tenant(principal, TI_READ))
     async def _do():
         q = (await supabase._ensure()).table("dw_attribution_assessments").select(
-            "assessment_id,activity_cluster_id,actor_id,score,tier,raw_score_tier,signals,explanation,diamond_model,attack_techniques,kill_chain_phases,source_evidence_ids,independent_source_count,analyst_review_required,review_status,reviewed_at,review_notes,created_at"
+            "assessment_id,activity_cluster_id,actor_id,score,tier,raw_score_tier,signals,explanation,diamond_model,attack_techniques,kill_chain_phases,source_evidence_ids,independent_source_count,capec_ids,unified_kill_chain_phases,analyst_review_required,review_status,reviewed_at,review_notes,created_at"
         ).eq("tenant_id", tenant_id)
         if tier: q = q.eq("tier", tier)
         if review_status: q = q.eq("review_status", review_status)
@@ -163,10 +164,27 @@ async def actor_communities(limit: int = Query(default=500, ge=1, le=2000), prin
     tenant_id = str(_tenant(principal, TI_READ))
     async def _do():
         return await (await supabase._ensure()).table("dw_actor_profiles").select(
-            "actor_id,primary_name,tenant_id,profile,attack_techniques"
+            "actor_id,primary_name,tenant_id,profile"
         ).limit(limit).execute()
     rows = (await supabase._retry(_do, attempts=2)).data or []
     return detect_communities([r for r in rows if r.get("tenant_id") in (None, tenant_id)])
+
+
+@router.get("/graph")
+async def actor_ecosystem_graph(limit: int = Query(default=500, ge=1, le=2000), principal: DeveloperPrincipal = Depends(authenticate_request)) -> dict:
+    tenant_id = str(_tenant(principal, TI_READ))
+    client = await supabase._ensure()
+    actors_result = await client.table("dw_actor_profiles").select(
+        "actor_id,primary_name,tenant_id,profile,attack_techniques"
+    ).limit(limit).execute()
+    actors = [row for row in (actors_result.data or []) if row.get("tenant_id") in (None, tenant_id)]
+    relationships_result = await client.table("dw_actor_relationships").select(
+        "source_actor_id,target_actor_id,relationship_type,confidence,evidence_ids,tenant_id"
+    ).eq("tenant_id", tenant_id).limit(2000).execute()
+    graph = build_actor_ecosystem_graph(actors, relationships_result.data or [])
+    graph["tenant_actor_count"] = sum(1 for row in actors if row.get("tenant_id") == tenant_id)
+    graph["public_reference_actor_count"] = sum(1 for row in actors if row.get("tenant_id") is None)
+    return graph
 
 
 @router.get("/techniques/{technique_id}")

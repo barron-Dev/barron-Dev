@@ -2,8 +2,8 @@ from datetime import UTC, datetime, timedelta
 
 from cyclothone.attribution.engine import (
     ATTRIBUTION_WEIGHTS, ActorProfile, AttributionEvidence, build_diamond_model,
-    compute_attribution, extract_behavioural_fingerprint, map_kill_chain_phase,
-    validate_attack_techniques,
+    compute_attribution, extract_behavioural_fingerprint, map_kill_chain_phase, map_unified_kill_chain_phase,
+    validate_attack_techniques, validate_capec_ids,
 )
 
 
@@ -22,6 +22,11 @@ def test_diamond_model_always_has_four_vertices_and_marks_unknown():
 def test_attack_technique_ids_and_kill_chain_mapping():
     assert validate_attack_techniques(["T1566.001", "T1059.001", "nonsense", "T9999"]) == ["T1059.001", "T1566.001", "T9999"]
     assert map_kill_chain_phase(["c2_infrastructure", "credential_dump"]) == ["command_and_control", "actions_on_objectives"]
+
+
+def test_capec_validation_and_unified_kill_chain_mapping():
+    assert validate_capec_ids(["CAPEC-66", "capec-66", "CAPEC-XYZ"]) == ["CAPEC-66"]
+    assert map_unified_kill_chain_phase(["stealer_log", "c2_domain"]) == ["command_and_control", "credential_access"]
 
 
 def test_missing_signals_do_not_create_confidence():

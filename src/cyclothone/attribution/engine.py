@@ -19,6 +19,7 @@ CONFIDENCE_TIERS = (
     (0.30, "POSSIBLE"), (0.0, "INSUFFICIENT"),
 )
 ATTACK_ID = re.compile(r"^T[0-9]{4}(?:\.[0-9]{3})?$")
+CAPEC_ID = re.compile(r"^CAPEC-[0-9]{1,5}$")
 DIAMOND_VERTICES = ("adversary", "capability", "infrastructure", "victim")
 KILL_CHAIN_PHASES = {
     "reconnaissance": ("forum_target_mention", "scanning_activity", "target_research"),
@@ -67,9 +68,39 @@ def _timestamp(value: Any) -> datetime | None:
         return None
 
 
+UNIFIED_KILL_CHAIN_PHASES = {
+    "reconnaissance": ("forum_target_mention", "scanning_activity", "target_research"),
+    "weaponization": ("exploit_advertisement", "malware_sale", "payload_preparation"),
+    "delivery": ("phishing_infrastructure", "malicious_attachment", "malicious_link"),
+    "social_engineering": ("social_engineering", "spearphishing", "pretext"),
+    "exploitation": ("vulnerability_exploited", "exploit_execution", "cve_exploitation"),
+    "persistence": ("persistence_artifact", "autorun", "scheduled_task"),
+    "defense_evasion": ("defense_evasion", "obfuscation", "log_tampering"),
+    "command_and_control": ("c2_infrastructure", "beaconing", "c2_domain"),
+    "pivoting": ("proxy_chaining", "pivoting", "port_forwarding"),
+    "discovery": ("internal_discovery", "network_discovery", "account_discovery"),
+    "privilege_escalation": ("privilege_escalation", "exploit_privilege"),
+    "execution": ("process_execution", "powershell", "script_execution"),
+    "credential_access": ("credential_dump", "credential_theft", "stealer_log"),
+    "lateral_movement": ("lateral_movement", "rdp", "smb"),
+    "collection": ("data_collection", "archive_staging"),
+    "exfiltration": ("data_exfiltration", "exfiltration"),
+    "impact": ("ransomware_deployment", "data_destruction", "extortion"),
+}
+
+
+def map_unified_kill_chain_phase(signals: Iterable[str] | None) -> list[str]:
+    observed = _strings(signals)
+    return [phase for phase, indicators in UNIFIED_KILL_CHAIN_PHASES.items() if observed.intersection(indicators)]
+
+
 def validate_attack_techniques(values: Iterable[Any] | None) -> list[str]:
     """Keep syntactically valid ATT&CK technique IDs; unknown IDs still need catalogue validation."""
     return sorted({str(v).strip().upper() for v in (values or []) if ATTACK_ID.fullmatch(str(v).strip().upper())})
+
+
+def validate_capec_ids(values: Iterable[Any] | None) -> list[str]:
+    return sorted({str(v).strip().upper() for v in (values or []) if CAPEC_ID.fullmatch(str(v).strip().upper())})
 
 
 def map_kill_chain_phase(signals: Iterable[str] | None) -> list[str]:
@@ -85,7 +116,7 @@ def build_diamond_model(activity: dict[str, Any]) -> dict[str, dict[str, Any]]:
     victim = activity.get("victim") or {}
     return {
         "adversary": {"handles": sorted(_strings(adversary.get("handles"))), "aliases": sorted(_strings(adversary.get("aliases"))), "known_associations": sorted(_strings(adversary.get("known_associations"))), "status": "observed" if adversary else "unknown"},
-        "capability": {"malware_hashes": sorted(_strings(capability.get("malware_hashes"))), "malware_families": sorted(_strings(capability.get("malware_families"))), "tools": sorted(_strings(capability.get("tools"))), "exploit_ids": sorted(_strings(capability.get("exploit_ids"))), "attack_techniques": validate_attack_techniques(capability.get("attack_techniques")), "status": "observed" if capability else "unknown"},
+        "capability": {"malware_hashes": sorted(_strings(capability.get("malware_hashes"))), "malware_families": sorted(_strings(capability.get("malware_families"))), "tools": sorted(_strings(capability.get("tools"))), "exploit_ids": sorted(_strings(capability.get("exploit_ids"))), "attack_techniques": validate_attack_techniques(capability.get("attack_techniques")), "capec_ids": validate_capec_ids(capability.get("capec_ids")), "status": "observed" if capability else "unknown"},
         "infrastructure": {"domains": sorted(_strings(infrastructure.get("domains"))), "ips": sorted(_strings(infrastructure.get("ips"))), "hosting_providers": sorted(_strings(infrastructure.get("hosting_providers"))), "tls_certificates": sorted(_strings(infrastructure.get("tls_certificates"))), "c2_frameworks": sorted(_strings(infrastructure.get("c2_frameworks"))), "status": "observed" if infrastructure else "unknown"},
         "victim": {"sectors": sorted(_strings(victim.get("sectors"))), "regions": sorted(_strings(victim.get("regions"))), "organisation_sizes": sorted(_strings(victim.get("organisation_sizes"))), "status": "observed" if victim else "unknown"},
     }
@@ -128,6 +159,7 @@ def _behaviour_similarity(left: dict[str, Any], right: dict[str, Any]) -> float:
 class AttributionEvidence:
     infrastructure: dict[str, list[str]] = field(default_factory=dict)
     attack_techniques: list[str] = field(default_factory=list)
+    capec_ids: list[str] = field(default_factory=list)
     malware_hashes: list[str] = field(default_factory=list)
     malware_families: list[str] = field(default_factory=list)
     behavioural_features: dict[str, Any] = field(default_factory=dict)
@@ -158,6 +190,7 @@ class ActorProfile:
     attribution_confidence: str = "INSUFFICIENT"
     infrastructure: dict[str, list[str]] = field(default_factory=dict)
     attack_techniques: list[str] = field(default_factory=list)
+    capec_ids: list[str] = field(default_factory=list)
     malware_hashes: list[str] = field(default_factory=list)
     malware_families: list[str] = field(default_factory=list)
     tools: list[str] = field(default_factory=list)
@@ -190,7 +223,7 @@ def compute_attribution(activity: AttributionEvidence | dict[str, Any], profile:
     infra = sum(infra_parts) / len(infra_parts) if infra_parts else 0.0
     signals = {
         "infrastructure": _clamp(infra),
-        "ttp": _jaccard(a.get("attack_techniques"), p.get("attack_techniques")),
+        "ttp": _jaccard(_strings(a.get("attack_techniques")) | _strings(a.get("capec_ids")), _strings(p.get("attack_techniques")) | _strings(p.get("capec_ids"))),
         "malware": max((_jaccard(a.get("malware_hashes"), p.get("malware_hashes")), _jaccard(a.get("malware_families"), p.get("malware_families"))), default=0.0),
         "behaviour": _behaviour_similarity(a.get("behavioural_features") or {}, p.get("behavioural_features") or {}),
         "victimology": (_jaccard(a.get("target_sectors"), p.get("target_sectors")) + _jaccard(a.get("target_regions"), p.get("target_regions"))) / 2,
