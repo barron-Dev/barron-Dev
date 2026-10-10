@@ -36,6 +36,8 @@ def canonical_command_payload(*, command_id: UUID, tenant_id: UUID, device_id: U
         "issued_at": issued_at.isoformat(),
         "expires_at": expires_at.isoformat(),
         "case_action_id": str(case_action_id) if case_action_id else None,
+        # Bind the complete AI execution context into the signed command digest.
+        "execution_context": execution_context or {},
     }
 
 
