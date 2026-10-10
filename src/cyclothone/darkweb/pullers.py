@@ -168,25 +168,39 @@ class TelegramPublicMonitor:
     SOURCE = "telegram_public"
 
     def __init__(self, channels: list[str]) -> None:
-        self.channels = [c.strip().lstrip("@") for c in channels if c.strip()]
+        self.channels = list(dict.fromkeys(c.strip().lstrip("@") for c in channels if c.strip()))
 
     async def pull(self) -> list[Finding]:
-        out: list[Finding] = []
-        failures = 0
-        for channel in self.channels:
+        semaphore = asyncio.Semaphore(5)
+
+        async def pull_channel(channel: str) -> tuple[str, list[Finding] | None]:
             try:
-                async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
-                    response = await client.get(f"https://t.me/s/{channel}", headers={"user-agent": "cyclothone-darkweb/1.0"})
-                    response.raise_for_status()
-                    html = response.text
-                for email in dict.fromkeys(EMAIL_RE.findall(html)):
-                    out.append(Finding(self.SOURCE, "email", normalize(email), "Monitored identifier appeared in a public Telegram web preview; credential material redacted.", "critical", f"https://t.me/s/{channel}", {"channel": channel}))
+                async with semaphore:
+                    async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+                        response = await client.get(
+                            f"https://t.me/s/{channel}",
+                            headers={"user-agent": "cyclothone-darkweb/1.0"},
+                        )
+                        response.raise_for_status()
+                        html = response.text
+                findings = [
+                    Finding(
+                        self.SOURCE, "email", normalize(email),
+                        "Monitored identifier appeared in a public Telegram web preview; credential material redacted.",
+                        "critical", f"https://t.me/s/{channel}", {"channel": channel},
+                    )
+                    for email in dict.fromkeys(EMAIL_RE.findall(html))
+                ]
+                return channel, findings
             except Exception as exc:
-                failures += 1
-                logger.warning("Telegram channel %s failed", channel, exc_info=True)
-        if self.channels and failures == len(self.channels):
+                logger.warning("Telegram channel failed channel=%s error=%s", channel, type(exc).__name__)
+                return channel, None
+
+        results = await asyncio.gather(*(pull_channel(channel) for channel in self.channels))
+        successful = [findings for _, findings in results if findings is not None]
+        if self.channels and not successful:
             raise RuntimeError("all configured Telegram public channels failed")
-        return out
+        return [finding for batch in successful for finding in batch]
 
 
 def _paste_ids_from_feed(text: str) -> list[str]:
