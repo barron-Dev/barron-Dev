@@ -6,9 +6,14 @@ from cyclothone.darkweb.telegram_config import (
 )
 
 
-def test_telegram_config_uses_same_defaults_when_unset():
+def test_scheduler_config_uses_defaults_when_unset():
     with patch.dict("os.environ", {}, clear=True):
         assert configured_telegram_channels() == list(DEFAULT_PUBLIC_TELEGRAM_CHANNELS)
+
+
+def test_customer_scan_does_not_activate_unverified_defaults():
+    with patch.dict("os.environ", {}, clear=True):
+        assert configured_telegram_channels(use_defaults=False) == []
 
 
 def test_telegram_config_explicit_empty_value_disables_source():
