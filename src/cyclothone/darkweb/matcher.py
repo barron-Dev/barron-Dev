@@ -12,6 +12,23 @@ SEVERITY = {"medium": 0, "high": 1, "critical": 2}
 LAYERS = {"surface", "deep", "dark"}
 
 
+def _finding_content_hash(
+    finding: dict[str, Any],
+    metadata: dict[str, Any],
+    tenant_id: str | None,
+    watchlist_id: str | None,
+) -> str:
+    # A global observation can match multiple customers. Tenant-scope the
+    # idempotency fingerprint so one tenant can never overwrite another's row.
+    tenant_scope = f":tenant:{tenant_id}:watch:{watchlist_id}" if tenant_id and watchlist_id else ":global"
+    content_key = (
+        f"{finding['source_id']}:{finding['kind']}:"
+        f"{str(finding['matched_value']).strip().lower()}:"
+        f"{json.dumps(metadata, sort_keys=True, separators=(',', ':'))}{tenant_scope}"
+    )
+    return hashlib.sha256(content_key.encode()).hexdigest()
+
+
 class DarkWebMatcher:
     async def process(self, finding: dict[str, Any]) -> dict[str, Any]:
         kind = str(finding["kind"])
@@ -117,13 +134,7 @@ class DarkWebMatcher:
             assessed_finding,
             target_matched=bool(tenant_id and watchlist_id),
         )
-        # Tenant-scope the idempotency fingerprint for matched rows. A single
-        # global observation can match several customers; sharing one unique
-        # (source_id, content_hash) row would let the last tenant overwrite the
-        # prior tenant_id and break isolation/correctness.
-        tenant_scope = f":tenant:{tenant_id}:watch:{watchlist_id}" if tenant_id and watchlist_id else ":global"
-        content_key = f"{finding['source_id']}:{finding['kind']}:{str(finding['matched_value']).strip().lower()}:{json.dumps(metadata, sort_keys=True, separators=(',', ':'))}{tenant_scope}"
-        content_hash = hashlib.sha256(content_key.encode()).hexdigest()
+        content_hash = _finding_content_hash(finding, metadata, tenant_id, watchlist_id)
 
         async def _do():
             client = await supabase._ensure()
