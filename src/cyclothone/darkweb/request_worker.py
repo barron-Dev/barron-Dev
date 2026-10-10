@@ -194,6 +194,7 @@ class DarkWebRequestWorker:
             if value.strip()
         ]
         provider_domain = watch_value if target_type in {"domain", "url"} else ""
+        provider_email = watch_value if target_type == "email" else ""
         async def run_source(source_id: str, pull, timeout: int, unavailable_reason: str | None = None):
             if source_id not in enabled:
                 return {"source": source_id, "state": "unavailable", "reason": "disabled"}, []
@@ -209,8 +210,15 @@ class DarkWebRequestWorker:
                 return {"source": source_id, "state": "failed", "reason": "source_request_failed"}, []
 
         ransom_reason = None if target_type in {"domain", "url", "brand"} else "unsupported_target_type"
-        hibp_reason = "missing_key" if not hibp_key else ("unsupported_target_type" if not provider_domain else None)
+        hibp_reason = "missing_key" if not hibp_key else ("unsupported_target_type" if not (provider_domain or provider_email) else None)
         github_reason = "missing_key" if not github_token else ("unsupported_target_type" if not provider_domain else None)
+        hibp_puller = HIBPPuller(hibp_key) if hibp_key else None
+        if hibp_puller and provider_domain:
+            hibp_call = lambda: hibp_puller.pull_domain(provider_domain)
+        elif hibp_puller and provider_email:
+            hibp_call = lambda: hibp_puller.pull_account(provider_email)
+        else:
+            hibp_call = None
         public_target_supported = target_type in {"domain", "url", "email"}
         paste_reason = None if public_target_supported else "unsupported_target_type"
         telegram_reason = (
@@ -220,7 +228,7 @@ class DarkWebRequestWorker:
         telegram_monitor = TelegramPublicMonitor(telegram_channels) if telegram_channels else None
         provider_specs = [
             ("ransomwatch", RansomwatchPuller().pull if not ransom_reason else None, 35, ransom_reason),
-            ("hibp", (lambda: HIBPPuller(hibp_key).pull_domain(provider_domain)) if hibp_key and provider_domain else None, 25, hibp_reason),
+            ("hibp", hibp_call, 25, hibp_reason),
             ("github_code", (lambda: GitHubCodeMonitor(github_token).pull_domain(provider_domain)) if github_token and provider_domain else None, 65, github_reason),
             ("pastebin_public", PastePublicMonitor().pull if public_target_supported else None, 50, paste_reason),
             ("telegram_public", telegram_monitor.pull if telegram_monitor and public_target_supported else None, 45, telegram_reason),
