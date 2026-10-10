@@ -341,6 +341,7 @@ class DarkWebRequestWorker:
             })
         evidence = list(evidence_by_hash.values())
         alerts = await supabase.select(
+            "dw_alerts",
             "id,title,summary,severity,status,finding_id,created_at,case_id",
             tenant_id=tenant_id,
         )
