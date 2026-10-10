@@ -61,11 +61,14 @@ def normalize_target(value: str, target_type: str) -> str:
 
 
 def _coverage_state(sources: list[dict]) -> str:
-    """Describe only the configured provider checks represented in this result."""
+    """Describe configured provider checks, including partial per-provider coverage."""
     checked = any(source.get("state") == "checked" for source in sources)
     if not checked:
         return "none"
-    if all(source.get("state") == "checked" for source in sources):
+    if all(
+        source.get("state") == "checked" and source.get("coverage") != "partial"
+        for source in sources
+    ):
         return "all_configured_sources_checked"
     return "partial"
 
@@ -223,6 +226,22 @@ class DarkWebRequestWorker:
                 return {"source": source_id, "state": "unavailable", "reason": "unsupported_target_type"}, []
             try:
                 findings = await asyncio.wait_for(pull(), timeout=timeout)
+                monitor = getattr(pull, "__self__", None)
+                channel_status = getattr(monitor, "channel_status", {})
+                failed_channels = [
+                    channel for channel, state in channel_status.items()
+                    if state != "checked"
+                ]
+                if channel_status:
+                    return {
+                        "source": source_id,
+                        "state": "checked",
+                        "coverage": "partial" if failed_channels else "all_configured_channels_checked",
+                        "channels": [
+                            {"channel": channel, "state": state}
+                            for channel, state in sorted(channel_status.items())
+                        ],
+                    }, findings
                 return {"source": source_id, "state": "checked"}, findings
             except Exception:
                 logger.warning("dark-web provider request failed source=%s request_id=%s", source_id, request_id, exc_info=True)
