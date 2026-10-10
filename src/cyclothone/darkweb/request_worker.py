@@ -357,10 +357,17 @@ class DarkWebRequestWorker:
             for alert in relevant_alerts:
                 if not alert.get("case_id"):
                     await supabase.update("dw_alerts", {"case_id": case_id}, id=str(alert["id"]), tenant_id=tenant_id)
+        checked_sources = [x for x in sources if x["state"] == "checked"]
+        unavailable_sources = [x for x in sources if x["state"] != "checked"]
+        # Coverage describes this configured provider set only; it never claims
+        # visibility into the entire dark web or unconfigured services.
+        coverage = "none" if not checked_sources else (
+            "all_configured_sources_checked" if not unavailable_sources else "partial"
+        )
         result = {
             "service": "dark_web_monitoring", "target": watch_value, "target_type": target_type,
-            "coverage": "partial", "sources_checked": [x for x in sources if x["state"] == "checked"],
-            "sources_unavailable": [x for x in sources if x["state"] != "checked"],
+            "coverage": coverage, "sources_checked": checked_sources,
+            "sources_unavailable": unavailable_sources,
             "findings": persisted[:200], "evidence": evidence[:200], "alerts": relevant_alerts[:200],
             "case_id": case_id, "recommendations": (
                 ["Review each possible match against the source evidence.", "Rotate exposed credentials and investigate affected accounts."]
