@@ -184,6 +184,21 @@ async def open_case(alert_id: UUID, principal: DeveloperPrincipal = Depends(auth
 
 
 
+@router.get("/runs")
+async def list_source_runs(principal: DeveloperPrincipal = Depends(authenticate_request)) -> list[dict]:
+    """Return recent source-cycle telemetry, never raw findings or credentials."""
+    _require(principal, "darkweb:read")
+    async def _do():
+        return await (await supabase._ensure()).table("dw_source_runs").select(
+            "id,source_id,status,stage,progress_percent,discovered_count,processed_count,matched_count,alert_count,error_count,detail,started_at,updated_at,completed_at"
+        ).order("started_at", desc=True).limit(100).execute()
+    try:
+        rows = (await supabase._retry(_do, attempts=2)).data or []
+    except Exception as exc:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "source process telemetry unavailable") from exc
+    return list(rows)
+
+
 @router.get("/sources")
 async def list_sources(principal: DeveloperPrincipal = Depends(authenticate_request)) -> list[dict]:
     """Show source readiness and observed health without exposing credentials."""

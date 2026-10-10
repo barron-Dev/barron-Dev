@@ -5,6 +5,7 @@ import logging
 import os
 import time
 from datetime import UTC, datetime
+from uuid import uuid4
 
 from cyclothone.darkweb.matcher import DarkWebMatcher
 from cyclothone.darkweb.pullers import GitHubCodeMonitor, HIBPPuller, PastePublicMonitor, RansomwatchPuller, TelegramPublicMonitor
@@ -91,24 +92,71 @@ class DarkWebScheduler:
 
     async def _run_pull(self, source_id: str, pull) -> None:
         started = time.monotonic()
+        run_id = await self._begin_run(source_id)
         try:
-            findings = await pull()
-            result = await self._ingest(findings)
+            findings = (await pull())[:2000]
+            await self._update_run(run_id, {
+                "stage": "records_normalized", "progress_percent": 25,
+                "discovered_count": len(findings), "processed_count": 0,
+                "matched_count": 0, "alert_count": 0, "error_count": 0,
+                "detail": "Source response parsed into normalized findings.",
+            })
+            result = await self._ingest(findings, run_id=run_id)
             source_status = "degraded" if result["errors"] else "ok"
             await self._mark_source(source_id, source_status)
+            await self._update_run(run_id, {
+                "status": source_status, "stage": "completed", "progress_percent": 100,
+                "processed_count": len(findings), "matched_count": result["matched"],
+                "alert_count": result["alerts"], "error_count": result["errors"],
+                "detail": "Processing cycle finished." if not result["errors"] else "Cycle finished with recorded processing errors.",
+                "completed_at": datetime.now(UTC).isoformat(),
+            })
             logger.info(
                 "dark web source=%s completed findings=%d matched=%d alerts=%d errors=%d duration_ms=%d",
                 source_id, len(findings), result["matched"], result["alerts"], result["errors"], int((time.monotonic() - started) * 1000),
             )
         except asyncio.CancelledError:
+            await self._update_run(run_id, {"status": "cancelled", "stage": "cancelled", "detail": "Processing was cancelled."})
             raise
         except Exception:
             await self._mark_source(source_id, "failed")
+            await self._update_run(run_id, {
+                "status": "failed", "stage": "failed",
+                "detail": "Source pull or processing failed; inspect service logs for the cause.",
+                "completed_at": datetime.now(UTC).isoformat(),
+            })
             logger.exception("dark web source failed: %s", source_id)
 
-    async def _ingest(self, findings: list) -> dict[str, int]:
+    async def _begin_run(self, source_id: str) -> str | None:
+        run_id = str(uuid4())
+        async def _do():
+            return await (await supabase._ensure()).table("dw_source_runs").insert({
+                "id": run_id, "source_id": source_id, "status": "running",
+                "stage": "connecting_to_source", "progress_percent": 0,
+                "detail": "Source pull started.", "started_at": datetime.now(UTC).isoformat(),
+            }).execute()
+        try:
+            await supabase._retry(_do, attempts=1)
+            return run_id
+        except Exception:
+            logger.warning("source-run telemetry unavailable; migration may be pending", exc_info=True)
+            return None
+
+    async def _update_run(self, run_id: str | None, fields: dict) -> None:
+        if not run_id:
+            return
+        patch = {**fields, "updated_at": datetime.now(UTC).isoformat()}
+        async def _do():
+            return await (await supabase._ensure()).table("dw_source_runs").update(patch).eq("id", run_id).execute()
+        try:
+            await supabase._retry(_do, attempts=1)
+        except Exception:
+            logger.warning("unable to persist source-run progress", exc_info=True)
+
+    async def _ingest(self, findings: list, *, run_id: str | None = None) -> dict[str, int]:
         matched = alerts = errors = 0
-        for finding in findings[:2000]:
+        total = len(findings)
+        for index, finding in enumerate(findings, start=1):
             if self._stop.is_set():
                 return {"matched": matched, "alerts": alerts, "errors": errors}
             result = await self.matcher.process({
@@ -125,11 +173,21 @@ class DarkWebScheduler:
             except asyncio.CancelledError:
                 raise
             except Exception:
-                # Do not claim a healthy source run if event-time evidence could not be
-                # written to the durable outbox. The finding matcher still runs, but
-                # source health must expose the degraded streaming path.
                 errors += 1
                 logger.warning("dark web change-event outbox write failed for source=%s", finding.source_id, exc_info=True)
+            if index == total or index % 25 == 0:
+                progress = 25 + int((index / total) * 65) if total else 90
+                await self._update_run(run_id, {
+                    "stage": "matching_and_persisting", "progress_percent": min(progress, 90),
+                    "processed_count": index, "matched_count": matched,
+                    "alert_count": alerts, "error_count": errors,
+                    "detail": f"Processed {index} of {total} returned findings.",
+                })
+        if total == 0:
+            await self._update_run(run_id, {
+                "stage": "matching_and_persisting", "progress_percent": 90,
+                "processed_count": 0, "detail": "Source returned zero findings; no findings were fabricated.",
+            })
         return {"matched": matched, "alerts": alerts, "errors": errors}
 
     async def _enabled_sources(self) -> set[str]:
