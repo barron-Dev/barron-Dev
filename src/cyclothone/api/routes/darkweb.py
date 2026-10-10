@@ -214,7 +214,7 @@ async def findings(
     tenant_id = _require(principal, "darkweb:read")
     async def _do():
         q = (await supabase._ensure()).table("dw_findings").select(
-            "id,source_id,content_hash,kind,matched_value,context,source_url,source_metadata,severity,first_seen,tenant_id,watchlist_id,web_layer,access_mode,collected_at"
+            "id,source_id,content_hash,kind,matched_value,context,source_url,source_metadata,severity,risk_score,risk_factors,alert_eligible,first_seen,tenant_id,watchlist_id,web_layer,access_mode,collected_at"
         ).or_(f"tenant_id.eq.{tenant_id},tenant_id.is.null")
         if source_id:
             q = q.eq("source_id", source_id)
