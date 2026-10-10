@@ -50,6 +50,14 @@ export default function DarkWeb() {
     finally{setLoading(false);}
   }
   useEffect(()=>{void load()},[]);
+  useEffect(()=>{
+    if(!runsAvailable) return;
+    const timer=window.setInterval(()=>{
+      apiFetch<SourceRun[]>("/api/v1/darkweb/runs").then(rows=>setRuns(Array.isArray(rows)?rows:[])).catch(()=>setRunsAvailable(false));
+      apiFetch<SourceHealth[]>("/api/v1/darkweb/sources").then(rows=>setSources(Array.isArray(rows)?rows:[])).catch(()=>undefined);
+    },5000);
+    return ()=>window.clearInterval(timer);
+  },[runsAvailable]);
 
   async function add(e:FormEvent){
     e.preventDefault(); if(!value.trim()) return;
