@@ -14,6 +14,17 @@ COMMENT ON COLUMN public.dw_findings.risk_factors IS
 COMMENT ON COLUMN public.dw_findings.alert_eligible IS
     'True only when an exact tenant watchlist match meets the configured risk threshold.';
 
+ALTER TABLE public.dw_alerts
+    ADD COLUMN IF NOT EXISTS risk_score double precision NOT NULL DEFAULT 0.0
+        CHECK (risk_score >= 0.0 AND risk_score <= 1.0),
+    ADD COLUMN IF NOT EXISTS risk_factors jsonb NOT NULL DEFAULT '[]'::jsonb
+        CHECK (jsonb_typeof(risk_factors) = 'array');
+
+COMMENT ON COLUMN public.dw_alerts.risk_score IS
+    'Risk score copied from the associated finding at alert creation/update time.';
+COMMENT ON COLUMN public.dw_alerts.risk_factors IS
+    'Explainable assessment factors supporting this alert.';
+
 CREATE INDEX IF NOT EXISTS dw_findings_alert_eligible_idx
     ON public.dw_findings (tenant_id, first_seen DESC)
     WHERE tenant_id IS NOT NULL AND alert_eligible = true;
@@ -111,23 +122,30 @@ BEGIN
                 ELSE 'Monitored data exposure detected'
             END;
             INSERT INTO public.dw_alerts(
-                tenant_id, watchlist_id, finding_id, kind, severity, title, summary
+                tenant_id, watchlist_id, finding_id, kind, severity, title, summary,
+            risk_score, risk_factors
             )
             VALUES (
                 p_tenant_id, p_watchlist_id, v_finding, p_kind, v_severity,
-                v_title, left(coalesce(p_context, 'Monitored identifier observed in an external source.'), 2000)
+                v_title, left(coalesce(p_context, 'Monitored identifier observed in an external source.'), 2000),
+                p_risk_score, coalesce(p_risk_factors, '[]'::jsonb)
             )
             ON CONFLICT (watchlist_id, finding_id) DO UPDATE
-              SET summary = excluded.summary
+              SET summary = excluded.summary,
+                  risk_score = greatest(public.dw_alerts.risk_score, excluded.risk_score),
+                  risk_factors = CASE
+                      WHEN excluded.risk_score >= public.dw_alerts.risk_score THEN excluded.risk_factors
+                      ELSE public.dw_alerts.risk_factors
+                  END
             RETURNING id INTO v_alert;
         END IF;
 
         v_verdict := CASE WHEN p_risk_score >= 0.90 THEN 'malicious' ELSE 'suspicious' END;
         v_reasons := ARRAY['external_exposure', 'darkweb_watchlist_match']
             || ARRAY(
-                SELECT left(elem->>'factor', 80)
-                FROM jsonb_array_elements(coalesce(p_risk_factors, '[]'::jsonb)) AS elem
-                WHERE nullif(elem->>'factor', '') IS NOT NULL
+                SELECT left(item->>'factor', 80)
+                FROM jsonb_array_elements(coalesce(p_risk_factors, '[]'::jsonb)) AS items(item)
+                WHERE nullif(item->>'factor', '') IS NOT NULL
             );
         INSERT INTO public.detections(
             tenant_id, device_id, event_id, detector, score, verdict, reasons,
