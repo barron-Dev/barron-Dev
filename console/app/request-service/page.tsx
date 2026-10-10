@@ -130,6 +130,7 @@ export default function RequestService(){ const [orgs,setOrgs]=useState<Customer
           <div className="grid grid-cols-2 divide-x divide-y divide-white/10 md:grid-cols-4 md:divide-y-0">
             {[["Sources checked",dwChecked.length],["Sources unavailable",dwUnavailable.length],["Critical findings",dwCritical],["High findings",dwHigh]].map(([label,value]:any)=><div key={label} className="p-4"><div className="text-[9px] uppercase tracking-[.13em] text-[#648994]">{label}</div><div className="mt-2 font-mono text-2xl">{value}</div></div>)}
           </div>
+          <div className="border-t border-white/10 px-5 py-3 text-[10px] leading-5 text-[#8ca6ad]">Configured-source coverage: <span className="text-[#c6dce1]">{dwData.coverage==="all_configured_sources_checked"?"All configured sources checked":dwData.coverage==="none"?"No source successfully checked":"Partial / limited"}</span>. This describes only the providers configured in Cyclothone, not the entire dark web.</div>
           {dwUnavailable.length>0&&<div className="border-t border-[#d7a94e]/20 bg-[#281e0c]/35 px-5 py-3 text-xs leading-5 text-[#e7c783]">Coverage is partial: {dwUnavailable.length} configured source check{dwUnavailable.length===1?" was":"s were"} unavailable or failed. A clean result must not be inferred for those sources.</div>}
         </section>
         <section className="rounded-[1.5rem] border border-white/10 bg-[#061018]/80 p-5">
