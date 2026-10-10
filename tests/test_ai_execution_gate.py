@@ -293,7 +293,8 @@ async def test_destructive_orchestrator_mints_and_consumes_authoritative_envelop
     dispatcher.issue = AsyncMock(return_value={"id": "cmd-1"})
 
     result = await ResponseOrchestrator(
-        dispatcher, store, execution_gate=gate, envelope_issuer=issuer
+        dispatcher, store, execution_gate=gate, envelope_issuer=issuer,
+        execution_authorizer=AsyncMock(return_value={"status": "authorized"}),
     ).run_chain(
         tenant_id=tenant, case_id=uuid4(), device_id=uuid4(),
         plan=[ActionPlan("kill_process", {"pid": 7}, envelope_request=request, run_id=uuid4())],
