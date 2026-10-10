@@ -219,7 +219,13 @@ class DarkWebRequestWorker:
                 logger.warning("dark-web provider request failed source=%s request_id=%s", source_id, request_id, exc_info=True)
                 return {"source": source_id, "state": "failed", "reason": "source_request_failed"}, []
 
-        ransom_reason = None if target_type in {"domain", "url", "brand"} else "unsupported_target_type"
+        # The upstream Ransomwatch corpus is archived. Keep it out of live
+        # coverage and current alerts until a maintained source is verified.
+        ransom_reason = (
+            "historical_only_archived_feed"
+            if target_type in {"domain", "url", "brand"}
+            else "unsupported_target_type"
+        )
         hibp_reason = "missing_key" if not hibp_key else ("unsupported_target_type" if not (provider_domain or provider_email) else None)
         github_reason = "missing_key" if not github_token else ("unsupported_target_type" if not provider_domain else None)
         hibp_puller = HIBPPuller(hibp_key) if hibp_key else None
