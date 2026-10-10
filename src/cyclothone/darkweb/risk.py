@@ -36,7 +36,10 @@ def _freshness_bonus(metadata: dict[str, Any], now: datetime) -> tuple[float, st
         stamp = datetime.fromisoformat(raw.replace("Z", "+00:00"))
         if stamp.tzinfo is None:
             stamp = stamp.replace(tzinfo=UTC)
-        age_days = max(0.0, (now - stamp.astimezone(UTC)).total_seconds() / 86400)
+        age_days = (now - stamp.astimezone(UTC)).total_seconds() / 86400
+        if age_days < -1:
+            return 0.0, "publication_time_in_future"
+        age_days = max(0.0, age_days)
     except (ValueError, OverflowError):
         return 0.0, "publication_time_invalid"
     if age_days <= 1:
