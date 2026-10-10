@@ -169,6 +169,8 @@ class TelegramPublicMonitor:
 
     def __init__(self, channels: list[str]) -> None:
         self.channels = list(dict.fromkeys(c.strip().lstrip("@") for c in channels if c.strip()))
+        # Per-channel outcomes remain available to the scheduler for honest coverage.
+        self.channel_status: dict[str, str] = {}
 
     async def pull(self) -> list[Finding]:
         semaphore = asyncio.Semaphore(5)
@@ -197,6 +199,10 @@ class TelegramPublicMonitor:
                 return channel, None
 
         results = await asyncio.gather(*(pull_channel(channel) for channel in self.channels))
+        self.channel_status = {
+            channel: "checked" if findings is not None else "failed"
+            for channel, findings in results
+        }
         successful = [findings for _, findings in results if findings is not None]
         if self.channels and not successful:
             raise RuntimeError("all configured Telegram public channels failed")
