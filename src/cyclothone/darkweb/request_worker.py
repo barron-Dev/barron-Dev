@@ -54,6 +54,24 @@ def normalize_target(value: str, target_type: str) -> str:
     return target.lower()
 
 
+def _finding_matches_target(finding: object, watch_kind: str, watch_value: str) -> bool:
+    """Match a provider finding to the monitored identifier without fuzzy guesses.
+
+    HIBP's domain endpoint returns breached email identifiers, not a synthetic
+    domain finding. Treat an email as relevant to a domain watch only when its
+    normalized domain component is an exact match.
+    """
+    kind = str(getattr(finding, "kind", "")).strip().lower()
+    value = str(getattr(finding, "matched_value", "")).strip().lower()
+    expected = watch_value.strip().lower()
+    if kind == watch_kind and value == expected:
+        return True
+    if watch_kind == "domain" and kind == "email":
+        local, separator, domain = value.rpartition("@")
+        return bool(local and separator and domain.rstrip(".") == expected)
+    return False
+
+
 class DarkWebRequestWorker:
     """Leased worker for customer requests; uses the existing dark-web engine."""
 
@@ -235,8 +253,7 @@ class DarkWebRequestWorker:
                 "label": "possible match — review",
             })
         for finding in pulled[:2000]:
-            matched = str(finding.matched_value).strip().lower() == watch_value and str(finding.kind).lower() == watch_kind
-            if not matched:
+            if not _finding_matches_target(finding, watch_kind, watch_value):
                 continue
             meta = dict(finding.metadata or {})
             meta["customer_match"] = "exact"
