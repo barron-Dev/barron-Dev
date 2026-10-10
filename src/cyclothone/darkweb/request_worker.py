@@ -10,7 +10,14 @@ from urllib.parse import urlsplit
 import httpx
 
 from cyclothone.darkweb.matcher import DarkWebMatcher
-from cyclothone.darkweb.pullers import GitHubCodeMonitor, HIBPPuller, RansomwatchPuller
+from cyclothone.darkweb.pullers import (
+    GitHubCodeMonitor,
+    HIBPPuller,
+    PastePublicMonitor,
+    RansomwatchPuller,
+    TelegramPublicMonitor,
+)
+from cyclothone.darkweb.telegram_config import configured_telegram_channels
 from cyclothone.storage.supabase_client import supabase
 
 logger = logging.getLogger(__name__)
@@ -52,6 +59,46 @@ def normalize_target(value: str, target_type: str) -> str:
             raise ValueError("invalid_email_target")
         return f"{local}@{domain.lower()}"
     return target.lower()
+
+
+def _coverage_state(sources: list[dict]) -> str:
+    """Describe configured provider checks, including partial per-provider coverage."""
+    checked = any(source.get("state") == "checked" for source in sources)
+    if not checked:
+        return "none"
+    if all(
+        source.get("state") == "checked" and source.get("coverage") != "partial"
+        for source in sources
+    ):
+        return "all_configured_sources_checked"
+    return "partial"
+
+
+def _require_recorded_finding(response: object) -> dict:
+    """Require the database RPC to confirm a durable finding and alert."""
+    rows = response if isinstance(response, list) else [response]
+    for row in rows:
+        if isinstance(row, dict) and row.get("finding_id") is not None and row.get("alert_id"):
+            return row
+    raise RuntimeError("finding_persistence_unconfirmed")
+
+
+def _finding_matches_target(finding: object, watch_kind: str, watch_value: str) -> bool:
+    """Match a provider finding to the monitored identifier without fuzzy guesses.
+
+    HIBP's domain endpoint returns breached email identifiers, not a synthetic
+    domain finding. Treat an email as relevant to a domain watch only when its
+    normalized domain component is an exact match.
+    """
+    kind = str(getattr(finding, "kind", "")).strip().lower()
+    value = str(getattr(finding, "matched_value", "")).strip().lower()
+    expected = watch_value.strip().lower()
+    if kind == watch_kind and value == expected:
+        return True
+    if watch_kind == "domain" and kind == "email":
+        local, separator, domain = value.rpartition("@")
+        return bool(local and separator and domain.rstrip(".") == expected)
+    return False
 
 
 class DarkWebRequestWorker:
@@ -105,13 +152,16 @@ class DarkWebRequestWorker:
             except ValueError as exc:
                 logger.warning("dark-web request rejected id=%s reason=%s", row.get("id"), str(exc))
                 try:
-                    await supabase.rpc("complete_service_request", {
-                        "p_id": row["id"], "p_attempt": int(row["attempts"]),
-                        "p_state": "blocked", "p_status": "blocked",
-                        "p_result": {"service": "dark_web_monitoring", "error": "invalid_target"},
-                        "p_failure_code": str(exc)[:80] or "invalid_target",
-                    })
+                    await self._complete(
+                        row,
+                        "blocked",
+                        "blocked",
+                        {"service": "dark_web_monitoring", "error": "invalid_target"},
+                        str(exc)[:80] or "invalid_target",
+                    )
                 except Exception:
+                    # Includes a rejected fencing token; never bypass the RPC
+                    # fence with a direct table update or an unfenced retry.
                     logger.exception("failed to persist dark-web request rejection id=%s", row.get("id"))
             except Exception:
                 # Keep the lease. Once it expires, the claim RPC retries the real
@@ -159,49 +209,105 @@ class DarkWebRequestWorker:
         sources: list[dict] = []
         pulled = []
         findings = []
-        hibp_key = os.getenv("CYCLOTHONE_HIBP_KEY", "").strip()
-        github_token = os.getenv("CYCLOTHONE_GITHUB_TOKEN", "").strip()
-        if "ransomwatch" in enabled and target_type in {"domain", "brand"}:
+        hibp_key = (os.getenv("CYCLOTHONE_HIBP_KEY") or os.getenv("SENTINEL_HIBP_KEY") or "").strip()
+        github_token = (os.getenv("CYCLOTHONE_GITHUB_TOKEN") or os.getenv("SENTINEL_GITHUB_TOKEN") or "").strip()
+        telegram_channels = configured_telegram_channels(use_defaults=False)
+        provider_domain = watch_value if target_type in {"domain", "url"} else ""
+        provider_email = watch_value if target_type == "email" else ""
+        async def run_source(source_id: str, pull, timeout: int, unavailable_reason: str | None = None):
+            if source_id not in enabled:
+                return {"source": source_id, "state": "unavailable", "reason": "disabled"}, []
+            if unavailable_reason:
+                return {"source": source_id, "state": "unavailable", "reason": unavailable_reason}, []
+            if pull is None:
+                return {"source": source_id, "state": "unavailable", "reason": "unsupported_target_type"}, []
             try:
-                pulled.extend(await asyncio.wait_for(RansomwatchPuller().pull(), timeout=35))
-                sources.append({"source": "ransomwatch", "state": "checked"})
+                findings = await asyncio.wait_for(pull(), timeout=timeout)
+                monitor = getattr(pull, "__self__", None)
+                channel_status = getattr(monitor, "channel_status", {})
+                failed_channels = [
+                    channel for channel, state in channel_status.items()
+                    if state != "checked"
+                ]
+                if channel_status:
+                    return {
+                        "source": source_id,
+                        "state": "checked",
+                        "coverage": "partial" if failed_channels else "all_configured_channels_checked",
+                        "channels": [
+                            {"channel": channel, "state": state}
+                            for channel, state in sorted(channel_status.items())
+                        ],
+                    }, findings
+                return {"source": source_id, "state": "checked"}, findings
             except Exception:
-                sources.append({"source": "ransomwatch", "state": "failed", "reason": "source_request_failed"})
-        else:
-            reason = "disabled" if "ransomwatch" not in enabled else "unsupported_target_type"
-            sources.append({"source": "ransomwatch", "state": "unavailable", "reason": reason})
-        if "hibp" in enabled and hibp_key and target_type == "domain":
-            try:
-                pulled.extend(await asyncio.wait_for(HIBPPuller(hibp_key).pull_domain(target), timeout=25))
-                sources.append({"source": "hibp", "state": "checked"})
-            except Exception:
-                sources.append({"source": "hibp", "state": "failed", "reason": "source_request_failed"})
-        else:
-            sources.append({"source": "hibp", "state": "unavailable",
-                            "reason": "missing_key" if not hibp_key else ("unsupported_target_type" if target_type != "domain" else "disabled")})
-        if "github_code" in enabled and github_token and target_type == "domain":
-            try:
-                pulled.extend(await asyncio.wait_for(GitHubCodeMonitor(github_token).pull_domain(target), timeout=65))
-                sources.append({"source": "github_code", "state": "checked"})
-            except Exception:
-                sources.append({"source": "github_code", "state": "failed", "reason": "source_request_failed"})
-        else:
-            sources.append({"source": "github_code", "state": "unavailable",
-                            "reason": "missing_key" if not github_token else ("unsupported_target_type" if target_type != "domain" else "disabled")})
+                logger.warning("dark-web provider request failed source=%s request_id=%s", source_id, request_id, exc_info=True)
+                return {"source": source_id, "state": "failed", "reason": "source_request_failed"}, []
 
-        # These providers can be ingested by the background scheduler, but this
-        # request worker does not query them synchronously. Do not claim coverage
-        # just because a provider is globally enabled.
-        for source_id in ("pastebin_public", "telegram_public"):
-            if source_id in enabled:
-                sources.append({"source": source_id, "state": "unavailable", "reason": "not_queried_for_request"})
-            else:
-                sources.append({"source": source_id, "state": "unavailable", "reason": "disabled"})
+        # The upstream Ransomwatch corpus is archived. Keep it out of live
+        # coverage and current alerts until a maintained source is verified.
+        ransom_reason = (
+            "historical_only_archived_feed"
+            if target_type in {"domain", "url", "brand"}
+            else "unsupported_target_type"
+        )
+        hibp_reason = "missing_key" if not hibp_key else ("unsupported_target_type" if not (provider_domain or provider_email) else None)
+        github_reason = "missing_key" if not github_token else ("unsupported_target_type" if not provider_domain else None)
+        hibp_puller = HIBPPuller(hibp_key) if hibp_key else None
+        if hibp_puller and provider_domain:
+            hibp_call = lambda: hibp_puller.pull_domain(provider_domain)
+        elif hibp_puller and provider_email:
+            hibp_call = lambda: hibp_puller.pull_account(provider_email)
+        else:
+            hibp_call = None
+        public_target_supported = target_type in {"domain", "url", "email"}
+        paste_reason = None if public_target_supported else "unsupported_target_type"
+        telegram_reason = (
+            "unsupported_target_type" if not public_target_supported
+            else ("missing_channels" if not telegram_channels else None)
+        )
+        telegram_monitor = TelegramPublicMonitor(telegram_channels) if telegram_channels else None
+        provider_specs = [
+            ("ransomwatch", RansomwatchPuller().pull if not ransom_reason else None, 35, ransom_reason),
+            ("hibp", hibp_call, 25, hibp_reason),
+            ("github_code", (lambda: GitHubCodeMonitor(github_token).pull_domain(provider_domain)) if github_token and provider_domain else None, 65, github_reason),
+            ("pastebin_public", PastePublicMonitor().pull if public_target_supported else None, 50, paste_reason),
+            ("telegram_public", telegram_monitor.pull if telegram_monitor and public_target_supported else None, 90, telegram_reason),
+        ]
+        provider_results = await asyncio.gather(*(
+            run_source(source_id, pull, timeout, reason)
+            for source_id, pull, timeout, reason in provider_specs
+        ))
+        sources = [status for status, _ in provider_results]
+        pulled = [finding for _, batch in provider_results for finding in batch]
+
+        # A completed search requires at least one provider call to succeed.
+        # An empty result from a checked source is a valid zero-match result;
+        # all-failed/all-unavailable is not a successful search.
+        if not any(source["state"] == "checked" for source in sources):
+            failure_result = {
+                "service": "dark_web_monitoring",
+                "target": watch_value,
+                "target_type": target_type,
+                "outcome": "source_unavailable",
+                "coverage": "none",
+                "sources_checked": [],
+                "sources_unavailable": [source for source in sources if source["state"] != "checked"],
+                "findings": [],
+                "evidence": [],
+                "alerts": [],
+                "completed_at": datetime.now(UTC).isoformat(),
+            }
+            await self._complete(
+                request, "failed", "failed", failure_result, "no_source_checked"
+            )
+            return
 
         # Persist only exact target matches. The global feed itself is still
         # useful for retro-sweep but a company-name resemblance is never silently
         # promoted to a confirmed match.
         evidence = []
+        persistence_failures = 0
         for item in exact:
             evidence.append({
                 "source": item.get("source_id"), "collected_at": item.get("collected_at") or item.get("first_seen"),
@@ -209,24 +315,30 @@ class DarkWebRequestWorker:
                 "label": "possible match — review",
             })
         for finding in pulled[:2000]:
-            matched = str(finding.matched_value).strip().lower() == watch_value and str(finding.kind).lower() == watch_kind
-            if not matched:
+            if not _finding_matches_target(finding, watch_kind, watch_value):
                 continue
             meta = dict(finding.metadata or {})
             meta["customer_match"] = "exact"
             tenant_hash = hashlib.sha256(f"{getattr(finding, 'source_id', '')}:{hashlib.sha256((str(finding.matched_value).strip().lower()).encode()).hexdigest()}:{watch_id}".encode()).hexdigest()
             try:
-                row = await supabase.rpc("record_dw_finding", {
+                recorded = await supabase.rpc("record_dw_finding", {
                     "p_source_id": finding.source_id, "p_content_hash": tenant_hash,
                     "p_kind": finding.kind, "p_matched_value": str(finding.matched_value).strip().lower(),
                     "p_context": finding.context, "p_severity": finding.severity,
                     "p_source_url": finding.source_url, "p_metadata": meta,
                     "p_tenant_id": tenant_id, "p_watchlist_id": watch_id,
                 })
+                _require_recorded_finding(recorded)
                 evidence.append({"source": finding.source_id, "collected_at": datetime.now(UTC).isoformat(),
                                  "content_hash": tenant_hash, "source_url": finding.source_url})
             except Exception:
+                persistence_failures += 1
                 logger.warning("unable to persist customer dark-web match", exc_info=True)
+
+        # Never report a completed search if one or more exact matches could not
+        # be durably persisted. Let the lease expire so the request can retry.
+        if persistence_failures:
+            raise RuntimeError("finding_persistence_incomplete")
 
         # Re-read tenant-scoped findings for this watchlist and keep result evidence bounded.
         persisted = await supabase.select(
@@ -234,7 +346,28 @@ class DarkWebRequestWorker:
             "id,source_id,content_hash,matched_value,context,source_url,severity,first_seen,collected_at,watchlist_id",
             tenant_id=tenant_id, watchlist_id=watch_id,
         )
+        # The watchlist may already have findings from the continuous scheduler.
+        # Include those durable rows in the explicit evidence collection as well;
+        # otherwise the result can list a finding without its corresponding evidence.
+        evidence_by_hash = {
+            str(item.get("content_hash") or ""): item
+            for item in evidence
+            if item.get("content_hash")
+        }
+        for item in persisted:
+            content_hash = str(item.get("content_hash") or "")
+            if not content_hash:
+                continue
+            evidence_by_hash.setdefault(content_hash, {
+                "source": item.get("source_id"),
+                "collected_at": item.get("collected_at") or item.get("first_seen"),
+                "content_hash": content_hash,
+                "source_url": item.get("source_url"),
+                "label": "possible match — review",
+            })
+        evidence = list(evidence_by_hash.values())
         alerts = await supabase.select(
+            "dw_alerts",
             "id,title,summary,severity,status,finding_id,created_at,case_id",
             tenant_id=tenant_id,
         )
@@ -267,10 +400,15 @@ class DarkWebRequestWorker:
             for alert in relevant_alerts:
                 if not alert.get("case_id"):
                     await supabase.update("dw_alerts", {"case_id": case_id}, id=str(alert["id"]), tenant_id=tenant_id)
+        checked_sources = [x for x in sources if x["state"] == "checked"]
+        unavailable_sources = [x for x in sources if x["state"] != "checked"]
+        # Coverage describes this configured provider set only; it never claims
+        # visibility into the entire dark web or unconfigured services.
+        coverage = _coverage_state(sources)
         result = {
             "service": "dark_web_monitoring", "target": watch_value, "target_type": target_type,
-            "coverage": "partial", "sources_checked": [x for x in sources if x["state"] == "checked"],
-            "sources_unavailable": [x for x in sources if x["state"] != "checked"],
+            "coverage": coverage, "sources_checked": checked_sources,
+            "sources_unavailable": unavailable_sources,
             "findings": persisted[:200], "evidence": evidence[:200], "alerts": relevant_alerts[:200],
             "case_id": case_id, "recommendations": (
                 ["Review each possible match against the source evidence.", "Rotate exposed credentials and investigate affected accounts."]
@@ -284,8 +422,12 @@ class DarkWebRequestWorker:
     async def _complete(self, request: dict, state: str, status: str, result: dict, failure_code: str | None) -> None:
         # The attempt number is a fencing token: a stale worker cannot overwrite
         # a newer lease or a terminal result after its lease has been reclaimed.
-        await supabase.rpc("complete_service_request", {
+        completed = await supabase.rpc("complete_service_request", {
             "p_id": str(request["id"]), "p_attempt": int(request["attempts"]),
             "p_state": state, "p_status": status,
             "p_result": result, "p_failure_code": failure_code,
         })
+        if completed is not True:
+            # False means the lease/attempt fence rejected this completion.
+            # Do not claim success or try an unfenced fallback write.
+            raise RuntimeError("completion_fence_rejected")

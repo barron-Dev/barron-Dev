@@ -161,7 +161,7 @@ class ResponseOrchestrator:
                 if action_class in (ActionClass.MEDIUM, ActionClass.HIGH, ActionClass.CRITICAL) and not dry_run and step.run_id is None:
                     raise RuntimeError("canonical AI run binding is required for executable response actions")
 
-                if action_class in (ActionClass.MEDIUM, ActionClass.HIGH, ActionClass.CRITICAL):
+                if action_class in (ActionClass.MEDIUM, ActionClass.HIGH, ActionClass.CRITICAL) and not dry_run:
                     if self.execution_gate is None or self.envelope_issuer is None:
                         raise RuntimeError("authoritative AI envelope issuer and execution gate are required for destructive response actions")
                     if step.envelope_request is None:

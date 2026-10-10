@@ -63,8 +63,12 @@ class AttackPathPredictor:
             raise PredictionInputError("horizon must be between 1 and 5")
         if not 1 <= top_n <= self.MAX_TOP_N:
             raise PredictionInputError("top_n must be between 1 and 100")
-        if self._node(self.graph, root) is None:
+        root_node = self._node(self.graph, root)
+        if root_node is None:
             raise PredictionInputError("root node not found")
+        # Validate the root even when it has no outgoing edges; invalid graph
+        # inputs must not bypass validation merely because no candidate is reached.
+        self._unit(getattr(root_node, "criticality", 0.0), "criticality")
 
         # Keep the maximum path likelihood per node. The visited map also prevents
         # cycles from expanding indefinitely while allowing a later stronger path.

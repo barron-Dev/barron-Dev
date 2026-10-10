@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
+import json
 import logging
 import re
 from dataclasses import dataclass
@@ -66,6 +68,61 @@ class HIBPPuller:
                 findings.append(Finding(self.SOURCE, "email", email, "Identifier appeared in a reported breach.", "high", None, {"breach": str(breach), "domain": domain}))
         return findings
 
+    async def pull_account(self, email: str) -> list[Finding]:
+        """Check one explicitly supplied email address using HIBP's account endpoint."""
+        email = normalize(email)
+        if "@" not in email or email.count("@") != 1 or len(email) > 320:
+            return []
+        from urllib.parse import quote
+
+        try:
+            async with httpx.AsyncClient(timeout=20.0) as client:
+                response = await client.get(
+                    f"{self.BASE}/breachedaccount/{quote(email, safe='')}",
+                    params={"truncateResponse": "false", "includeUnverified": "false"},
+                    headers={"hibp-api-key": self.api_key, "user-agent": "cyclothone-darkweb/1.0"},
+                )
+                if response.status_code == 404:
+                    return []
+                response.raise_for_status()
+                breaches = response.json()
+        except Exception as exc:
+            raise RuntimeError("HIBP account pull failed") from exc
+        return [
+            Finding(
+                self.SOURCE, "email", email,
+                "Email identifier appeared in a reported breach.",
+                "high", None,
+                {"breach": str(breach.get("Name") or breach.get("Title") or "reported breach")},
+            )
+            for breach in (breaches or [])
+            if isinstance(breach, dict)
+        ]
+
+
+def _domain_from_victim_title(title: str) -> str | None:
+    """Return a domain only when the victim title itself is exactly a hostname/URL.
+
+    Ransomwatch's post_url identifies the leak-site post, not the victim's domain.
+    Treating that URL's host as the victim domain would create false attribution.
+    """
+    candidate = title.strip().strip(".,;:()[]{}")
+    if not candidate or any(char.isspace() for char in candidate):
+        return None
+    parsed = urlsplit(candidate if "://" in candidate else f"https://{candidate}")
+    host = (parsed.hostname or "").lower().rstrip(".")
+    if not host or "." not in host:
+        return None
+    if parsed.scheme not in {"http", "https"} or parsed.username or parsed.password:
+        return None
+    if parsed.path not in {"", "/"} or parsed.query or parsed.fragment:
+        return None
+    if "://" not in candidate and candidate.lower().rstrip(".") != host:
+        return None
+    if host in {"localhost", "localhost.localdomain"} or host.endswith((".local", ".internal", ".test", ".invalid")):
+        return None
+    return host
+
 
 class RansomwatchPuller:
     SOURCE = "ransomwatch"
@@ -86,11 +143,24 @@ class RansomwatchPuller:
             group = normalize(str(post.get("group_name") or "unknown"))
             if not victim:
                 continue
-            host = normalize(urlsplit(raw_url).hostname or raw_url)
-            metadata = {"group": group, "victim_name": victim, "published": post.get("discovered")}
-            if host:
-                out.append(Finding(self.SOURCE, "domain", host, "Organization listed on a ransomware leak feed.", "critical", raw_url or None, metadata))
-            out.append(Finding(self.SOURCE, "company_name", victim, "Organization name listed on a ransomware leak feed.", "critical", raw_url or None, {**metadata, "domain": host or None}))
+            victim_domain = _domain_from_victim_title(victim)
+            metadata = {
+                "group": group,
+                "victim_name": victim,
+                "domain": victim_domain,
+                "published": post.get("discovered"),
+            }
+            if victim_domain:
+                out.append(Finding(
+                    self.SOURCE, "domain", victim_domain,
+                    "Victim domain explicitly named in a ransomware leak feed.",
+                    "critical", raw_url or None, metadata,
+                ))
+            out.append(Finding(
+                self.SOURCE, "company_name", victim,
+                "Organization name listed on a ransomware leak feed.",
+                "critical", raw_url or None, metadata,
+            ))
         return out
 
 
@@ -98,40 +168,133 @@ class TelegramPublicMonitor:
     SOURCE = "telegram_public"
 
     def __init__(self, channels: list[str]) -> None:
-        self.channels = [c.strip().lstrip("@") for c in channels if c.strip()]
+        self.channels = list(dict.fromkeys(c.strip().lstrip("@") for c in channels if c.strip()))
+        # Per-channel outcomes remain available to the scheduler for honest coverage.
+        self.channel_status: dict[str, str] = {}
 
     async def pull(self) -> list[Finding]:
-        out: list[Finding] = []
-        failures = 0
-        for channel in self.channels:
+        semaphore = asyncio.Semaphore(5)
+
+        async def pull_channel(channel: str) -> tuple[str, list[Finding] | None]:
             try:
-                async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
-                    response = await client.get(f"https://t.me/s/{channel}", headers={"user-agent": "cyclothone-darkweb/1.0"})
-                    response.raise_for_status()
-                    html = response.text
-                for email in dict.fromkeys(EMAIL_RE.findall(html)):
-                    out.append(Finding(self.SOURCE, "email", normalize(email), "Monitored identifier appeared in a public Telegram web preview; credential material redacted.", "critical", f"https://t.me/s/{channel}", {"channel": channel}))
+                async with semaphore:
+                    async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+                        response = await client.get(
+                            f"https://t.me/s/{channel}",
+                            headers={"user-agent": "cyclothone-darkweb/1.0"},
+                        )
+                        response.raise_for_status()
+                        html = response.text
+                findings = [
+                    Finding(
+                        self.SOURCE, "email", normalize(email),
+                        "Monitored identifier appeared in a public Telegram web preview; credential material redacted.",
+                        "critical", f"https://t.me/s/{channel}", {"channel": channel},
+                    )
+                    for email in dict.fromkeys(EMAIL_RE.findall(html))
+                ]
+                return channel, findings
             except Exception as exc:
-                failures += 1
-                logger.warning("Telegram channel %s failed", channel, exc_info=True)
-        if self.channels and failures == len(self.channels):
+                logger.warning("Telegram channel failed channel=%s error=%s", channel, type(exc).__name__)
+                return channel, None
+
+        results = await asyncio.gather(*(pull_channel(channel) for channel in self.channels))
+        self.channel_status = {
+            channel: "checked" if findings is not None else "failed"
+            for channel, findings in results
+        }
+        successful = [findings for _, findings in results if findings is not None]
+        if self.channels and not successful:
             raise RuntimeError("all configured Telegram public channels failed")
-        return out
+        return [finding for batch in successful for finding in batch]
+
+
+def _paste_entries_from_feed(text: str) -> list[tuple[str, str, str]]:
+    """Extract validated public Pastebin.ca feed entries; never fetch arbitrary URLs."""
+    try:
+        payload = json.loads(text)
+    except (TypeError, json.JSONDecodeError) as exc:
+        raise ValueError("paste_feed_invalid_json") from exc
+    if not isinstance(payload, dict) or not isinstance(payload.get("items"), list):
+        raise ValueError("paste_feed_invalid_schema")
+    items = payload["items"]
+    entries: list[tuple[str, str, str]] = []
+    seen: set[str] = set()
+    id_pattern = re.compile(r"^[23456789][23456789A-HJ-NP-Za-hjkmnp-z]{9}$")
+    allowed_raw_hosts = {"pastebin.ca", "raw.anybin.ca"}
+    for item in items if isinstance(items, list) else []:
+        if not isinstance(item, dict):
+            continue
+        paste_id = str(item.get("id") or "").strip()
+        raw_url = str(item.get("raw_url") or "").strip()
+        public_url = str(item.get("url") or "").strip()
+        raw = urlsplit(raw_url)
+        public = urlsplit(public_url)
+        if not id_pattern.fullmatch(paste_id) or paste_id in seen:
+            continue
+        if raw.scheme != "https" or (raw.hostname or "").lower() not in allowed_raw_hosts:
+            continue
+        if public.scheme != "https" or (public.hostname or "").lower() != "pastebin.ca":
+            public_url = raw_url
+        seen.add(paste_id)
+        entries.append((paste_id, raw_url, public_url))
+    return entries[:20]
 
 
 class PastePublicMonitor:
     SOURCE = "pastebin_public"
-    FEED = "https://pastebin.com/feed/"
+    # The previous pastebin.com feed returned 404 in production. This documented
+    # public feed is the supported Pastebin.ca JSON API.
+    FEED = "https://pastebin.ca/api/v1/feed?limit=20"
 
     async def pull(self) -> list[Finding]:
         try:
-            async with httpx.AsyncClient(timeout=15.0) as client:
+            async with httpx.AsyncClient(timeout=10.0) as client:
                 response = await client.get(self.FEED, headers={"user-agent": "cyclothone-darkweb/1.0"})
                 response.raise_for_status()
-                text = response.text
+                entries = _paste_entries_from_feed(response.text)
+                if not entries:
+                    return []
+                semaphore = asyncio.Semaphore(5)
+
+                async def fetch_paste(entry: tuple[str, str, str]):
+                    paste_id, raw_url, public_url = entry
+                    async with semaphore:
+                        raw = await client.get(
+                            raw_url,
+                            headers={"user-agent": "cyclothone-darkweb/1.0"},
+                        )
+                        raw.raise_for_status()
+                        return paste_id, public_url, raw.text
+
+                results = await asyncio.gather(
+                    *(fetch_paste(entry) for entry in entries),
+                    return_exceptions=True,
+                )
         except Exception as exc:
             raise RuntimeError("public paste feed pull failed") from exc
-        return [Finding(self.SOURCE, "email", normalize(email), "Monitored identifier appeared in a public paste feed.", "medium", self.FEED, {}) for email in dict.fromkeys(EMAIL_RE.findall(text))]
+
+        successful = 0
+        findings: list[Finding] = []
+        for result in results:
+            if isinstance(result, BaseException):
+                logger.warning("public paste item fetch failed error=%s", type(result).__name__)
+                continue
+            paste_id, public_url, content = result
+            successful += 1
+            for email in dict.fromkeys(EMAIL_RE.findall(content)):
+                findings.append(Finding(
+                    self.SOURCE,
+                    "email",
+                    normalize(email),
+                    "Identifier appeared in public paste content; paste contents are not retained.",
+                    "medium",
+                    public_url,
+                    {"paste_id": paste_id},
+                ))
+        if entries and successful == 0:
+            raise RuntimeError("all public paste item fetches failed")
+        return findings
 
 
 class GitHubCodeMonitor:

@@ -7,10 +7,18 @@ import time
 from datetime import UTC, datetime
 
 from cyclothone.darkweb.matcher import DarkWebMatcher
-from cyclothone.darkweb.pullers import GitHubCodeMonitor, HIBPPuller, PastePublicMonitor, RansomwatchPuller, TelegramPublicMonitor
+from cyclothone.darkweb.pullers import GitHubCodeMonitor, HIBPPuller, PastePublicMonitor, TelegramPublicMonitor
+from cyclothone.darkweb.telegram_config import (
+    DEFAULT_PUBLIC_TELEGRAM_CHANNELS,  # noqa: F401 — compatibility export
+    configured_telegram_channels,
+)
 from cyclothone.storage.supabase_client import supabase
 
 logger = logging.getLogger(__name__)
+
+
+def _configured_telegram_channels() -> list[str]:
+    return configured_telegram_channels()
 
 
 class DarkWebScheduler:
@@ -63,19 +71,23 @@ class DarkWebScheduler:
 
     async def _global_tick(self) -> None:
         enabled = await self._enabled_sources()
-        for pull in (RansomwatchPuller(), PastePublicMonitor()):
-            if pull.SOURCE in enabled:
-                await self._run_pull(pull.SOURCE, pull.pull)
-        channels_value = os.getenv("CYCLOTHONE_DW_TELEGRAM_CHANNELS", "").strip()
-        channels = [x.strip() for x in channels_value.split(",") if x.strip()]
+        # Ransomwatch is archived and must never be represented as a fresh source check.
+        if "ransomwatch" in enabled:
+            await self._mark_source("ransomwatch", "historical_only_archived_feed", pulled=False)
+        paste = PastePublicMonitor()
+        if paste.SOURCE in enabled:
+            await self._run_pull(paste.SOURCE, paste.pull)
+        channels = _configured_telegram_channels()
         if channels and "telegram_public" in enabled:
             monitor = TelegramPublicMonitor(channels)
             await self._run_pull(monitor.SOURCE, monitor.pull)
+        elif "telegram_public" in enabled:
+            await self._mark_source("telegram_public", "unavailable_missing_channel", pulled=False)
 
     async def _domain_tick(self) -> None:
         domains = await self._tenant_domains()
-        hibp_key = os.getenv("CYCLOTHONE_HIBP_KEY", "").strip()
-        github_token = os.getenv("CYCLOTHONE_GITHUB_TOKEN", "").strip()
+        hibp_key = (os.getenv("CYCLOTHONE_HIBP_KEY") or os.getenv("SENTINEL_HIBP_KEY") or "").strip()
+        github_token = (os.getenv("CYCLOTHONE_GITHUB_TOKEN") or os.getenv("SENTINEL_GITHUB_TOKEN") or "").strip()
         enabled = await self._enabled_sources()
         for domain in domains:
             if hibp_key and "hibp" in enabled:
@@ -90,11 +102,18 @@ class DarkWebScheduler:
         try:
             findings = await pull()
             result = await self._ingest(findings)
-            source_status = "degraded" if result["errors"] else "ok"
+            monitor = getattr(pull, "__self__", None)
+            channel_status = getattr(monitor, "channel_status", {})
+            failed_channels = [channel for channel, state in channel_status.items() if state != "checked"]
+            source_status = "degraded" if result["errors"] or failed_channels else "ok"
+            for channel, state in channel_status.items():
+                logger.info("dark web source=%s channel=%s state=%s", source_id, channel, state)
             await self._mark_source(source_id, source_status)
             logger.info(
-                "dark web source=%s completed findings=%d matched=%d alerts=%d errors=%d duration_ms=%d",
-                source_id, len(findings), result["matched"], result["alerts"], result["errors"], int((time.monotonic() - started) * 1000),
+                "dark web source=%s completed findings=%d matched=%d alerts=%d errors=%d channels_checked=%d channels_failed=%d duration_ms=%d",
+                source_id, len(findings), result["matched"], result["alerts"], result["errors"],
+                sum(state == "checked" for state in channel_status.values()), len(failed_channels),
+                int((time.monotonic() - started) * 1000),
             )
         except asyncio.CancelledError:
             raise
@@ -128,12 +147,15 @@ class DarkWebScheduler:
             logger.warning("dark web source configuration unavailable; failing closed", exc_info=True)
             return set()
 
-    async def _mark_source(self, source_id: str, status: str) -> None:
+    async def _mark_source(self, source_id: str, status: str, *, pulled: bool = True) -> None:
+        update = {"last_status": status}
+        if pulled:
+            update["last_pull_at"] = datetime.now(UTC).isoformat()
+
         async def _do():
-            return await (await supabase._ensure()).table("dw_sources").update({
-                "last_pull_at": datetime.now(UTC).isoformat(),
-                "last_status": status,
-            }).eq("id", source_id).execute()
+            return await (await supabase._ensure()).table("dw_sources").update(
+                update
+            ).eq("id", source_id).execute()
         try:
             await supabase._retry(_do, attempts=1)
         except Exception:
