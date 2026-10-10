@@ -207,9 +207,11 @@ def _paste_entries_from_feed(text: str) -> list[tuple[str, str, str]]:
     """Extract validated public Pastebin.ca feed entries; never fetch arbitrary URLs."""
     try:
         payload = json.loads(text)
-    except (TypeError, json.JSONDecodeError):
-        return []
-    items = payload.get("items", []) if isinstance(payload, dict) else []
+    except (TypeError, json.JSONDecodeError) as exc:
+        raise ValueError("paste_feed_invalid_json") from exc
+    if not isinstance(payload, dict) or not isinstance(payload.get("items"), list):
+        raise ValueError("paste_feed_invalid_schema")
+    items = payload["items"]
     entries: list[tuple[str, str, str]] = []
     seen: set[str] = set()
     id_pattern = re.compile(r"^[23456789][23456789A-HJ-NP-Za-hjkmnp-z]{9}$")
