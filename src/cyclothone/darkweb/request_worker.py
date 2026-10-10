@@ -10,6 +10,7 @@ from urllib.parse import urlsplit
 import httpx
 
 from cyclothone.darkweb.matcher import DarkWebMatcher
+from cyclothone.darkweb.telegram_config import configured_telegram_channels
 from cyclothone.darkweb.pullers import (
     GitHubCodeMonitor,
     HIBPPuller,
@@ -210,11 +211,7 @@ class DarkWebRequestWorker:
         findings = []
         hibp_key = (os.getenv("CYCLOTHONE_HIBP_KEY") or os.getenv("SENTINEL_HIBP_KEY") or "").strip()
         github_token = (os.getenv("CYCLOTHONE_GITHUB_TOKEN") or os.getenv("SENTINEL_GITHUB_TOKEN") or "").strip()
-        telegram_channels = [
-            value.strip().lstrip("@")
-            for value in (os.getenv("CYCLOTHONE_DW_TELEGRAM_CHANNELS") or os.getenv("SENTINEL_DW_TELEGRAM_CHANNELS") or "").split(",")
-            if value.strip()
-        ]
+        telegram_channels = configured_telegram_channels()
         provider_domain = watch_value if target_type in {"domain", "url"} else ""
         provider_email = watch_value if target_type == "email" else ""
         async def run_source(source_id: str, pull, timeout: int, unavailable_reason: str | None = None):
