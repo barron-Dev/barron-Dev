@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import logging
 import re
-import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from urllib.parse import urlsplit
 
@@ -203,63 +203,64 @@ class TelegramPublicMonitor:
         return [finding for batch in successful for finding in batch]
 
 
-def _paste_ids_from_feed(text: str) -> list[str]:
-    """Extract only Pastebin paste IDs from feed entries; never fetch arbitrary feed URLs."""
+def _paste_entries_from_feed(text: str) -> list[tuple[str, str, str]]:
+    """Extract validated public Pastebin.ca feed entries; never fetch arbitrary URLs."""
     try:
-        root = ET.fromstring(text)
-    except ET.ParseError:
+        payload = json.loads(text)
+    except (TypeError, json.JSONDecodeError):
         return []
-    paste_ids: list[str] = []
+    items = payload.get("items", []) if isinstance(payload, dict) else []
+    entries: list[tuple[str, str, str]] = []
     seen: set[str] = set()
-    for element in root.iter():
-        tag = element.tag.rsplit("}", 1)[-1].lower()
-        if tag not in {"item", "entry"}:
+    id_pattern = re.compile(r"^[23456789][23456789A-HJ-NP-Za-hjkmnp-z]{9}$")
+    allowed_raw_hosts = {"pastebin.ca", "raw.anybin.ca"}
+    for item in items if isinstance(items, list) else []:
+        if not isinstance(item, dict):
             continue
-        link = ""
-        for child in element:
-            if child.tag.rsplit("}", 1)[-1].lower() == "link":
-                link = str(child.attrib.get("href") or child.text or "").strip()
-                if link:
-                    break
-        if not link:
+        paste_id = str(item.get("id") or "").strip()
+        raw_url = str(item.get("raw_url") or "").strip()
+        public_url = str(item.get("url") or "").strip()
+        raw = urlsplit(raw_url)
+        public = urlsplit(public_url)
+        if not id_pattern.fullmatch(paste_id) or paste_id in seen:
             continue
-        parsed = urlsplit(link if "://" in link else f"https://pastebin.com{link}")
-        if parsed.scheme != "https" or (parsed.hostname or "").lower() not in {"pastebin.com", "www.pastebin.com"}:
+        if raw.scheme != "https" or (raw.hostname or "").lower() not in allowed_raw_hosts:
             continue
-        parts = [part for part in parsed.path.split("/") if part]
-        paste_id = parts[-1] if parts and parts[-1] != "raw" else (parts[-2] if len(parts) > 1 else "")
-        if not re.fullmatch(r"[A-Za-z0-9]{4,32}", paste_id) or paste_id in seen:
-            continue
+        if public.scheme != "https" or (public.hostname or "").lower() != "pastebin.ca":
+            public_url = raw_url
         seen.add(paste_id)
-        paste_ids.append(paste_id)
-    return paste_ids[:20]
+        entries.append((paste_id, raw_url, public_url))
+    return entries[:20]
 
 
 class PastePublicMonitor:
     SOURCE = "pastebin_public"
-    FEED = "https://pastebin.com/feed/"
+    # The previous pastebin.com feed returned 404 in production. This documented
+    # public feed is the supported Pastebin.ca JSON API.
+    FEED = "https://pastebin.ca/api/v1/feed?limit=20"
 
     async def pull(self) -> list[Finding]:
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
                 response = await client.get(self.FEED, headers={"user-agent": "cyclothone-darkweb/1.0"})
                 response.raise_for_status()
-                paste_ids = _paste_ids_from_feed(response.text)
-                if not paste_ids:
+                entries = _paste_entries_from_feed(response.text)
+                if not entries:
                     return []
                 semaphore = asyncio.Semaphore(5)
 
-                async def fetch_paste(paste_id: str):
+                async def fetch_paste(entry: tuple[str, str, str]):
+                    paste_id, raw_url, public_url = entry
                     async with semaphore:
                         raw = await client.get(
-                            f"https://pastebin.com/raw/{paste_id}",
+                            raw_url,
                             headers={"user-agent": "cyclothone-darkweb/1.0"},
                         )
                         raw.raise_for_status()
-                        return paste_id, raw.text
+                        return paste_id, public_url, raw.text
 
                 results = await asyncio.gather(
-                    *(fetch_paste(paste_id) for paste_id in paste_ids),
+                    *(fetch_paste(entry) for entry in entries),
                     return_exceptions=True,
                 )
         except Exception as exc:
@@ -271,7 +272,7 @@ class PastePublicMonitor:
             if isinstance(result, BaseException):
                 logger.warning("public paste item fetch failed error=%s", type(result).__name__)
                 continue
-            paste_id, content = result
+            paste_id, public_url, content = result
             successful += 1
             for email in dict.fromkeys(EMAIL_RE.findall(content)):
                 findings.append(Finding(
@@ -280,10 +281,10 @@ class PastePublicMonitor:
                     normalize(email),
                     "Identifier appeared in public paste content; paste contents are not retained.",
                     "medium",
-                    f"https://pastebin.com/{paste_id}",
+                    public_url,
                     {"paste_id": paste_id},
                 ))
-        if paste_ids and successful == 0:
+        if entries and successful == 0:
             raise RuntimeError("all public paste item fetches failed")
         return findings
 
