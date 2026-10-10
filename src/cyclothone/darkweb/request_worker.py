@@ -60,6 +60,16 @@ def normalize_target(value: str, target_type: str) -> str:
     return target.lower()
 
 
+def _coverage_state(sources: list[dict]) -> str:
+    """Describe only the configured provider checks represented in this result."""
+    checked = any(source.get("state") == "checked" for source in sources)
+    if not checked:
+        return "none"
+    if all(source.get("state") == "checked" for source in sources):
+        return "all_configured_sources_checked"
+    return "partial"
+
+
 def _finding_matches_target(finding: object, watch_kind: str, watch_value: str) -> bool:
     """Match a provider finding to the monitored identifier without fuzzy guesses.
 
@@ -361,9 +371,7 @@ class DarkWebRequestWorker:
         unavailable_sources = [x for x in sources if x["state"] != "checked"]
         # Coverage describes this configured provider set only; it never claims
         # visibility into the entire dark web or unconfigured services.
-        coverage = "none" if not checked_sources else (
-            "all_configured_sources_checked" if not unavailable_sources else "partial"
-        )
+        coverage = _coverage_state(sources)
         result = {
             "service": "dark_web_monitoring", "target": watch_value, "target_type": target_type,
             "coverage": coverage, "sources_checked": checked_sources,
