@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 from cyclothone.darkweb.matcher import DarkWebMatcher
 from cyclothone.darkweb.pullers import GitHubCodeMonitor, HIBPPuller, PastePublicMonitor, RansomwatchPuller, TelegramPublicMonitor
 from cyclothone.storage.supabase_client import supabase
+from cyclothone.streaming.pipeline import ChangeEventPipeline
 
 logger = logging.getLogger(__name__)
 
@@ -20,17 +21,20 @@ class DarkWebScheduler:
 
     def __init__(self) -> None:
         self.matcher = DarkWebMatcher()
+        self.change_pipeline = ChangeEventPipeline()
         self._task: asyncio.Task | None = None
         self._stop = asyncio.Event()
         self._last_domain = 0.0
 
     def start(self) -> None:
+        self.change_pipeline.start()
         if self._task is None or self._task.done():
             self._stop.clear()
             self._task = asyncio.create_task(self._loop(), name="cyclothone-darkweb")
 
     async def stop(self) -> None:
         self._stop.set()
+        await self.change_pipeline.stop()
         if self._task:
             self._task.cancel()
             try:
@@ -116,6 +120,16 @@ class DarkWebScheduler:
             matched += int(result.get("matched", 0))
             alerts += int(result.get("alerts", 0))
             errors += int(result.get("errors", 0))
+            try:
+                await self.change_pipeline.enqueue_finding(finding)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                # Do not claim a healthy source run if event-time evidence could not be
+                # written to the durable outbox. The finding matcher still runs, but
+                # source health must expose the degraded streaming path.
+                errors += 1
+                logger.warning("dark web change-event outbox write failed for source=%s", finding.source_id, exc_info=True)
         return {"matched": matched, "alerts": alerts, "errors": errors}
 
     async def _enabled_sources(self) -> set[str]:
