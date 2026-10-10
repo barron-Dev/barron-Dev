@@ -49,6 +49,84 @@ def _extract_techniques(bundle: dict[str, Any]) -> list[dict[str, Any]]:
     return output
 
 
+def _extract_actor_profiles(bundle: dict[str, Any]) -> list[dict[str, Any]]:
+    objects = [item for item in bundle.get("objects", []) if isinstance(item, dict)]
+    techniques_by_stix: dict[str, str] = {}
+    groups = []
+    targets_by_group: dict[str, list[dict[str, Any]]] = {}
+    by_id = {str(item.get("id")): item for item in objects if item.get("id")}
+    for item in objects:
+        if item.get("type") == "attack-pattern" and not item.get("revoked") and not item.get("x_mitre_deprecated"):
+            ref = next((r for r in (item.get("external_references") or []) if isinstance(r, dict) and r.get("source_name") == "mitre-attack" and str(r.get("external_id") or "").startswith("T")), None)
+            if ref:
+                techniques_by_stix[str(item["id"])] = str(ref["external_id"]).upper()
+        if item.get("type") == "intrusion-set" and not item.get("revoked") and not item.get("x_mitre_deprecated"):
+            ref = next((r for r in (item.get("external_references") or []) if isinstance(r, dict) and r.get("source_name") == "mitre-attack" and str(r.get("external_id") or "").startswith("G")), None)
+            if ref:
+                groups.append((item, str(ref["external_id"]).upper()))
+    for rel in objects:
+        if rel.get("type") == "relationship" and rel.get("relationship_type") == "uses" and rel.get("source_ref"):
+            targets_by_group.setdefault(str(rel["source_ref"]), []).append(by_id.get(str(rel.get("target_ref")), {}))
+    output = []
+    for group, external_id in groups:
+        aliases = sorted({str(x).strip()[:200] for x in (group.get("x_mitre_aliases") or []) if str(x).strip()})
+        related = targets_by_group.get(str(group.get("id")), [])
+        techniques = sorted({techniques_by_stix[str(target.get("id"))] for target in related if str(target.get("id")) in techniques_by_stix})
+        tools = sorted({str(target.get("name"))[:200] for target in related if target.get("type") == "tool" and target.get("name")})
+        malware = sorted({str(target.get("name"))[:200] for target in related if target.get("type") == "malware" and target.get("name")})
+        refs = group.get("external_references") or []
+        url = next((str(ref.get("url")) for ref in refs if isinstance(ref, dict) and ref.get("source_name") == "mitre-attack" and ref.get("url")), None)
+        output.append({
+            "actor_id": "mitre-attack-" + external_id,
+            "primary_name": str(group.get("name") or external_id)[:200],
+            "aliases": aliases,
+            "profile": {
+                "source": "MITRE ATT&CK Enterprise STIX",
+                "source_url": url,
+                "description": str(group.get("description") or "")[:8000],
+                "attack_techniques": techniques,
+                "tools": tools,
+                "malware_families": malware,
+                "known_aliases": aliases,
+            },
+            "first_seen": group.get("created"),
+            "last_activity": group.get("modified"),
+        })
+    return output
+
+
+async def _upsert_actor_reference_profiles(client, bundle: dict[str, Any]) -> int:
+    profiles = _extract_actor_profiles(bundle)
+    if not profiles:
+        return 0
+    ids = [p["actor_id"] for p in profiles]
+    response = await client.table("dw_actor_profiles").select(
+        "actor_id,profile,aliases,first_seen,last_activity,profile_version,review_status,source_count"
+    ).in_("actor_id", ids).is_("tenant_id", "null").execute()
+    existing = {str(row["actor_id"]): row for row in (response.data or [])}
+    for item in profiles:
+        prior = existing.get(item["actor_id"]) or {}
+        profile = dict(prior.get("profile") or {})
+        profile.update(item["profile"])
+        aliases = sorted(set([*(prior.get("aliases") or []), *item["aliases"]]))
+        prior_first, new_first = prior.get("first_seen"), item.get("first_seen")
+        first_seen = min([v for v in (prior_first, new_first) if v]) if prior_first or new_first else None
+        prior_last, new_last = prior.get("last_activity"), item.get("last_activity")
+        last_activity = max([v for v in (prior_last, new_last) if v]) if prior_last or new_last else None
+        await client.table("dw_actor_profiles").upsert({
+            "actor_id": item["actor_id"], "tenant_id": None,
+            "primary_name": item["primary_name"], "actor_type": "UNKNOWN",
+            "aliases": aliases, "attribution_confidence": "INSUFFICIENT",
+            "profile": profile, "first_seen": first_seen, "last_activity": last_activity,
+            "source_count": max(1, int(prior.get("source_count") or 1)),
+            "analyst_review_required": False, "provisional": False,
+            "profile_version": int(prior.get("profile_version") or 0) + 1,
+            "review_status": prior.get("review_status") or "accepted",
+            "updated_at": datetime.now(UTC).isoformat(),
+        }, on_conflict="actor_id").execute()
+    return len(profiles)
+
+
 async def sync_attack_catalogue(force: bool = False) -> dict[str, Any]:
     if os.getenv("CYCLOTHONE_ATTACK_CATALOG_SYNC_ENABLED", "false").strip().lower() not in {"1", "true", "yes"}:
         return {"status": "disabled", "reason": "set CYCLOTHONE_ATTACK_CATALOG_SYNC_ENABLED=true to enable the official public MITRE STIX sync"}
@@ -70,12 +148,13 @@ async def sync_attack_catalogue(force: bool = False) -> dict[str, Any]:
             await client.table("dw_attack_techniques").upsert(
                 techniques[start:start + 250], on_conflict="technique_id"
             ).execute()
+        actor_profile_count = await _upsert_actor_reference_profiles(client, bundle)
         await client.table("dw_attack_catalogue_state").upsert({
             "catalogue_id": "enterprise-attack", "source_url": url,
             "last_success_at": datetime.now(UTC).isoformat(), "technique_count": len(techniques),
             "last_error_code": None,
         }, on_conflict="catalogue_id").execute()
-        return {"status": "synced", "technique_count": len(techniques), "source_url": url}
+        return {"status": "synced", "technique_count": len(techniques), "actor_profile_count": actor_profile_count, "source_url": url}
     except Exception as exc:
         logger.warning("MITRE ATT&CK catalogue sync failed error=%s", type(exc).__name__)
         if client is not None:

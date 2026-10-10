@@ -8,7 +8,7 @@
 - The dark-web matcher enqueues attribution work for a tenant/watchlist match. The API lifespan starts a worker that claims jobs atomically, reads tenant-owned findings, assembles a cluster, scores it, stores evidence/assessment, and emits a durable alert-outbox event.
 - Profiles and assessments are tenant-scoped for provisional/customer-derived data. Public actor profiles are read-only to customer findings; one tenant's provisional profiles and relationship evidence are not visible to another tenant's API.
 - Analyst review endpoints, tenant-filtered assessment/actor APIs, relationship listing, ATT&CK catalogue lookup, optional Leiden communities, and encrypted-secret HMAC-signed webhook registration/delivery are implemented.
-- MITRE Enterprise ATT&CK STIX catalogue synchronization is implemented behind the environment flag CYCLOTHONE_ATTACK_CATALOG_SYNC_ENABLED=true, with a configurable official STIX URL and database state.
+- MITRE Enterprise ATT&CK STIX synchronization is implemented behind CYCLOTHONE_ATTACK_CATALOG_SYNC_ENABLED=true. It caches techniques and creates/updates public reference actor profiles from the official intrusion-set catalogue, including aliases and associated ATT&CK techniques; customer-derived data never updates those global profiles.
 - Added SQL migrations for profile/assessment/evidence tables, tenant-scoped jobs, atomic job claiming/retry, alert outbox, encrypted webhook registrations/delivery ledger, ATT&CK catalogue cache, and idempotency indexes.
 - Added focused tests for cluster assembly, evidence provenance, ATT&CK/CAPEC mapping, graph shape, and HMAC signature determinism.
 
