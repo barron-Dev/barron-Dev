@@ -183,6 +183,25 @@ async def open_case(alert_id: UUID, principal: DeveloperPrincipal = Depends(auth
 
 
 
+
+@router.get("/sources")
+async def list_sources(principal: DeveloperPrincipal = Depends(authenticate_request)) -> list[dict]:
+    """Show source readiness and observed health without exposing credentials."""
+    _require(principal, "darkweb:read")
+    from cyclothone.darkweb.source_status import source_health
+
+    async def _do():
+        return await (await supabase._ensure()).table("dw_sources").select(
+            "id,name,kind,enabled,last_pull_at,last_status,poll_interval_seconds"
+        ).order("id").execute()
+
+    try:
+        rows = (await supabase._retry(_do, attempts=2)).data or []
+    except Exception as exc:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "source health unavailable") from exc
+    return [source_health(row) for row in rows]
+
+
 def _sanitize_global_detection(row: dict) -> dict:
     """Remove identifying payloads from unmatched, tenant-global detections.
 
