@@ -16,7 +16,7 @@ router = APIRouter(prefix="/identity", tags=["identity-investigation"])
 
 
 class InvestigateRequest(BaseModel):
-    query_type: Literal["domain", "email", "username", "company_name"]
+    query_type: Literal["domain", "email", "username", "company_name", "phone", "ip", "wallet", "executive_name", "api_key_hash", "employee_id", "customer_id"]
     query_value: str = Field(min_length=2, max_length=512)
     modules: list[str] = Field(default_factory=lambda: ["all"], max_length=5)
 
