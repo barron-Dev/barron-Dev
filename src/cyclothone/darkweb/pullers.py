@@ -69,6 +69,30 @@ class HIBPPuller:
         return findings
 
 
+def _domain_from_victim_title(title: str) -> str | None:
+    """Return a domain only when the victim title itself is exactly a hostname/URL.
+
+    Ransomwatch's post_url identifies the leak-site post, not the victim's domain.
+    Treating that URL's host as the victim domain would create false attribution.
+    """
+    candidate = title.strip().strip(".,;:()[]{}")
+    if not candidate or any(char.isspace() for char in candidate):
+        return None
+    parsed = urlsplit(candidate if "://" in candidate else f"https://{candidate}")
+    host = (parsed.hostname or "").lower().rstrip(".")
+    if not host or "." not in host:
+        return None
+    if parsed.scheme not in {"http", "https"} or parsed.username or parsed.password:
+        return None
+    if parsed.path not in {"", "/"} or parsed.query or parsed.fragment:
+        return None
+    if "://" not in candidate and candidate.lower().rstrip(".") != host:
+        return None
+    if host in {"localhost", "localhost.localdomain"} or host.endswith((".local", ".internal", ".test", ".invalid")):
+        return None
+    return host
+
+
 class RansomwatchPuller:
     SOURCE = "ransomwatch"
     FEED = "https://raw.githubusercontent.com/joshhighet/ransomwatch/main/posts.json"
@@ -88,11 +112,24 @@ class RansomwatchPuller:
             group = normalize(str(post.get("group_name") or "unknown"))
             if not victim:
                 continue
-            host = normalize(urlsplit(raw_url).hostname or raw_url)
-            metadata = {"group": group, "victim_name": victim, "published": post.get("discovered")}
-            if host:
-                out.append(Finding(self.SOURCE, "domain", host, "Organization listed on a ransomware leak feed.", "critical", raw_url or None, metadata))
-            out.append(Finding(self.SOURCE, "company_name", victim, "Organization name listed on a ransomware leak feed.", "critical", raw_url or None, {**metadata, "domain": host or None}))
+            victim_domain = _domain_from_victim_title(victim)
+            metadata = {
+                "group": group,
+                "victim_name": victim,
+                "domain": victim_domain,
+                "published": post.get("discovered"),
+            }
+            if victim_domain:
+                out.append(Finding(
+                    self.SOURCE, "domain", victim_domain,
+                    "Victim domain explicitly named in a ransomware leak feed.",
+                    "critical", raw_url or None, metadata,
+                ))
+            out.append(Finding(
+                self.SOURCE, "company_name", victim,
+                "Organization name listed on a ransomware leak feed.",
+                "critical", raw_url or None, metadata,
+            ))
         return out
 
 
