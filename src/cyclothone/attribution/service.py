@@ -213,7 +213,7 @@ async def assess_activity_cluster(activity: dict[str, Any]) -> dict[str, Any]:
             "relationship_type": relation_type, "confidence": confidence,
             "evidence_ids": sorted(set(relation.get("evidence_ids") or [])),
             "analyst_review_required": True, "updated_at": now,
-        }, on_conflict="source_actor_id,target_actor_id,relationship_type").execute()
+        }, on_conflict="tenant_id,source_actor_id,target_actor_id,relationship_type").execute()
 
     assessment_row = {
         "tenant_id": tenant_id, "activity_cluster_id": cluster_id, "actor_id": actor_id,
