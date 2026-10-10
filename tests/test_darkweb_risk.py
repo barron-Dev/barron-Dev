@@ -62,3 +62,22 @@ def test_invalid_publication_time_does_not_inflate_score():
 
     assert result["risk_score"] < ALERT_THRESHOLD
     assert result["alert_eligible"] is False
+
+
+
+def test_future_publication_time_does_not_receive_freshness_bonus():
+    now = datetime(2026, 10, 10, tzinfo=UTC)
+    result = assess_finding(
+        {
+            "source_id": "unknown_feed",
+            "kind": "company_name",
+            "severity": "medium",
+            "metadata": {"published": (now + timedelta(days=5)).isoformat()},
+        },
+        target_matched=True,
+        now=now,
+    )
+
+    freshness = next(item for item in result["risk_factors"] if item["factor"] == "freshness")
+    assert freshness["contribution"] == 0.0
+    assert freshness["value"] == "publication_time_in_future"
