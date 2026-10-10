@@ -211,7 +211,7 @@ class DarkWebRequestWorker:
         findings = []
         hibp_key = (os.getenv("CYCLOTHONE_HIBP_KEY") or os.getenv("SENTINEL_HIBP_KEY") or "").strip()
         github_token = (os.getenv("CYCLOTHONE_GITHUB_TOKEN") or os.getenv("SENTINEL_GITHUB_TOKEN") or "").strip()
-        telegram_channels = configured_telegram_channels()
+        telegram_channels = configured_telegram_channels(use_defaults=False)
         provider_domain = watch_value if target_type in {"domain", "url"} else ""
         provider_email = watch_value if target_type == "email" else ""
         async def run_source(source_id: str, pull, timeout: int, unavailable_reason: str | None = None):
