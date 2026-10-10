@@ -187,7 +187,7 @@ class PastePublicMonitor:
         findings: list[Finding] = []
         for result in results:
             if isinstance(result, BaseException):
-                logger.warning("public paste item fetch failed", exc_info=result)
+                logger.warning("public paste item fetch failed error=%s", type(result).__name__)
                 continue
             paste_id, content = result
             successful += 1
