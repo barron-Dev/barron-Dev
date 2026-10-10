@@ -17,6 +17,8 @@ logger = logging.getLogger(__name__)
 # Public handles supplied for Cyclothone's existing Telegram ingestion path.
 # Availability is deliberately not asserted here; every channel is checked at runtime.
 DEFAULT_PUBLIC_TELEGRAM_CHANNELS = (
+    # Handles recovered from the user's prior Cyclothone source inventory.
+    # These are candidates only: reachability and legitimacy must be verified at runtime.
     "gladdos69_official",
     "arvin_club",
     "cveNotify",
@@ -30,6 +32,18 @@ DEFAULT_PUBLIC_TELEGRAM_CHANNELS = (
     "Openbullet",
     "Forum",
     "AresLoader",
+    "opendataleaks",
+    "baseleak",
+    "NullLeak",
+    "DWI_OFFICIAL",
+    "DarkfeedNews",
+    "txtbaseslog",
+    "Developer_Astra",
+    "darkside_hubb",
+    "TXT_LOG_ALIEN",
+    "LeakBase",
+    "CodeBreachLab",
+    "ExploitService",
 )
 
 
