@@ -47,9 +47,11 @@ class LegalHoldCreate(BaseModel):
 @router.post("/retention-policies", status_code=status.HTTP_201_CREATED)
 async def create_retention_policy(body: RetentionPolicyCreate, principal: DeveloperPrincipal = Depends(authenticate_request)) -> dict:
     principal.require(("governance:manage",))
+    if body.enabled:
+        raise HTTPException(status.HTTP_409_CONFLICT, "retention execution is not wired; policies must remain disabled")
     tenant_id = _tenant(principal)
     row = {"tenant_id": tenant_id, "resource_type": body.resource_type, "retention_days": body.retention_days,
-           "enabled": body.enabled, "legal_basis": body.legal_basis.strip(), "created_by": principal.user_id,
+           "enabled": False, "legal_basis": body.legal_basis.strip(), "created_by": principal.user_id,
            "updated_by": principal.user_id}
     try:
         async def _insert():
