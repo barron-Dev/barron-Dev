@@ -117,7 +117,12 @@ class DarkWebMatcher:
             assessed_finding,
             target_matched=bool(tenant_id and watchlist_id),
         )
-        content_key = f"{finding['source_id']}:{finding['kind']}:{str(finding['matched_value']).strip().lower()}:{json.dumps(metadata, sort_keys=True, separators=(',', ':'))}"
+        # Tenant-scope the idempotency fingerprint for matched rows. A single
+        # global observation can match several customers; sharing one unique
+        # (source_id, content_hash) row would let the last tenant overwrite the
+        # prior tenant_id and break isolation/correctness.
+        tenant_scope = f":tenant:{tenant_id}:watch:{watchlist_id}" if tenant_id and watchlist_id else ":global"
+        content_key = f"{finding['source_id']}:{finding['kind']}:{str(finding['matched_value']).strip().lower()}:{json.dumps(metadata, sort_keys=True, separators=(',', ':'))}{tenant_scope}"
         content_hash = hashlib.sha256(content_key.encode()).hexdigest()
 
         async def _do():
