@@ -36,7 +36,10 @@ def classify(query: str) -> Intent:
     for kind, pattern in _PATTERNS:
         hits = pattern.findall(q)
         if hits:
-            scores[kind] = len(hits)
+            # Intent is categorical: repeated guide words must not outvote an
+            # API intent simply because a query contains multiple instructions.
+            # One hit activates a category; declared pattern order breaks ties.
+            scores[kind] = 1
             matched[kind] = [str(hit) for hit in hits]
 
     if not scores:
