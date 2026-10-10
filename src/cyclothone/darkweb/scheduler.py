@@ -7,7 +7,7 @@ import time
 from datetime import UTC, datetime
 
 from cyclothone.darkweb.matcher import DarkWebMatcher
-from cyclothone.darkweb.pullers import GitHubCodeMonitor, HIBPPuller, PastePublicMonitor, RansomwatchPuller, TelegramPublicMonitor
+from cyclothone.darkweb.pullers import GitHubCodeMonitor, HIBPPuller, PastePublicMonitor, TelegramPublicMonitor
 from cyclothone.storage.supabase_client import supabase
 
 logger = logging.getLogger(__name__)
@@ -63,9 +63,12 @@ class DarkWebScheduler:
 
     async def _global_tick(self) -> None:
         enabled = await self._enabled_sources()
-        for pull in (RansomwatchPuller(), PastePublicMonitor()):
-            if pull.SOURCE in enabled:
-                await self._run_pull(pull.SOURCE, pull.pull)
+        # Ransomwatch is archived and must never be represented as a fresh source check.
+        if "ransomwatch" in enabled:
+            await self._mark_source("ransomwatch", "historical_only_archived_feed", pulled=False)
+        paste = PastePublicMonitor()
+        if paste.SOURCE in enabled:
+            await self._run_pull(paste.SOURCE, paste.pull)
         channels_value = (os.getenv("CYCLOTHONE_DW_TELEGRAM_CHANNELS") or os.getenv("SENTINEL_DW_TELEGRAM_CHANNELS") or "").strip()
         channels = [x.strip() for x in channels_value.split(",") if x.strip()]
         if channels and "telegram_public" in enabled:
@@ -128,12 +131,15 @@ class DarkWebScheduler:
             logger.warning("dark web source configuration unavailable; failing closed", exc_info=True)
             return set()
 
-    async def _mark_source(self, source_id: str, status: str) -> None:
+    async def _mark_source(self, source_id: str, status: str, *, pulled: bool = True) -> None:
+        update = {"last_status": status}
+        if pulled:
+            update["last_pull_at"] = datetime.now(UTC).isoformat()
+
         async def _do():
-            return await (await supabase._ensure()).table("dw_sources").update({
-                "last_pull_at": datetime.now(UTC).isoformat(),
-                "last_status": status,
-            }).eq("id", source_id).execute()
+            return await (await supabase._ensure()).table("dw_sources").update(
+                update
+            ).eq("id", source_id).execute()
         try:
             await supabase._retry(_do, attempts=1)
         except Exception:
