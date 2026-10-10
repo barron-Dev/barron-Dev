@@ -10,7 +10,6 @@ from urllib.parse import urlsplit
 import httpx
 
 from cyclothone.darkweb.matcher import DarkWebMatcher
-from cyclothone.darkweb.telegram_config import configured_telegram_channels
 from cyclothone.darkweb.pullers import (
     GitHubCodeMonitor,
     HIBPPuller,
@@ -18,6 +17,7 @@ from cyclothone.darkweb.pullers import (
     RansomwatchPuller,
     TelegramPublicMonitor,
 )
+from cyclothone.darkweb.telegram_config import configured_telegram_channels
 from cyclothone.storage.supabase_client import supabase
 
 logger = logging.getLogger(__name__)
