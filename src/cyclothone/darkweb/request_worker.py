@@ -296,6 +296,26 @@ class DarkWebRequestWorker:
             "id,source_id,content_hash,matched_value,context,source_url,severity,first_seen,collected_at,watchlist_id",
             tenant_id=tenant_id, watchlist_id=watch_id,
         )
+        # The watchlist may already have findings from the continuous scheduler.
+        # Include those durable rows in the explicit evidence collection as well;
+        # otherwise the result can list a finding without its corresponding evidence.
+        evidence_by_hash = {
+            str(item.get("content_hash") or ""): item
+            for item in evidence
+            if item.get("content_hash")
+        }
+        for item in persisted:
+            content_hash = str(item.get("content_hash") or "")
+            if not content_hash:
+                continue
+            evidence_by_hash.setdefault(content_hash, {
+                "source": item.get("source_id"),
+                "collected_at": item.get("collected_at") or item.get("first_seen"),
+                "content_hash": content_hash,
+                "source_url": item.get("source_url"),
+                "label": "possible match — review",
+            })
+        evidence = list(evidence_by_hash.values())
         alerts = await supabase.select(
             "id,title,summary,severity,status,finding_id,created_at,case_id",
             tenant_id=tenant_id,
