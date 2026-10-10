@@ -20,3 +20,10 @@ def test_coverage_only_says_all_configured_sources_checked_when_every_check_succ
         {"source": "ransomwatch", "state": "checked"},
         {"source": "hibp", "state": "checked"},
     ]) == "all_configured_sources_checked"
+
+
+def test_archived_ransomwatch_is_not_counted_as_fresh_coverage():
+    assert _coverage_state([
+        {"source": "ransomwatch", "state": "unavailable", "reason": "historical_only_archived_feed"},
+        {"source": "pastebin_public", "state": "checked"},
+    ]) == "partial"
