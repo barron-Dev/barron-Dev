@@ -5,7 +5,7 @@ import json
 import logging
 from typing import Any
 
-from cyclothone.storage.supabase_client import supabase
+from cyclothone.darkweb.risk import assess_finding\nfrom cyclothone.storage.supabase_client import supabase
 
 logger = logging.getLogger(__name__)
 SEVERITY = {"medium": 0, "high": 1, "critical": 2}
@@ -110,12 +110,19 @@ class DarkWebMatcher:
     ) -> dict[str, Any]:
         metadata = dict(finding.get("metadata") or {})
         metadata["exposure_layer"] = layer
+        assessed_finding = dict(finding)
+        assessed_finding["severity"] = severity or finding.get("severity", "medium")
+        assessed_finding["metadata"] = metadata
+        assessment = assess_finding(
+            assessed_finding,
+            target_matched=bool(tenant_id and watchlist_id),
+        )
         content_key = f"{finding['source_id']}:{finding['kind']}:{str(finding['matched_value']).strip().lower()}:{json.dumps(metadata, sort_keys=True, separators=(',', ':'))}"
         content_hash = hashlib.sha256(content_key.encode()).hexdigest()
 
         async def _do():
             client = await supabase._ensure()
-            return await client.rpc("record_dw_finding", {
+            return await client.rpc("record_dw_assessed_finding", {
                 "p_source_id": finding["source_id"],
                 "p_content_hash": content_hash,
                 "p_kind": finding["kind"],
@@ -126,6 +133,9 @@ class DarkWebMatcher:
                 "p_metadata": metadata,
                 "p_tenant_id": tenant_id,
                 "p_watchlist_id": watchlist_id,
+                "p_risk_score": assessment["risk_score"],
+                "p_risk_factors": assessment["risk_factors"],
+                "p_alert_threshold": assessment["alert_threshold"],
             }).execute()
 
         try:
