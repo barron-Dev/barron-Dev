@@ -76,7 +76,7 @@ async def test_background_matcher_links_hibp_email_to_exact_domain_watch():
         })
 
     assert result == {"matched": 1, "alerts": 1, "errors": 0}
-    assert record.await_args.args[1:] == (tenant_id, watch_id)
+    assert record.await_args.args[1:3] == (tenant_id, watch_id)
 
 
 @pytest.mark.asyncio
@@ -111,4 +111,4 @@ async def test_background_matcher_rejects_lookalike_email_domain():
         })
 
     assert result == {"matched": 0, "alerts": 0, "errors": 0}
-    assert record.await_args.args[1:] == (None, None)
+    assert record.await_args.args[1:3] == (None, None)
