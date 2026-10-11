@@ -167,10 +167,71 @@ class RansomwatchPuller:
 class TelegramPublicMonitor:
     SOURCE = "telegram_public"
 
-    def __init__(self, channels: list[str]) -> None:
+    def __init__(
+        self,
+        channels: list[str],
+        *,
+        target_type: str | None = None,
+        target: str | None = None,
+    ) -> None:
         self.channels = list(dict.fromkeys(c.strip().lstrip("@") for c in channels if c.strip()))
         # Per-channel outcomes remain available to the scheduler for honest coverage.
         self.channel_status: dict[str, str] = {}
+        self.target_type = (target_type or "").strip().lower() or None
+        self.target = normalize(target or "") or None
+
+    def _target_finding(self, html: str, channel: str) -> list[Finding]:
+        target_type = self.target_type
+        target = self.target
+        source_url = f"https://t.me/s/{channel}"
+        if not target_type or not target:
+            return [
+                Finding(
+                    self.SOURCE, "email", normalize(email),
+                    "Identifier appeared in a public Telegram web preview; credential material redacted.",
+                    "high", source_url, {"channel": channel, "match_type": "public_email_identifier"},
+                )
+                for email in dict.fromkeys(EMAIL_RE.findall(html))
+            ]
+
+        if target_type == "email":
+            matches = [email for email in dict.fromkeys(EMAIL_RE.findall(html)) if normalize(email) == target]
+            return [
+                Finding(self.SOURCE, "email", target,
+                    "Exact monitored email identifier appeared in a public Telegram web preview; post content is not retained.",
+                    "high", source_url, {"channel": channel, "match_type": "exact_email"})
+                for _ in matches[:1]
+            ]
+
+        if target_type in {"domain", "url"}:
+            # Match a hostname as a token, not as a substring of an unrelated hostname.
+            pattern = re.compile(r"(?<![A-Za-z0-9.-])" + re.escape(target) + r"(?![A-Za-z0-9.-])", re.IGNORECASE)
+            kind = "domain"
+            match_type = "exact_domain_mention"
+        elif target_type == "brand":
+            # Brand matching is phrase-exact and case-insensitive; no fuzzy identity inference.
+            pattern = re.compile(r"(?<!\w)" + re.escape(target) + r"(?!\w)", re.IGNORECASE)
+            kind = "company_name"
+            match_type = "exact_brand_mention"
+        elif target_type == "username":
+            handle = target.lstrip("@")
+            pattern = re.compile(r"(?<![A-Za-z0-9_])@" + re.escape(handle) + r"(?![A-Za-z0-9_])", re.IGNORECASE)
+            kind = "username"
+            target = handle
+            match_type = "exact_username_mention"
+        else:
+            return []
+
+        if not pattern.search(html):
+            return []
+        return [
+            Finding(
+                self.SOURCE, kind, target,
+                "Exact monitored target appeared in a public Telegram web preview; post content is not retained.",
+                "high", source_url,
+                {"channel": channel, "match_type": match_type, "target_type": target_type},
+            )
+        ]
 
     async def pull(self) -> list[Finding]:
         semaphore = asyncio.Semaphore(5)
@@ -185,15 +246,7 @@ class TelegramPublicMonitor:
                         )
                         response.raise_for_status()
                         html = response.text
-                findings = [
-                    Finding(
-                        self.SOURCE, "email", normalize(email),
-                        "Monitored identifier appeared in a public Telegram web preview; credential material redacted.",
-                        "critical", f"https://t.me/s/{channel}", {"channel": channel},
-                    )
-                    for email in dict.fromkeys(EMAIL_RE.findall(html))
-                ]
-                return channel, findings
+                return channel, self._target_finding(html, channel)
             except Exception as exc:
                 logger.warning("Telegram channel failed channel=%s error=%s", channel, type(exc).__name__)
                 return channel, None
@@ -207,7 +260,6 @@ class TelegramPublicMonitor:
         if self.channels and not successful:
             raise RuntimeError("all configured Telegram public channels failed")
         return [finding for batch in successful for finding in batch]
-
 
 def _paste_entries_from_feed(text: str) -> list[tuple[str, str, str]]:
     """Extract validated public Pastebin.ca feed entries; never fetch arbitrary URLs."""
