@@ -261,18 +261,22 @@ class DarkWebRequestWorker:
         else:
             hibp_call = None
         public_target_supported = target_type in {"domain", "url", "email"}
+        telegram_target_supported = target_type in {"domain", "url", "email", "brand", "username"}
         paste_reason = None if public_target_supported else "unsupported_target_type"
         telegram_reason = (
-            "unsupported_target_type" if not public_target_supported
+            "unsupported_target_type" if not telegram_target_supported
             else ("missing_channels" if not telegram_channels else None)
         )
-        telegram_monitor = TelegramPublicMonitor(telegram_channels) if telegram_channels else None
+        telegram_monitor = (
+            TelegramPublicMonitor(telegram_channels, target_type=target_type, target=watch_value)
+            if telegram_channels and telegram_target_supported else None
+        )
         provider_specs = [
             ("ransomwatch", RansomwatchPuller().pull if not ransom_reason else None, 35, ransom_reason),
             ("hibp", hibp_call, 25, hibp_reason),
             ("github_code", (lambda: GitHubCodeMonitor(github_token).pull_domain(provider_domain)) if github_token and provider_domain else None, 65, github_reason),
             ("pastebin_public", PastePublicMonitor().pull if public_target_supported else None, 50, paste_reason),
-            ("telegram_public", telegram_monitor.pull if telegram_monitor and public_target_supported else None, 90, telegram_reason),
+            ("telegram_public", telegram_monitor.pull if telegram_monitor else None, 90, telegram_reason),
         ]
         provider_results = await asyncio.gather(*(
             run_source(source_id, pull, timeout, reason)
