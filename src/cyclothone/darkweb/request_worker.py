@@ -11,8 +11,12 @@ import httpx
 
 from cyclothone.darkweb.matcher import DarkWebMatcher
 from cyclothone.darkweb.pullers import (
+    BlueskyPublicMonitor,
     GitHubCodeMonitor,
+    HackerNewsPublicMonitor,
+    LemmyPublicMonitor,
     PastePublicMonitor,
+    RedditPublicMonitor,
     RansomwatchPuller,
     TelegramPublicMonitor,
 )
@@ -210,6 +214,10 @@ class DarkWebRequestWorker:
         findings = []
         github_token = (os.getenv("CYCLOTHONE_GITHUB_TOKEN") or os.getenv("SENTINEL_GITHUB_TOKEN") or "").strip()
         telegram_channels = configured_telegram_channels(use_defaults=False)
+        reddit_credentials = bool(
+            (os.getenv("CYCLOTHONE_REDDIT_CLIENT_ID") or "").strip()
+            and (os.getenv("CYCLOTHONE_REDDIT_CLIENT_SECRET") or "").strip()
+        )
         provider_domain = watch_value if target_type in {"domain", "url"} else ""
         provider_email = watch_value if target_type == "email" else ""
         async def run_source(source_id: str, pull, timeout: int, unavailable_reason: str | None = None):
@@ -261,11 +269,22 @@ class DarkWebRequestWorker:
             TelegramPublicMonitor(telegram_channels, target_type=target_type, target=watch_value)
             if telegram_channels and telegram_target_supported else None
         )
+        social_reason = None if provider_domain else "unsupported_target_type"
+        reddit_reason = (
+            "missing_api_credentials" if not reddit_credentials
+            else social_reason
+        )
         provider_specs = [
             ("ransomwatch", RansomwatchPuller().pull if not ransom_reason else None, 35, ransom_reason),
             ("github_code", (lambda: GitHubCodeMonitor(github_token).pull_domain(provider_domain)) if github_token and provider_domain else None, 65, github_reason),
             ("pastebin_public", PastePublicMonitor().pull if public_target_supported else None, 50, paste_reason),
             ("telegram_public", telegram_monitor.pull if telegram_monitor else None, 90, telegram_reason),
+            # Public social/community sources are checked in the same customer request,
+            # so the result reports each source's real outcome instead of scheduler-only status.
+            ("bluesky_public", (lambda: BlueskyPublicMonitor().pull_domains([provider_domain])) if provider_domain else None, 45, social_reason),
+            ("reddit_public", (lambda: RedditPublicMonitor().pull_domains([provider_domain])) if provider_domain and reddit_credentials else None, 45, reddit_reason),
+            ("hackernews_public", (lambda: HackerNewsPublicMonitor().pull_domains([provider_domain])) if provider_domain else None, 45, social_reason),
+            ("lemmy_public", (lambda: LemmyPublicMonitor().pull_domains([provider_domain])) if provider_domain else None, 45, social_reason),
         ]
         provider_results = await asyncio.gather(*(
             run_source(source_id, pull, timeout, reason)
