@@ -9,7 +9,8 @@ from datetime import UTC, datetime
 from cyclothone.darkweb.matcher import DarkWebMatcher
 from cyclothone.darkweb.pullers import (
     BlueskyPublicMonitor,
-    GitHubCodeMonitor,
+    HackerNewsPublicMonitor,
+    LemmyPublicMonitor,
     PastePublicMonitor,
     RedditPublicMonitor,
     TelegramPublicMonitor,
@@ -100,15 +101,24 @@ class DarkWebScheduler:
             await self._run_pull("reddit_public", lambda m=monitor, d=domains: m.pull_domains(d))
         elif "reddit_public" in enabled:
             await self._mark_source("reddit_public", "unavailable_missing_watch_targets", pulled=False)
+        if domains and "hackernews_public" in enabled:
+            monitor = HackerNewsPublicMonitor()
+            await self._run_pull("hackernews_public", lambda m=monitor, d=domains: m.pull_domains(d))
+        elif "hackernews_public" in enabled:
+            await self._mark_source("hackernews_public", "unavailable_missing_watch_targets", pulled=False)
+        if domains and "lemmy_public" in enabled:
+            monitor = LemmyPublicMonitor()
+            await self._run_pull("lemmy_public", lambda m=monitor, d=domains: m.pull_domains(d))
+        elif "lemmy_public" in enabled:
+            await self._mark_source("lemmy_public", "unavailable_missing_watch_targets", pulled=False)
 
     async def _domain_tick(self) -> None:
         domains = await self._tenant_domains()
-        github_token = (os.getenv("CYCLOTHONE_GITHUB_TOKEN") or os.getenv("SENTINEL_GITHUB_TOKEN") or "").strip()
         enabled = await self._enabled_sources()
-        for domain in domains:
-            if github_token and "github_code" in enabled:
-                monitor = GitHubCodeMonitor(github_token)
-                await self._run_pull(monitor.SOURCE, lambda m=monitor, d=domain: m.pull_domain(d))
+        if "github_code" in enabled:
+            # GitHub Code Search currently returns 403 in production. Do not retry it
+            # on every domain; expose the restriction honestly while public sources run.
+            await self._mark_source("github_code", "unavailable_provider_403", pulled=False)
 
     async def _run_pull(self, source_id: str, pull) -> None:
         started = time.monotonic()
