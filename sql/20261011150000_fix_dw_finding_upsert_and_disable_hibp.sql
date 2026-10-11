@@ -4,20 +4,23 @@
 do $migration$
 declare
   v_definition text;
-  v_old text := 'ON CONFLICT (watchlist_id, finding_id) DO UPDATE';
-  v_new text := 'ON CONFLICT ON CONSTRAINT dw_alerts_watchlist_id_finding_id_key DO UPDATE';
+  v_updated text;
 begin
   v_definition := pg_get_functiondef(
     'public.record_dw_finding(text,text,text,text,text,text,text,jsonb,uuid,uuid)'::regprocedure
   );
-  if position(v_old in v_definition) = 0 then
-    if position(v_new in v_definition) > 0 then
-      null; -- already corrected; safe to re-run
-    else
+  v_updated := regexp_replace(
+    v_definition,
+    'on conflict[[:space:]]*\(watchlist_id,[[:space:]]*finding_id\)[[:space:]]*do update',
+    'ON CONFLICT ON CONSTRAINT dw_alerts_watchlist_id_finding_id_key DO UPDATE',
+    'i'
+  );
+  if v_updated = v_definition then
+    if position('dw_alerts_watchlist_id_finding_id_key' in v_definition) = 0 then
       raise exception 'record_dw_finding definition did not contain expected alert upsert';
     end if;
   else
-    execute replace(v_definition, v_old, v_new);
+    execute v_updated;
   end if;
 end
 $migration$;
