@@ -7,7 +7,7 @@ import time
 from datetime import UTC, datetime
 
 from cyclothone.darkweb.matcher import DarkWebMatcher
-from cyclothone.darkweb.pullers import GitHubCodeMonitor, HIBPPuller, PastePublicMonitor, TelegramPublicMonitor
+from cyclothone.darkweb.pullers import GitHubCodeMonitor, HIBPPuller, MetaPublicMonitor, PastePublicMonitor, TelegramPublicMonitor
 from cyclothone.darkweb.telegram_config import (
     DEFAULT_PUBLIC_TELEGRAM_CHANNELS,  # noqa: F401 — compatibility export
     configured_telegram_channels,
@@ -88,6 +88,9 @@ class DarkWebScheduler:
         domains = await self._tenant_domains()
         hibp_key = (os.getenv("CYCLOTHONE_HIBP_KEY") or os.getenv("SENTINEL_HIBP_KEY") or "").strip()
         github_token = (os.getenv("CYCLOTHONE_GITHUB_TOKEN") or os.getenv("SENTINEL_GITHUB_TOKEN") or "").strip()
+        meta_token = (os.getenv("CYCLOTHONE_META_ACCESS_TOKEN") or "").strip()
+        meta_ig_user_id = (os.getenv("CYCLOTHONE_META_IG_USER_ID") or "").strip()
+        meta_page_ids = [v.strip() for v in os.getenv("CYCLOTHONE_META_FACEBOOK_PAGE_IDS", "").split(",") if v.strip()]
         enabled = await self._enabled_sources()
         for domain in domains:
             if hibp_key and "hibp" in enabled:
@@ -96,6 +99,18 @@ class DarkWebScheduler:
             if github_token and "github_code" in enabled:
                 monitor = GitHubCodeMonitor(github_token)
                 await self._run_pull(monitor.SOURCE, lambda m=monitor, d=domain: m.pull_domain(d))
+            if "instagram_public" in enabled:
+                if meta_token and meta_ig_user_id:
+                    monitor = MetaPublicMonitor(meta_token, meta_ig_user_id, meta_page_ids)
+                    await self._run_pull("instagram_public", lambda m=monitor, d=domain: m.pull_instagram_domains([d]))
+                else:
+                    await self._mark_source("instagram_public", "unavailable_missing_credentials", pulled=False)
+            if "facebook_public" in enabled:
+                if meta_token and meta_page_ids:
+                    monitor = MetaPublicMonitor(meta_token, meta_ig_user_id, meta_page_ids)
+                    await self._run_pull("facebook_public", lambda m=monitor, d=domain: m.pull_facebook_domains([d]))
+                else:
+                    await self._mark_source("facebook_public", "unavailable_missing_credentials_or_page_ids", pulled=False)
 
     async def _run_pull(self, source_id: str, pull) -> None:
         started = time.monotonic()
