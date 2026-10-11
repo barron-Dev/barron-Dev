@@ -393,6 +393,9 @@ class DarkWebRequestWorker:
             if existing_link:
                 case_id = str(existing_link["case_id"])
             else:
+                requester_user_id = str(request.get("requester_user_id") or "").strip()
+                if not requester_user_id:
+                    raise RuntimeError("case_link_requester_missing")
                 case_number = await supabase.rpc("next_case_number", {"p_tenant": tenant_id})
                 case = await supabase.insert_one("crime_cases", {
                     "tenant_id": tenant_id, "case_number": str(case_number),
@@ -407,7 +410,10 @@ class DarkWebRequestWorker:
                 })
                 case_id = str(case["id"])
                 await supabase.insert_one("customer_case_links", {
-                    "organization_id": organization_id, "service_request_id": request_id, "case_id": case_id,
+                    "organization_id": organization_id,
+                    "service_request_id": request_id,
+                    "case_id": case_id,
+                    "created_by": requester_user_id,
                 })
             for alert in relevant_alerts:
                 if not alert.get("case_id"):
