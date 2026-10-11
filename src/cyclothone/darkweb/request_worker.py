@@ -205,18 +205,41 @@ class DarkWebRequestWorker:
         ]
         provider_domain = watch_value if target_type in {"domain", "url"} else ""
         provider_email = watch_value if target_type == "email" else ""
+        async def record_source_progress(source_id: str, state: str, reason: str | None = None) -> None:
+            # Progress is written through an attempt-fenced RPC so an expired
+            # worker lease cannot overwrite the result of a newer attempt.
+            try:
+                await supabase.rpc("record_service_request_source_progress", {
+                    "p_id": request_id,
+                    "p_attempt": int(request["attempts"]),
+                    "p_source_id": source_id,
+                    "p_state": state,
+                    "p_reason": reason,
+                    "p_total_sources": len(provider_specs),
+                })
+            except Exception:
+                logger.warning("unable to persist source progress request_id=%s source=%s", request_id, source_id, exc_info=True)
+
         async def run_source(source_id: str, pull, timeout: int, unavailable_reason: str | None = None):
             if source_id not in enabled:
-                return {"source": source_id, "state": "unavailable", "reason": "disabled"}, []
+                state = {"source": source_id, "state": "unavailable", "reason": "disabled"}
+                await record_source_progress(source_id, state["state"], state["reason"])
+                return state, []
             if unavailable_reason:
-                return {"source": source_id, "state": "unavailable", "reason": unavailable_reason}, []
+                state = {"source": source_id, "state": "unavailable", "reason": unavailable_reason}
+                await record_source_progress(source_id, state["state"], state["reason"])
+                return state, []
             if pull is None:
-                return {"source": source_id, "state": "unavailable", "reason": "unsupported_target_type"}, []
+                state = {"source": source_id, "state": "unavailable", "reason": "unsupported_target_type"}
+                await record_source_progress(source_id, state["state"], state["reason"])
+                return state, []
             try:
                 findings = await asyncio.wait_for(pull(), timeout=timeout)
+                await record_source_progress(source_id, "checked")
                 return {"source": source_id, "state": "checked"}, findings
             except Exception:
                 logger.warning("dark-web provider request failed source=%s request_id=%s", source_id, request_id, exc_info=True)
+                await record_source_progress(source_id, "failed", "source_request_failed")
                 return {"source": source_id, "state": "failed", "reason": "source_request_failed"}, []
 
         ransom_reason = None if target_type in {"domain", "url", "brand"} else "unsupported_target_type"
