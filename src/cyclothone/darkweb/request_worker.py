@@ -13,6 +13,7 @@ from cyclothone.darkweb.matcher import DarkWebMatcher
 from cyclothone.darkweb.pullers import (
     GitHubCodeMonitor,
     HIBPPuller,
+    MetaPublicMonitor,
     PastePublicMonitor,
     RansomwatchPuller,
     TelegramPublicMonitor,
