@@ -7,7 +7,7 @@ import time
 from datetime import UTC, datetime
 
 from cyclothone.darkweb.matcher import DarkWebMatcher
-from cyclothone.darkweb.pullers import GitHubCodeMonitor, PastePublicMonitor, TelegramPublicMonitor
+from cyclothone.darkweb.pullers import (\n    BlueskyPublicMonitor, GitHubCodeMonitor, PastePublicMonitor, RedditPublicMonitor, TelegramPublicMonitor,\n)
 from cyclothone.darkweb.telegram_config import (
     DEFAULT_PUBLIC_TELEGRAM_CHANNELS,  # noqa: F401 — compatibility export
     configured_telegram_channels,
@@ -83,6 +83,17 @@ class DarkWebScheduler:
             await self._run_pull(monitor.SOURCE, monitor.pull)
         elif "telegram_public" in enabled:
             await self._mark_source("telegram_public", "unavailable_missing_channel", pulled=False)
+        domains = await self._tenant_domains()
+        if domains and "bluesky_public" in enabled:
+            monitor = BlueskyPublicMonitor()
+            await self._run_pull("bluesky_public", lambda m=monitor, d=domains: m.pull_domains(d))
+        elif "bluesky_public" in enabled:
+            await self._mark_source("bluesky_public", "unavailable_missing_watch_targets", pulled=False)
+        if domains and "reddit_public" in enabled:
+            monitor = RedditPublicMonitor()
+            await self._run_pull("reddit_public", lambda m=monitor, d=domains: m.pull_domains(d))
+        elif "reddit_public" in enabled:
+            await self._mark_source("reddit_public", "unavailable_missing_watch_targets", pulled=False)
 
     async def _domain_tick(self) -> None:
         domains = await self._tenant_domains()
