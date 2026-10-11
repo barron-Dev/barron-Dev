@@ -478,3 +478,92 @@ class RedditPublicMonitor:
         if domains and failures == min(len(domains), 50):
             raise RuntimeError("all Reddit public RSS searches failed")
         return [finding for batch in batches if isinstance(batch, list) for finding in batch]
+
+
+class HackerNewsPublicMonitor:
+    """Search public Hacker News stories via the Algolia-backed public API."""
+    SOURCE = "hackernews_public"
+    ENDPOINT = "https://hn.algolia.com/api/v1/search_by_date"
+
+    async def pull_domains(self, domains: list[str]) -> list[Finding]:
+        semaphore = asyncio.Semaphore(4)
+        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+            async def search(domain: str) -> list[Finding]:
+                domain = normalize(domain)
+                if not domain or len(domain) > 253:
+                    return []
+                async with semaphore:
+                    response = await client.get(
+                        self.ENDPOINT,
+                        params={"query": domain, "tags": "story,comment", "hitsPerPage": 50},
+                        headers={"user-agent": "CyclothonePublicExposureMonitor/1.0"},
+                    )
+                response.raise_for_status()
+                matcher = re.compile(r"(?i)(?<![a-z0-9.-])" + re.escape(domain) + r"(?![a-z0-9.-])")
+                findings: list[Finding] = []
+                for hit in (response.json() or {}).get("hits", []):
+                    searchable = " ".join(str(hit.get(k) or "") for k in ("title", "story_text", "comment_text"))
+                    if not matcher.search(searchable):
+                        continue
+                    object_id = str(hit.get("objectID") or "")
+                    url = str(hit.get("url") or "")
+                    if not url and object_id:
+                        url = f"https://news.ycombinator.com/item?id={object_id}"
+                    findings.append(Finding(
+                        self.SOURCE, "domain", domain,
+                        "Monitored domain mentioned in a public Hacker News search result; post text is not retained.",
+                        "medium", url or None,
+                        {"platform": "hackernews", "published": hit.get("created_at"), "object_id": object_id},
+                    ))
+                return findings
+            batches = await asyncio.gather(
+                *(search(domain) for domain in domains[:50]), return_exceptions=True
+            )
+        failures = sum(isinstance(batch, BaseException) for batch in batches)
+        if domains and failures == min(len(domains), 50):
+            raise RuntimeError("all Hacker News public searches failed")
+        return [finding for batch in batches if isinstance(batch, list) for finding in batch]
+
+
+class LemmyPublicMonitor:
+    """Search public Lemmy posts through a public instance API."""
+    SOURCE = "lemmy_public"
+    ENDPOINT = "https://lemmy.ml/api/v3/search"
+
+    async def pull_domains(self, domains: list[str]) -> list[Finding]:
+        semaphore = asyncio.Semaphore(3)
+        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+            async def search(domain: str) -> list[Finding]:
+                domain = normalize(domain)
+                if not domain or len(domain) > 253:
+                    return []
+                async with semaphore:
+                    response = await client.get(
+                        self.ENDPOINT,
+                        params={"q": domain, "type_": "All", "sort": "New", "limit": 50},
+                        headers={"user-agent": "CyclothonePublicExposureMonitor/1.0"},
+                    )
+                response.raise_for_status()
+                matcher = re.compile(r"(?i)(?<![a-z0-9.-])" + re.escape(domain) + r"(?![a-z0-9.-])")
+                findings: list[Finding] = []
+                for item in (response.json() or {}).get("posts", []):
+                    post = item.get("post") or {}
+                    searchable = " ".join(str(post.get(k) or "") for k in ("name", "body", "url"))
+                    if not matcher.search(searchable):
+                        continue
+                    creator = item.get("creator") or {}
+                    findings.append(Finding(
+                        self.SOURCE, "domain", domain,
+                        "Monitored domain mentioned in a public Lemmy search result; post text is not retained.",
+                        "medium", str(post.get("ap_id") or post.get("url") or "") or None,
+                        {"platform": "lemmy", "published": post.get("published"), "author": creator.get("name")},
+                    ))
+                return findings
+            batches = await asyncio.gather(
+                *(search(domain) for domain in domains[:50]), return_exceptions=True
+            )
+        failures = sum(isinstance(batch, BaseException) for batch in batches)
+        if domains and failures == min(len(domains), 50):
+            raise RuntimeError("all Lemmy public searches failed")
+        return [finding for batch in batches if isinstance(batch, list) for finding in batch]
+
