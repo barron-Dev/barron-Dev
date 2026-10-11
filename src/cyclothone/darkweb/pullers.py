@@ -297,6 +297,135 @@ class PastePublicMonitor:
         return findings
 
 
+
+class MetaPublicMonitor:
+    """Search permitted public Meta content through official Graph API endpoints.
+
+    Instagram searches recent public hashtag media associated with a connected
+    professional account. Facebook reads posts only from explicitly configured
+    Page IDs that the Meta app is permitted to access. This is not global search
+    across every Facebook or Instagram post.
+    """
+    GRAPH_BASE = "https://graph.facebook.com/v26.0"
+
+    def __init__(
+        self,
+        access_token: str | None = None,
+        instagram_user_id: str | None = None,
+        facebook_page_ids: list[str] | None = None,
+    ) -> None:
+        self.access_token = (access_token if access_token is not None else os.getenv("CYCLOTHONE_META_ACCESS_TOKEN", "")).strip()
+        self.instagram_user_id = (instagram_user_id if instagram_user_id is not None else os.getenv("CYCLOTHONE_META_IG_USER_ID", "")).strip()
+        raw_pages = os.getenv("CYCLOTHONE_META_FACEBOOK_PAGE_IDS", "") if facebook_page_ids is None else ",".join(facebook_page_ids)
+        self.facebook_page_ids = [v.strip() for v in raw_pages.split(",") if v.strip()]
+
+    @staticmethod
+    def _search_term(target: str) -> str:
+        candidate = normalize(target)
+        if "://" in candidate:
+            candidate = urlsplit(candidate).hostname or candidate
+        candidate = candidate.split("/")[0].split(":")[0]
+        if "@" in candidate:
+            candidate = candidate.rsplit("@", 1)[-1]
+        labels = [part for part in candidate.split(".") if part and part not in {"www", "com", "net", "org", "site", "online", "io", "co", "uk"}]
+        return labels[0][:50] if labels else candidate[:50]
+
+    async def pull_instagram_domains(self, domains: list[str]) -> list[Finding]:
+        if not self.access_token or not self.instagram_user_id:
+            raise RuntimeError("meta_instagram_credentials_required")
+        if not domains:
+            return []
+        async with httpx.AsyncClient(timeout=20.0, follow_redirects=False) as client:
+            async def search(domain: str) -> list[Finding]:
+                term = self._search_term(domain)
+                hashtag = re.sub(r"[^a-zA-Z0-9_]", "", term).lower()
+                if len(hashtag) < 2:
+                    return []
+                common = {"access_token": self.access_token}
+                response = await client.get(
+                    f"{self.GRAPH_BASE}/{self.instagram_user_id}/ig_hashtag_search",
+                    params={**common, "user_id": self.instagram_user_id, "q": hashtag},
+                )
+                response.raise_for_status()
+                hashtag_rows = (response.json() or {}).get("data", [])
+                if not hashtag_rows:
+                    return []
+                hashtag_id = str(hashtag_rows[0].get("id") or "")
+                if not hashtag_id:
+                    return []
+                media_response = await client.get(
+                    f"{self.GRAPH_BASE}/{hashtag_id}/recent_media",
+                    params={
+                        **common,
+                        "user_id": self.instagram_user_id,
+                        "fields": "id,caption,permalink,timestamp",
+                        "limit": 50,
+                    },
+                )
+                media_response.raise_for_status()
+                domain_re = re.compile(r"(?i)(?<![a-z0-9.-])" + re.escape(normalize(domain)) + r"(?![a-z0-9.-])")
+                findings: list[Finding] = []
+                for item in (media_response.json() or {}).get("data", []):
+                    caption = str(item.get("caption") or "")
+                    if not domain_re.search(caption):
+                        continue
+                    permalink = str(item.get("permalink") or "")
+                    if not permalink.startswith("https://www.instagram.com/"):
+                        continue
+                    findings.append(Finding(
+                        "instagram_public", "domain", normalize(domain),
+                        "Monitored domain mentioned in public Instagram hashtag media; caption text is not retained.",
+                        "medium", permalink,
+                        {"platform": "instagram", "published": item.get("timestamp"), "media_id": str(item.get("id") or "")},
+                    ))
+                return findings
+            batches = await asyncio.gather(*(search(d) for d in domains[:10]), return_exceptions=True)
+        failures = sum(isinstance(batch, BaseException) for batch in batches)
+        if failures == min(len(domains), 10):
+            raise RuntimeError("all Instagram public searches failed")
+        return [item for batch in batches if isinstance(batch, list) for item in batch]
+
+    async def pull_facebook_domains(self, domains: list[str]) -> list[Finding]:
+        if not self.access_token:
+            raise RuntimeError("meta_facebook_access_token_required")
+        if not self.facebook_page_ids:
+            raise RuntimeError("meta_facebook_page_ids_required")
+        if not domains:
+            return []
+        async with httpx.AsyncClient(timeout=20.0, follow_redirects=False) as client:
+            async def page_search(page_id: str, domain: str) -> list[Finding]:
+                response = await client.get(
+                    f"{self.GRAPH_BASE}/{page_id}/posts",
+                    params={
+                        "access_token": self.access_token,
+                        "fields": "message,permalink_url,created_time,id",
+                        "limit": 100,
+                    },
+                )
+                response.raise_for_status()
+                domain_re = re.compile(r"(?i)(?<![a-z0-9.-])" + re.escape(normalize(domain)) + r"(?![a-z0-9.-])")
+                findings: list[Finding] = []
+                for item in (response.json() or {}).get("data", []):
+                    if not domain_re.search(str(item.get("message") or "")):
+                        continue
+                    permalink = str(item.get("permalink_url") or "")
+                    if not permalink.startswith("https://www.facebook.com/"):
+                        continue
+                    findings.append(Finding(
+                        "facebook_public", "domain", normalize(domain),
+                        "Monitored domain mentioned in a public Facebook Page post; post text is not retained.",
+                        "medium", permalink,
+                        {"platform": "facebook", "published": item.get("created_time"), "page_id": page_id, "post_id": str(item.get("id") or "")},
+                    ))
+                return findings
+            jobs = [page_search(page_id, domain) for page_id in self.facebook_page_ids[:50] for domain in domains[:10]]
+            batches = await asyncio.gather(*jobs, return_exceptions=True)
+        failures = sum(isinstance(batch, BaseException) for batch in batches)
+        if batches and failures == len(batches):
+            raise RuntimeError("all Facebook public Page searches failed")
+        return [item for batch in batches if isinstance(batch, list) for item in batch]
+
+
 class GitHubCodeMonitor:
     SOURCE = "github_code"
     BASE = "https://api.github.com/search/code"
