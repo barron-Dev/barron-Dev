@@ -121,6 +121,12 @@ export default function RequestService(){ const [orgs,setOrgs]=useState<Customer
       <div className="text-[9px] uppercase tracking-[.18em] text-[#c2f35a]">Dark Web request · {result.request_id||"request recorded"}</div>
       <div className="mt-2 text-lg">{({queued:"Queued for execution",running:"Checking configured sources",succeeded:"Monitoring result ready",failed:"Execution failed",blocked:"Execution blocked"} as Record<string,string>)[result.processing_state||""]||"Request accepted"}</div>
       <div className="mt-2 text-xs text-[#8ca6ad]">Target: {result.target||"—"} · State: {result.processing_state||"queued"} · Status: {result.status||"submitted"}</div>
+      {result.processing_state==="running"&&<div className="mt-5 rounded-xl border border-white/10 bg-[#061018]/70 p-4">
+        <div className="flex items-center justify-between gap-3"><div className="text-[9px] uppercase tracking-[.16em] text-[#69a7b5]">Live provider checks</div><div className="font-mono text-xs text-[#c2f35a]">{typeof result.progress_percent==="number"?result.progress_percent+"%":"Waiting for first provider result"}</div></div>
+        {typeof result.progress_percent==="number"&&<div className="cyclo-battery mt-3"><span style={{width:Math.max(0,Math.min(100,result.progress_percent))+"%"}}/></div>}
+        <p className="mt-3 text-[10px] leading-5 text-[#8ca6ad]">Progress advances only when a configured provider check returns a recorded outcome. It is not an estimate of elapsed time.</p>
+        {Array.isArray(result.sources_progress)&&result.sources_progress.length>0&&<div className="mt-3 grid gap-2 sm:grid-cols-2">{result.sources_progress.filter((s:any)=>Number(s.attempt)===Number(result.attempts||s.attempt)).map((s:any)=><div key={String(s.source)} className="flex items-center justify-between gap-3 rounded-lg border border-white/[.07] px-3 py-2"><span className="text-xs text-[#b7cbd0]">{s.source}</span><span className={"text-[9px] uppercase "+(s.state==="checked"?"text-[#91d6b0]":s.state==="failed"?"text-[#ff9baa]":"text-[#e2bb69]")}>{s.state}{s.reason?" · "+String(s.reason).replaceAll("_"," "):""}</span></div>)}</div>}
+      </div>}
       {result.processing_state==="succeeded"&&<div className="mt-6 space-y-5">
         <section className="overflow-hidden rounded-[1.5rem] border border-[#31535b]/70 bg-[#04141a]/90">
           <div className="flex flex-wrap items-start justify-between gap-4 border-b border-white/10 p-5">
