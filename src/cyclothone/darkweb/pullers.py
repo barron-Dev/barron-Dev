@@ -5,6 +5,7 @@ import hashlib
 import json
 import logging
 import re
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from urllib.parse import urlsplit
 
@@ -374,3 +375,106 @@ class GitHubCodeMonitor:
         if failures == 3:
             raise RuntimeError(f"all GitHub code searches failed for {domain}")
         return out
+
+
+class BlueskyPublicMonitor:
+    """Search publicly indexed Bluesky posts; no login or private feeds."""
+    SOURCE = "bluesky_public"
+    ENDPOINT = "https://public.api.bsky.app/xrpc/app.bsky.feed.searchPosts"
+
+    async def pull_domains(self, domains: list[str]) -> list[Finding]:
+        semaphore = asyncio.Semaphore(4)
+        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+            async def search(domain: str) -> list[Finding]:
+                domain = normalize(domain)
+                if not domain or len(domain) > 253:
+                    return []
+                try:
+                    async with semaphore:
+                        response = await client.get(
+                            self.ENDPOINT,
+                            params={"q": f'"{domain}"', "limit": 50, "sort": "latest"},
+                            headers={"user-agent": "CyclothonePublicExposureMonitor/1.0"},
+                        )
+                    response.raise_for_status()
+                    posts = (response.json() or {}).get("posts", [])
+                except Exception as exc:
+                    logger.warning("Bluesky public search failed error=%s", type(exc).__name__)
+                    raise
+                matcher = re.compile(r"(?i)(?<![a-z0-9.-])" + re.escape(domain) + r"(?![a-z0-9.-])")
+                findings: list[Finding] = []
+                for post in posts if isinstance(posts, list) else []:
+                    record = post.get("record") or {}
+                    text = str(record.get("text") or "")
+                    if not matcher.search(text):
+                        continue
+                    author = post.get("author") or {}
+                    handle = str(author.get("handle") or "")
+                    uri = str(post.get("uri") or "")
+                    rkey = uri.rsplit("/", 1)[-1] if uri else ""
+                    post_url = f"https://bsky.app/profile/{handle}/post/{rkey}" if handle and rkey else "https://bsky.app"
+                    findings.append(Finding(
+                        self.SOURCE, "domain", domain,
+                        "Monitored domain mentioned in a publicly searchable Bluesky post; post text is not retained.",
+                        "medium", post_url,
+                        {"platform": "bluesky", "author_handle": handle, "indexed_at": post.get("indexedAt")},
+                    ))
+                return findings
+            batches = await asyncio.gather(
+                *(search(domain) for domain in domains[:50]),
+                return_exceptions=True,
+            )
+        failures = sum(isinstance(batch, BaseException) for batch in batches)
+        if domains and failures == min(len(domains), 50):
+            raise RuntimeError("all Bluesky public searches failed")
+        return [finding for batch in batches if isinstance(batch, list) for finding in batch]
+
+
+class RedditPublicMonitor:
+    """Read Reddit's public search RSS only; no private communities or login."""
+    SOURCE = "reddit_public"
+    ENDPOINT = "https://www.reddit.com/search.rss"
+
+    async def pull_domains(self, domains: list[str]) -> list[Finding]:
+        semaphore = asyncio.Semaphore(3)
+        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+            async def search(domain: str) -> list[Finding]:
+                domain = normalize(domain)
+                if not domain or len(domain) > 253:
+                    return []
+                try:
+                    async with semaphore:
+                        response = await client.get(
+                            self.ENDPOINT,
+                            params={"q": f'"{domain}"', "sort": "new", "t": "month", "limit": "25"},
+                            headers={"user-agent": "CyclothonePublicExposureMonitor/1.0 (public RSS monitoring)"},
+                        )
+                    response.raise_for_status()
+                    root = ET.fromstring(response.text)
+                except Exception as exc:
+                    logger.warning("Reddit public RSS search failed error=%s", type(exc).__name__)
+                    raise
+                matcher = re.compile(r"(?i)(?<![a-z0-9.-])" + re.escape(domain) + r"(?![a-z0-9.-])")
+                findings: list[Finding] = []
+                for entry in root.findall(".//{http://www.w3.org/2005/Atom}entry"):
+                    title = entry.findtext("{http://www.w3.org/2005/Atom}title") or ""
+                    summary = entry.findtext("{http://www.w3.org/2005/Atom}content") or ""
+                    if not matcher.search(title) and not matcher.search(summary):
+                        continue
+                    link_el = entry.find("{http://www.w3.org/2005/Atom}link")
+                    post_url = str(link_el.get("href") or "") if link_el is not None else ""
+                    findings.append(Finding(
+                        self.SOURCE, "domain", domain,
+                        "Monitored domain mentioned in a public Reddit search result; post text is not retained.",
+                        "medium", post_url or None,
+                        {"platform": "reddit", "published": entry.findtext("{http://www.w3.org/2005/Atom}published")},
+                    ))
+                return findings
+            batches = await asyncio.gather(
+                *(search(domain) for domain in domains[:50]),
+                return_exceptions=True,
+            )
+        failures = sum(isinstance(batch, BaseException) for batch in batches)
+        if domains and failures == min(len(domains), 50):
+            raise RuntimeError("all Reddit public RSS searches failed")
+        return [finding for batch in batches if isinstance(batch, list) for finding in batch]
