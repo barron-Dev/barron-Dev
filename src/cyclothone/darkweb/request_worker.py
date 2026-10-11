@@ -211,6 +211,10 @@ class DarkWebRequestWorker:
         findings = []
         hibp_key = (os.getenv("CYCLOTHONE_HIBP_KEY") or os.getenv("SENTINEL_HIBP_KEY") or "").strip()
         github_token = (os.getenv("CYCLOTHONE_GITHUB_TOKEN") or os.getenv("SENTINEL_GITHUB_TOKEN") or "").strip()
+        meta_token = (os.getenv("CYCLOTHONE_META_ACCESS_TOKEN") or "").strip()
+        meta_ig_user_id = (os.getenv("CYCLOTHONE_META_IG_USER_ID") or "").strip()
+        meta_facebook_page_ids = [v.strip() for v in os.getenv("CYCLOTHONE_META_FACEBOOK_PAGE_IDS", "").split(",") if v.strip()]
+        meta_monitor = MetaPublicMonitor(meta_token, meta_ig_user_id, meta_facebook_page_ids)
         telegram_channels = configured_telegram_channels(use_defaults=False)
         provider_domain = watch_value if target_type in {"domain", "url"} else ""
         provider_email = watch_value if target_type == "email" else ""
@@ -261,6 +265,17 @@ class DarkWebRequestWorker:
         else:
             hibp_call = None
         public_target_supported = target_type in {"domain", "url", "email"}
+        meta_target_supported = target_type in {"domain", "url"}
+        instagram_reason = (
+            "missing_meta_access_token_or_instagram_user_id"
+            if not (meta_token and meta_ig_user_id)
+            else ("unsupported_target_type" if not meta_target_supported else None)
+        )
+        facebook_reason = (
+            "missing_meta_access_token_or_page_ids"
+            if not (meta_token and meta_facebook_page_ids)
+            else ("unsupported_target_type" if not meta_target_supported else None)
+        )
         paste_reason = None if public_target_supported else "unsupported_target_type"
         telegram_reason = (
             "unsupported_target_type" if not public_target_supported
@@ -273,6 +288,8 @@ class DarkWebRequestWorker:
             ("github_code", (lambda: GitHubCodeMonitor(github_token).pull_domain(provider_domain)) if github_token and provider_domain else None, 65, github_reason),
             ("pastebin_public", PastePublicMonitor().pull if public_target_supported else None, 50, paste_reason),
             ("telegram_public", telegram_monitor.pull if telegram_monitor and public_target_supported else None, 90, telegram_reason),
+            ("instagram_public", (lambda: meta_monitor.pull_instagram_domains([provider_domain])) if meta_target_supported and meta_token and meta_ig_user_id else None, 45, instagram_reason),
+            ("facebook_public", (lambda: meta_monitor.pull_facebook_domains([provider_domain])) if meta_target_supported and meta_token and meta_facebook_page_ids else None, 45, facebook_reason),
         ]
         provider_results = await asyncio.gather(*(
             run_source(source_id, pull, timeout, reason)
