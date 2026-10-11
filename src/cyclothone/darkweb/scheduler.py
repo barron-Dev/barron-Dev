@@ -96,9 +96,15 @@ class DarkWebScheduler:
             await self._run_pull("bluesky_public", lambda m=monitor, d=domains: m.pull_domains(d))
         elif "bluesky_public" in enabled:
             await self._mark_source("bluesky_public", "unavailable_missing_watch_targets", pulled=False)
-        if domains and "reddit_public" in enabled:
+        reddit_credentials = bool(
+            (os.getenv("CYCLOTHONE_REDDIT_CLIENT_ID") or "").strip()
+            and (os.getenv("CYCLOTHONE_REDDIT_CLIENT_SECRET") or "").strip()
+        )
+        if domains and "reddit_public" in enabled and reddit_credentials:
             monitor = RedditPublicMonitor()
             await self._run_pull("reddit_public", lambda m=monitor, d=domains: m.pull_domains(d))
+        elif "reddit_public" in enabled and not reddit_credentials:
+            await self._mark_source("reddit_public", "unavailable_missing_api_credentials", pulled=False)
         elif "reddit_public" in enabled:
             await self._mark_source("reddit_public", "unavailable_missing_watch_targets", pulled=False)
         if domains and "hackernews_public" in enabled:
