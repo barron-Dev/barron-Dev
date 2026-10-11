@@ -378,6 +378,78 @@ class GitHubCodeMonitor:
         return out
 
 
+class YouTubePublicMonitor:
+    """Search public YouTube video metadata using the official YouTube Data API.
+
+    Requires CYCLOTHONE_YOUTUBE_API_KEY. Only public search metadata is retained;
+    video titles/descriptions are inspected for exact domain matches but not stored.
+    """
+    SOURCE = "youtube_public"
+    ENDPOINT = "https://www.googleapis.com/youtube/v3/search"
+
+    def __init__(self, api_key: str | None = None) -> None:
+        self.api_key = (api_key if api_key is not None else os.getenv("CYCLOTHONE_YOUTUBE_API_KEY", "")).strip()
+
+    async def pull_domains(self, domains: list[str]) -> list[Finding]:
+        if not self.api_key:
+            raise RuntimeError("youtube_api_key_required")
+        semaphore = asyncio.Semaphore(2)
+
+        async with httpx.AsyncClient(timeout=20.0, follow_redirects=False) as client:
+            async def search(domain: str) -> list[Finding]:
+                domain = normalize(domain)
+                if not domain or len(domain) > 253:
+                    return []
+                async with semaphore:
+                    response = await client.get(
+                        self.ENDPOINT,
+                        params={
+                            "key": self.api_key,
+                            "part": "snippet",
+                            "q": domain,
+                            "type": "video",
+                            "maxResults": 25,
+                            "order": "date",
+                            "safeSearch": "moderate",
+                        },
+                        headers={"user-agent": "CyclothonePublicExposureMonitor/1.0"},
+                    )
+                response.raise_for_status()
+                matcher = re.compile(r"(?i)(?<![a-z0-9.-])" + re.escape(domain) + r"(?![a-z0-9.-])")
+                findings: list[Finding] = []
+                for item in (response.json() or {}).get("items", []):
+                    snippet = item.get("snippet") or {}
+                    searchable = " ".join(str(snippet.get(k) or "") for k in ("title", "description"))
+                    if not matcher.search(searchable):
+                        continue
+                    video_id = str((item.get("id") or {}).get("videoId") or "")
+                    if not video_id:
+                        continue
+                    findings.append(Finding(
+                        self.SOURCE,
+                        "domain",
+                        domain,
+                        "Monitored domain mentioned in public YouTube video metadata; title and description are not retained.",
+                        "medium",
+                        f"https://www.youtube.com/watch?v={video_id}",
+                        {
+                            "platform": "youtube",
+                            "published": snippet.get("publishedAt"),
+                            "channel_id": snippet.get("channelId"),
+                            "video_id": video_id,
+                        },
+                    ))
+                return findings
+
+            batches = await asyncio.gather(
+                *(search(domain) for domain in domains[:10]), return_exceptions=True
+            )
+        failures = sum(isinstance(batch, BaseException) for batch in batches)
+        if domains and failures == min(len(domains), 10):
+            raise RuntimeError("all YouTube public searches failed")
+        return [finding for batch in batches if isinstance(batch, list) for finding in batch]
+
+
 class BlueskyPublicMonitor:
     """Search publicly indexed Bluesky posts; no login or private feeds."""
     SOURCE = "bluesky_public"
