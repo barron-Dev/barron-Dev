@@ -12,7 +12,6 @@ import httpx
 from cyclothone.darkweb.matcher import DarkWebMatcher
 from cyclothone.darkweb.pullers import (
     GitHubCodeMonitor,
-    HIBPPuller,
     PastePublicMonitor,
     RansomwatchPuller,
     TelegramPublicMonitor,
@@ -209,7 +208,6 @@ class DarkWebRequestWorker:
         sources: list[dict] = []
         pulled = []
         findings = []
-        hibp_key = (os.getenv("CYCLOTHONE_HIBP_KEY") or os.getenv("SENTINEL_HIBP_KEY") or "").strip()
         github_token = (os.getenv("CYCLOTHONE_GITHUB_TOKEN") or os.getenv("SENTINEL_GITHUB_TOKEN") or "").strip()
         telegram_channels = configured_telegram_channels(use_defaults=False)
         provider_domain = watch_value if target_type in {"domain", "url"} else ""
@@ -251,15 +249,7 @@ class DarkWebRequestWorker:
             if target_type in {"domain", "url", "brand"}
             else "unsupported_target_type"
         )
-        hibp_reason = "missing_key" if not hibp_key else ("unsupported_target_type" if not (provider_domain or provider_email) else None)
         github_reason = "missing_key" if not github_token else ("unsupported_target_type" if not provider_domain else None)
-        hibp_puller = HIBPPuller(hibp_key) if hibp_key else None
-        if hibp_puller and provider_domain:
-            hibp_call = lambda: hibp_puller.pull_domain(provider_domain)
-        elif hibp_puller and provider_email:
-            hibp_call = lambda: hibp_puller.pull_account(provider_email)
-        else:
-            hibp_call = None
         public_target_supported = target_type in {"domain", "url", "email"}
         telegram_target_supported = target_type in {"domain", "url", "email", "brand", "username"}
         paste_reason = None if public_target_supported else "unsupported_target_type"
@@ -273,7 +263,6 @@ class DarkWebRequestWorker:
         )
         provider_specs = [
             ("ransomwatch", RansomwatchPuller().pull if not ransom_reason else None, 35, ransom_reason),
-            ("hibp", hibp_call, 25, hibp_reason),
             ("github_code", (lambda: GitHubCodeMonitor(github_token).pull_domain(provider_domain)) if github_token and provider_domain else None, 65, github_reason),
             ("pastebin_public", PastePublicMonitor().pull if public_target_supported else None, 50, paste_reason),
             ("telegram_public", telegram_monitor.pull if telegram_monitor else None, 90, telegram_reason),
