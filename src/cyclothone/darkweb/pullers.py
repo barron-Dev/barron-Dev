@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import os
 import re
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
