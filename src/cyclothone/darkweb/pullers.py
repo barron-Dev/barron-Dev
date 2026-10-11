@@ -380,7 +380,7 @@ class GitHubCodeMonitor:
 class BlueskyPublicMonitor:
     """Search publicly indexed Bluesky posts; no login or private feeds."""
     SOURCE = "bluesky_public"
-    ENDPOINT = "https://public.api.bsky.app/xrpc/app.bsky.feed.searchPosts"
+    ENDPOINT = "https://api.bsky.app/xrpc/app.bsky.feed.searchPosts"
 
     async def pull_domains(self, domains: list[str]) -> list[Finding]:
         semaphore = asyncio.Semaphore(4)
