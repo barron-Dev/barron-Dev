@@ -213,6 +213,7 @@ class DarkWebRequestWorker:
         pulled = []
         findings = []
         github_token = (os.getenv("CYCLOTHONE_GITHUB_TOKEN") or os.getenv("SENTINEL_GITHUB_TOKEN") or "").strip()
+        youtube_api_key = (os.getenv("CYCLOTHONE_YOUTUBE_API_KEY") or "").strip()
         telegram_channels = configured_telegram_channels(use_defaults=False)
         reddit_credentials = bool(
             (os.getenv("CYCLOTHONE_REDDIT_CLIENT_ID") or "").strip()
@@ -274,11 +275,16 @@ class DarkWebRequestWorker:
             "missing_api_credentials" if not reddit_credentials
             else social_reason
         )
+        youtube_reason = (
+            "missing_api_key" if not youtube_api_key
+            else social_reason
+        )
         provider_specs = [
             ("ransomwatch", RansomwatchPuller().pull if not ransom_reason else None, 35, ransom_reason),
             ("github_code", (lambda: GitHubCodeMonitor(github_token).pull_domain(provider_domain)) if github_token and provider_domain else None, 65, github_reason),
             ("pastebin_public", PastePublicMonitor().pull if public_target_supported else None, 50, paste_reason),
             ("telegram_public", telegram_monitor.pull if telegram_monitor else None, 90, telegram_reason),
+            ("youtube_public", (lambda: YouTubePublicMonitor(youtube_api_key).pull_domains([provider_domain])) if youtube_api_key and provider_domain else None, 45, youtube_reason),
             # Public social/community sources are checked in the same customer request,
             # so the result reports each source's real outcome instead of scheduler-only status.
             ("bluesky_public", (lambda: BlueskyPublicMonitor().pull_domains([provider_domain])) if provider_domain else None, 45, social_reason),
