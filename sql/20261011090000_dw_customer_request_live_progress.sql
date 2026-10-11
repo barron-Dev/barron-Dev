@@ -38,7 +38,7 @@ begin
     v_progress := coalesce(v_result->'sources_progress', '[]'::jsonb);
     select coalesce(jsonb_agg(item), '[]'::jsonb)
       into v_progress
-      from jsonb_array_elements(v_progress) as item
+      from jsonb_array_elements(v_progress) as entries(item)
      where not (
         item->>'attempt' = p_attempt::text
         and item->>'source' = p_source_id
@@ -54,7 +54,7 @@ begin
 
     select count(distinct item->>'source')
       into v_completed
-      from jsonb_array_elements(v_progress) as item
+      from jsonb_array_elements(v_progress) as entries(item)
      where item->>'attempt' = p_attempt::text;
 
     v_result := jsonb_set(v_result, '{sources_progress}', v_progress, true);
