@@ -582,6 +582,7 @@ async def customer_service_request_result(request_id: str, p: DeveloperPrincipal
         "request_id": row["id"], "service": row["service_key"], "target": row.get("target"),
         "target_type": row.get("target_type"), "status": row["status"],
         "processing_state": row.get("processing_state") or "queued",
+        "attempts": row.get("attempts", 0),
         "progress_percent": result.get("progress_percent"),
         "stage": result.get("progress_stage"),
         "sources_progress": result.get("sources_progress", []),
