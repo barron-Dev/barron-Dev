@@ -17,7 +17,7 @@ class FakeResponse:
 
 
 class FakeAsyncClient:
-    def __init__(self, responses):
+    def __init__(self, responses, **kwargs):
         self.responses = iter(responses)
         self.get = AsyncMock(side_effect=lambda *args, **kwargs: next(self.responses))
 
