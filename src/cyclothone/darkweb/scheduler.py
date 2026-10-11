@@ -14,6 +14,7 @@ from cyclothone.darkweb.pullers import (
     PastePublicMonitor,
     RedditPublicMonitor,
     TelegramPublicMonitor,
+    YouTubePublicMonitor,
 )
 from cyclothone.darkweb.telegram_config import (
     DEFAULT_PUBLIC_TELEGRAM_CHANNELS,  # noqa: F401 — compatibility export
@@ -91,6 +92,14 @@ class DarkWebScheduler:
         elif "telegram_public" in enabled:
             await self._mark_source("telegram_public", "unavailable_missing_channel", pulled=False)
         domains = await self._tenant_domains()
+        youtube_api_key = (os.getenv("CYCLOTHONE_YOUTUBE_API_KEY") or "").strip()
+        if domains and "youtube_public" in enabled and youtube_api_key:
+            monitor = YouTubePublicMonitor(youtube_api_key)
+            await self._run_pull("youtube_public", lambda m=monitor, d=domains: m.pull_domains(d))
+        elif "youtube_public" in enabled and not youtube_api_key:
+            await self._mark_source("youtube_public", "unavailable_missing_api_key", pulled=False)
+        elif "youtube_public" in enabled:
+            await self._mark_source("youtube_public", "unavailable_missing_watch_targets", pulled=False)
         if domains and "bluesky_public" in enabled:
             monitor = BlueskyPublicMonitor()
             await self._run_pull("bluesky_public", lambda m=monitor, d=domains: m.pull_domains(d))
