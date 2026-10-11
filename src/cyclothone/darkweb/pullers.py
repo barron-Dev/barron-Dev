@@ -431,52 +431,62 @@ class BlueskyPublicMonitor:
 
 
 class RedditPublicMonitor:
-    """Read Reddit's public search RSS only; no private communities or login."""
+    """Search Reddit through its approved OAuth API; never access private communities or DMs."""
     SOURCE = "reddit_public"
-    ENDPOINT = "https://www.reddit.com/search.rss"
+    TOKEN_ENDPOINT = "https://www.reddit.com/api/v1/access_token"
+    SEARCH_ENDPOINT = "https://oauth.reddit.com/search"
 
     async def pull_domains(self, domains: list[str]) -> list[Finding]:
-        semaphore = asyncio.Semaphore(3)
+        client_id = (os.getenv("CYCLOTHONE_REDDIT_CLIENT_ID") or "").strip()
+        client_secret = (os.getenv("CYCLOTHONE_REDDIT_CLIENT_SECRET") or "").strip()
+        user_agent = (os.getenv("CYCLOTHONE_REDDIT_USER_AGENT") or "CyclothonePublicExposureMonitor/1.0").strip()
+        if not client_id or not client_secret:
+            raise RuntimeError("reddit_oauth_credentials_required")
         async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+            token_response = await client.post(
+                self.TOKEN_ENDPOINT,
+                auth=(client_id, client_secret),
+                data={"grant_type": "client_credentials"},
+                headers={"user-agent": user_agent},
+            )
+            token_response.raise_for_status()
+            access_token = str((token_response.json() or {}).get("access_token") or "")
+            if not access_token:
+                raise RuntimeError("reddit_oauth_token_missing")
+            semaphore = asyncio.Semaphore(3)
             async def search(domain: str) -> list[Finding]:
                 domain = normalize(domain)
                 if not domain or len(domain) > 253:
                     return []
-                try:
-                    async with semaphore:
-                        response = await client.get(
-                            self.ENDPOINT,
-                            params={"q": f'"{domain}"', "sort": "new", "t": "month", "limit": "25"},
-                            headers={"user-agent": "CyclothonePublicExposureMonitor/1.0 (public RSS monitoring)"},
-                        )
-                    response.raise_for_status()
-                    root = ET.fromstring(response.text)
-                except Exception as exc:
-                    logger.warning("Reddit public RSS search failed error=%s", type(exc).__name__)
-                    raise
+                async with semaphore:
+                    response = await client.get(
+                        self.SEARCH_ENDPOINT,
+                        params={"q": f'"{domain}"', "sort": "new", "t": "month", "limit": 25, "type": "link"},
+                        headers={"authorization": f"Bearer {access_token}", "user-agent": user_agent},
+                    )
+                response.raise_for_status()
                 matcher = re.compile(r"(?i)(?<![a-z0-9.-])" + re.escape(domain) + r"(?![a-z0-9.-])")
                 findings: list[Finding] = []
-                for entry in root.findall(".//{http://www.w3.org/2005/Atom}entry"):
-                    title = entry.findtext("{http://www.w3.org/2005/Atom}title") or ""
-                    summary = entry.findtext("{http://www.w3.org/2005/Atom}content") or ""
-                    if not matcher.search(title) and not matcher.search(summary):
+                for child in (response.json() or {}).get("data", {}).get("children", []):
+                    post = child.get("data") or {}
+                    searchable = " ".join(str(post.get(k) or "") for k in ("title", "selftext", "url"))
+                    if not matcher.search(searchable):
                         continue
-                    link_el = entry.find("{http://www.w3.org/2005/Atom}link")
-                    post_url = str(link_el.get("href") or "") if link_el is not None else ""
+                    permalink = str(post.get("permalink") or "")
+                    post_url = "https://www.reddit.com" + permalink if permalink.startswith("/") else str(post.get("url") or "")
                     findings.append(Finding(
                         self.SOURCE, "domain", domain,
                         "Monitored domain mentioned in a public Reddit search result; post text is not retained.",
                         "medium", post_url or None,
-                        {"platform": "reddit", "published": entry.findtext("{http://www.w3.org/2005/Atom}published")},
+                        {"platform": "reddit", "published": post.get("created_utc"), "subreddit": post.get("subreddit")},
                     ))
                 return findings
             batches = await asyncio.gather(
-                *(search(domain) for domain in domains[:50]),
-                return_exceptions=True,
+                *(search(domain) for domain in domains[:50]), return_exceptions=True
             )
         failures = sum(isinstance(batch, BaseException) for batch in batches)
         if domains and failures == min(len(domains), 50):
-            raise RuntimeError("all Reddit public RSS searches failed")
+            raise RuntimeError("all Reddit OAuth searches failed")
         return [finding for batch in batches if isinstance(batch, list) for finding in batch]
 
 
