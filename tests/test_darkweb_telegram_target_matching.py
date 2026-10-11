@@ -17,7 +17,7 @@ def test_telegram_domain_target_requires_hostname_boundaries() -> None:
 def test_telegram_brand_target_matches_exact_phrase_without_retaining_post_text() -> None:
     monitor = TelegramPublicMonitor(["public_channel"], target_type="brand", target="Chara Enterprise")
 
-    findings = monitor._target_finding("<div>CH​ARA ENTERPRISE was mentioned</div>".replace("\u200b", ""), "public_channel")
+    findings = monitor._target_finding("<div>CHARA ENTERPRISE was mentioned</div>", "public_channel")
 
     assert len(findings) == 1
     assert findings[0].kind == "company_name"
