@@ -1,28 +1,6 @@
-
 import pytest
 
 from cyclothone.darkweb.pullers import MetaPublicMonitor
-
-
-    def __init__(self, payload):
-        self.payload = payload
-
-    def raise_for_status(self):
-        return None
-
-    def json(self):
-        return self.payload
-
-
-    def __init__(self, responses, **kwargs):
-        self.responses = iter(responses)
-        self.get = AsyncMock(side_effect=lambda *args, **kwargs: next(self.responses))
-
-    async def __aenter__(self):
-        return self
-
-    async def __aexit__(self, exc_type, exc, tb):
-        return False
 
 
 def test_meta_search_term_uses_domain_label_not_scheme_or_path():
