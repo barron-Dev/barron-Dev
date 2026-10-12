@@ -108,7 +108,9 @@ def validation_signals(page: str, connected_links: int = 0) -> tuple[int, list[s
 def classify_public_http_response(status_code: int, body: str) -> tuple[str | None, str]:
     """Separate confirmed public-page states from inconclusive HTTP outcomes."""
     if status_code in (401, 403):
-        return "PRIVATE", "access_restricted"
+        # HTTP access restrictions can be provider throttling or anti-bot controls;
+        # they do not prove that a Telegram channel itself is private.
+        return None, "access_restricted"
     if status_code == 404:
         return "EXPIRED", "not_found"
     if 200 <= status_code < 300:
