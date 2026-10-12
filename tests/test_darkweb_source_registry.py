@@ -11,6 +11,7 @@ from cyclothone.darkweb.source_registry import (
     classify_validation,
     clean_handle,
     extract_candidates,
+    merge_validation_metadata,
     validation_signals,
 )
 
@@ -50,6 +51,15 @@ class SourceRegistryParsingTests(unittest.TestCase):
     def test_empty_page_never_scores_as_verified(self) -> None:
         score, signals, messages = validation_signals("")
         self.assertEqual((score, signals, messages), (0, [], 0))
+
+    def test_validation_metadata_preserves_discovery_provenance(self) -> None:
+        existing = {"seed_source": "operator_config", "discovery_method": "snowball", "parent": "seed_channel"}
+        merged = merge_validation_metadata(existing, ["recent_activity"])
+        self.assertEqual(merged["seed_source"], "operator_config")
+        self.assertEqual(merged["discovery_method"], "snowball")
+        self.assertEqual(merged["parent"], "seed_channel")
+        self.assertEqual(merged["validation_signals"], ["recent_activity"])
+        self.assertNotIn("validation_signals", existing)
 
     def test_absence_of_evidence_is_not_a_scam_classification(self) -> None:
         self.assertIsNone(classify_validation(0))
