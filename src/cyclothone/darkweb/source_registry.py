@@ -148,6 +148,16 @@ def classify_validation(score: int) -> str | None:
     return None
 
 
+def bounded_configured_handles(handles: list[str], max_sources: int = 25) -> list[str]:
+    """Normalize, deduplicate, and hard-cap operator-configured public targets."""
+    limit = min(25, max(0, int(max_sources)))
+    if limit == 0:
+        return []
+    return list(dict.fromkeys(
+        handle for raw in handles if (handle := clean_handle(raw))
+    ))[:limit]
+
+
 class TelegramSourceRegistry:
     def __init__(self) -> None:
         self._client_cache = None
@@ -225,12 +235,7 @@ class TelegramSourceRegistry:
 
     async def check_configured_sources(self, max_sources: int = 25) -> dict:
         """Validate only operator-configured public Telegram targets; do not expand the target set."""
-        configured = list(dict.fromkeys(
-            handle for raw in configured_telegram_channels()
-            if (handle := clean_handle(raw))
-        ))
-        limit = max(1, min(int(max_sources), 25))
-        targets = configured[:limit]
+        targets = bounded_configured_handles(configured_telegram_channels(), max_sources)
         if not targets:
             return {"configured": 0, "checked": 0, "online": 0, "expired": 0, "inconclusive": 0, "errors": 0}
 
@@ -270,6 +275,7 @@ class TelegramSourceRegistry:
                         "last_checked": now,
                         "updated_at": now,
                         "metadata": metadata,
+                        "monitoring_status": "ACTIVE",
                     }
                     if status is not None:
                         updates["channel_status"] = status
