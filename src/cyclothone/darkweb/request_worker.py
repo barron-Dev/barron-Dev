@@ -342,7 +342,12 @@ class DarkWebRequestWorker:
             prior = checkpoint_sources.get(source_id)
             if isinstance(prior, dict) and prior.get("state") in {"checked", "unavailable"}:
                 status = prior.get("status")
-                if not isinstance(status, dict) or status.get("source") != source_id:
+                if (
+                    not isinstance(status, dict)
+                    or status.get("source") != source_id
+                    or status.get("state") != prior.get("state")
+                    or status.get("state") not in {"checked", "unavailable"}
+                ):
                     raise RuntimeError("invalid_darkweb_checkpoint_source")
                 sources.append(status)
                 if status.get("state") == "checked":
@@ -350,7 +355,11 @@ class DarkWebRequestWorker:
                     if not isinstance(saved_findings, list):
                         raise RuntimeError("invalid_darkweb_checkpoint_findings")
                     restored = [_restore_checkpoint_finding(item) for item in saved_findings]
-                    if any(not _finding_matches_target(item, watch_kind, watch_value) for item in restored):
+                    if any(
+                        item.source_id != source_id
+                        or not _finding_matches_target(item, watch_kind, watch_value)
+                        for item in restored
+                    ):
                         raise RuntimeError("darkweb_checkpoint_target_mismatch")
                     pulled.extend(restored)
                 continue
@@ -360,6 +369,17 @@ class DarkWebRequestWorker:
                 item for item in batch
                 if _finding_matches_target(item, watch_kind, watch_value)
             ]
+            observed_matches = len(exact_batch)
+            exact_batch = exact_batch[:400]
+            status = {
+                **status,
+                "matching_findings_observed": observed_matches,
+                "matching_findings_checkpointed": len(exact_batch),
+                "matching_findings_truncated": observed_matches > len(exact_batch),
+            }
+            if observed_matches > len(exact_batch):
+                status["coverage"] = "partial"
+                status["coverage_reason"] = "matching_findings_truncated"
             sources.append(status)
             pulled.extend(exact_batch)
             checkpoint_sources[source_id] = {
