@@ -331,7 +331,7 @@ class TelegramSourceRegistry:
                         excluded += int(new_state == "EXCLUDED")
                         continue
                     if check_status != "ONLINE":
-                        metadata = merge_validation_metadata(candidate.get("metadata"), [])
+                        metadata = dict(candidate.get("metadata") or {})
                         metadata["last_check_outcome"] = outcome
                         await supabase._retry(lambda c=candidate, md=metadata: client.table("source_registry").update({
                             "metadata": md, "last_checked": datetime.now(UTC).isoformat(),
