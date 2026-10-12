@@ -19,7 +19,7 @@ class BlueskyPublicMonitor:
     @staticmethod
     def _exact_mention(text: str, target: str, target_type: str) -> bool:
         if target_type == "email":
-            pattern = r"(?<![A-Z0-9._%+\\-])" + re.escape(target) + r"(?![A-Z0-9._%+\\-])"
+            pattern = r"(?<![A-Z0-9._%+-])" + re.escape(target) + r"(?![A-Z0-9._%+-])"
         else:
             # Require hostname boundaries so example.com.evil cannot match example.com.
             pattern = r"(?<![A-Z0-9.-])" + re.escape(target) + r"(?![A-Z0-9.-])"
