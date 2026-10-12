@@ -17,6 +17,9 @@ def test_inventory_covers_multiple_categories_without_claiming_planned_sources_r
     assert telegram["coverage"] == "partial"
     assert reddit["state"] == "not_implemented"
     assert reddit["reason"] == "collector_not_wired"
+    bluesky = next(item for item in messaging["sources"] if item["source"] == "bluesky_public")
+    assert bluesky["integration"] == "implemented"
+    assert bluesky["state"] == "not_run"
 
 
 def test_inventory_marks_historical_and_policy_excluded_sources_distinctly():
