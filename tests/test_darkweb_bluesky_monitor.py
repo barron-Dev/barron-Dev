@@ -56,7 +56,7 @@ class _Client:
                 }},
                 {"post": {
                     "uri": "at://did:plc:bob/app.bsky.feed.post/xyz789",
-                    "record": {"text": "Contact security@example.com for details."},
+                    "record": {"text": "A general public post without the monitored domain."},
                     "author": {"handle": "bob.bsky.social"},
                 }},
             ],
