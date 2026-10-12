@@ -18,6 +18,7 @@ from cyclothone.darkweb.pullers import (
     TelegramPublicMonitor,
 )
 from cyclothone.darkweb.telegram_config import configured_telegram_channels
+from cyclothone.darkweb.source_inventory import inventory_for_run
 from cyclothone.storage.supabase_client import supabase
 
 logger = logging.getLogger(__name__)
@@ -298,6 +299,7 @@ class DarkWebRequestWorker:
                 "coverage": "none",
                 "sources_checked": [],
                 "sources_unavailable": [source for source in sources if source["state"] != "checked"],
+                "source_inventory": inventory_for_run(sources),
                 "findings": [],
                 "evidence": [],
                 "alerts": [],
@@ -414,6 +416,7 @@ class DarkWebRequestWorker:
             "service": "dark_web_monitoring", "target": watch_value, "target_type": target_type,
             "coverage": coverage, "sources_checked": checked_sources,
             "sources_unavailable": unavailable_sources,
+            "source_inventory": inventory_for_run(sources),
             "findings": persisted[:200], "evidence": evidence[:200], "alerts": relevant_alerts[:200],
             "case_id": case_id, "recommendations": (
                 ["Review each possible match against the source evidence.", "Rotate exposed credentials and investigate affected accounts."]
