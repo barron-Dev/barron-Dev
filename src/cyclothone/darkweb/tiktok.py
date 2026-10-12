@@ -88,14 +88,15 @@ class TikTokCommercialContentMonitor:
         if not self.client_key or not self.client_secret:
             raise RuntimeError("tiktok_commercial_credentials_required")
         supported = {"domain", "company_name", "username"}
-        targets = [
+        normalized_targets = [
             (str(kind).strip().lower(), str(value).strip().lower())
             for kind, value in targets
             if str(kind).strip().lower() in supported and str(value).strip()
-        ][:20]
+        ]
+        self.coverage_partial = len(normalized_targets) > 20
+        targets = normalized_targets[:20]
         if not targets:
             return []
-        self.coverage_partial = False
         today = datetime.now(UTC).date()
         date_max = today.strftime("%Y%m%d")
         date_min = (today - timedelta(days=30)).strftime("%Y%m%d")

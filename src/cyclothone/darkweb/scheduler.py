@@ -4,6 +4,7 @@ import asyncio
 import logging
 import os
 import time
+from functools import partial
 from datetime import UTC, datetime
 
 from cyclothone.darkweb.matcher import DarkWebMatcher
@@ -103,7 +104,7 @@ class DarkWebScheduler:
             targets = await self._tenant_tiktok_targets()
             if targets:
                 monitor = TikTokCommercialContentMonitor()
-                await self._run_pull("tiktok_commercial", lambda m=monitor, t=targets: m.pull_targets(t))
+                await self._run_pull("tiktok_commercial", partial(monitor.pull_targets, targets))
             else:
                 await self._mark_source("tiktok_commercial", "unavailable_missing_watch_targets", pulled=False)
         youtube_api_key = (os.getenv("CYCLOTHONE_YOUTUBE_API_KEY") or "").strip()
@@ -154,7 +155,7 @@ class DarkWebScheduler:
         try:
             findings = await pull()
             result = await self._ingest(findings)
-            monitor = getattr(pull, "__self__", None)
+            monitor = getattr(pull, "__self__", None) or getattr(getattr(pull, "func", None), "__self__", None)
             channel_status = getattr(monitor, "channel_status", {})
             failed_channels = [channel for channel, state in channel_status.items() if state != "checked"]
             source_status = "degraded" if result["errors"] or failed_channels or bool(getattr(monitor, "coverage_partial", False)) else "ok"
