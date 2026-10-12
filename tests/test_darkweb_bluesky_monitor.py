@@ -66,7 +66,8 @@ class _Client:
 @pytest.mark.asyncio
 async def test_bluesky_public_search_keeps_exact_domain_matches_and_deduplicates_posts():
     monitor = BlueskyPublicMonitor()
-    with patch("cyclothone.darkweb.bluesky.httpx.AsyncClient", return_value=_Client()) as client:
+    fake = _Client()
+    with patch("cyclothone.darkweb.bluesky.httpx.AsyncClient", return_value=fake):
         findings = await monitor.pull_target("Example.com", "domain")
 
     assert len(findings) == 1
@@ -75,7 +76,7 @@ async def test_bluesky_public_search_keeps_exact_domain_matches_and_deduplicates
     assert findings[0].matched_value == "example.com"
     assert findings[0].source_url == "https://bsky.app/profile/alice.bsky.social/post/abc123"
     assert findings[0].metadata["post_uri"].endswith("/abc123")
-    assert client.call_count == 1
+    assert fake.calls == 2
 
 
 @pytest.mark.asyncio
