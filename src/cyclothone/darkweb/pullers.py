@@ -357,23 +357,29 @@ class GitHubCodeMonitor:
 
     def __init__(self, token: str) -> None:
         self.token = token
+        # The request worker serializes this per-query outcome so partial API
+        # failures are never presented as complete GitHub coverage.
+        self.channel_status: dict[str, str] = {}
 
     async def pull_domain(self, domain: str) -> list[Finding]:
         headers = {"authorization": f"Bearer {self.token}", "accept": "application/vnd.github+json", "user-agent": "cyclothone-darkweb/1.0"}
         out: list[Finding] = []
         failures = 0
+        self.channel_status = {}
         async with httpx.AsyncClient(timeout=20.0) as client:
             for term in ("password", "api_key", "secret"):
                 try:
                     response = await client.get(self.BASE, params={"q": f'"{normalize(domain)}" {term}', "per_page": 30}, headers=headers)
                     response.raise_for_status()
+                    self.channel_status[term] = "checked"
                     for item in (response.json() or {}).get("items", []) or []:
                         repo = str((item.get("repository") or {}).get("full_name") or "")
                         out.append(Finding(self.SOURCE, "domain", normalize(domain), "Potential secret-related code exposure; secret value is not retained.", "high", item.get("html_url"), {"repository": repo, "query_term": term}))
                 except Exception:
                     failures += 1
+                    self.channel_status[term] = "failed"
                     logger.warning("GitHub code search failed for domain=%s term=%s", domain, term, exc_info=True)
-        if failures == 3:
+        if failures == len(self.channel_status):
             raise RuntimeError(f"all GitHub code searches failed for {domain}")
         return out
 
