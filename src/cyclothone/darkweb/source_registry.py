@@ -82,7 +82,8 @@ def validation_signals(page: str, connected_links: int = 0) -> tuple[int, list[s
     dates = []
     for raw in DATE_RE.findall(page):
         try:
-            dates.append(datetime.fromisoformat(raw.replace("Z", "+00:00")))
+            parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            dates.append(parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed)
         except ValueError:
             continue
     signals: list[str] = []
@@ -270,7 +271,7 @@ class TelegramSourceRegistry:
                                     }).execute(), attempts=1)
                                 except Exception:
                                     logger.debug("source registry edge write failed", exc_info=True)
-                    score, signals, message_count = validation_signals(page)
+                    score, signals, message_count = validation_signals(page, connected_links=len(candidates))
                     validation = classify_validation(score)
                     metadata = merge_validation_metadata(row.get("metadata"), signals)
                     await supabase._retry(lambda i=identity, sc=score, sig=signals, mc=message_count, v=validation, md=metadata: client.table("source_registry").update({
@@ -315,7 +316,8 @@ class TelegramSourceRegistry:
                         excluded += 1
                         continue
                     check.raise_for_status()
-                    score, signals, message_count = validation_signals(check.text)
+                    related_candidates = extract_candidates(check.text, identity)
+                    score, signals, message_count = validation_signals(check.text, connected_links=len(related_candidates))
                     validation = classify_validation(score)
                     metadata = merge_validation_metadata(candidate.get("metadata"), signals)
                     await supabase._retry(lambda c=candidate, sc=score, sig=signals, mc=message_count, v=validation, md=metadata: client.table("source_registry").update({
