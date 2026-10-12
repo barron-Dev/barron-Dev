@@ -223,6 +223,116 @@ class TelegramSourceRegistry:
             except Exception:
                 logger.warning("source registry status update failed identity=%s", identity, exc_info=True)
 
+    async def check_configured_sources(self, max_sources: int = 25) -> dict:
+        """Validate only operator-configured public Telegram targets; do not expand the target set."""
+        configured = list(dict.fromkeys(
+            handle for raw in configured_telegram_channels()
+            if (handle := clean_handle(raw))
+        ))
+        limit = max(1, min(int(max_sources), 25))
+        targets = configured[:limit]
+        if not targets:
+            return {"configured": 0, "checked": 0, "online": 0, "expired": 0, "inconclusive": 0, "errors": 0}
+
+        await self.seed(targets)
+        client = await self.client()
+        rows_response = await supabase._retry(
+            lambda: client.table("source_registry")
+                .select("id,identity,metadata")
+                .in_("identity", targets).execute(),
+            attempts=1,
+        )
+        rows = {
+            str(row.get("identity") or "").lower(): row
+            for row in (rows_response.data or [])
+        }
+        checked = online = expired = inconclusive = errors = 0
+        async with httpx.AsyncClient(
+            timeout=8.0,
+            follow_redirects=False,
+            headers={"user-agent": "CyclothonePublicExposureMonitor/1.0"},
+        ) as http:
+            for identity in targets:
+                row = rows.get(identity)
+                if not row:
+                    errors += 1
+                    continue
+                now = datetime.now(UTC).isoformat()
+                try:
+                    response = await http.get(f"https://t.me/s/{identity}")
+                    status, outcome = classify_public_http_response(
+                        response.status_code,
+                        response.text if 200 <= response.status_code < 300 else "",
+                    )
+                    metadata = dict(row.get("metadata") or {})
+                    metadata["last_check_outcome"] = outcome
+                    updates = {
+                        "last_checked": now,
+                        "updated_at": now,
+                        "metadata": metadata,
+                    }
+                    if status is not None:
+                        updates["channel_status"] = status
+                    if status == "ONLINE":
+                        updates["last_seen"] = now
+                    elif status == "EXPIRED":
+                        updates["monitoring_status"] = "EXPIRED"
+                    await supabase._retry(
+                        lambda i=identity, payload=updates: client.table("source_registry")
+                            .update(payload).eq("identity", i).execute(),
+                        attempts=1,
+                    )
+                    await self.event(
+                        identity,
+                        "configured_public_source_check",
+                        {"outcome": outcome, "http_status": response.status_code},
+                        str(row.get("id") or "") or None,
+                    )
+                    checked += 1
+                    online += int(status == "ONLINE")
+                    expired += int(status == "EXPIRED")
+                    inconclusive += int(status is None)
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    errors += 1
+                    logger.warning(
+                        "configured public source check failed identity=%s error=%s",
+                        identity, type(exc).__name__,
+                    )
+                    try:
+                        metadata = dict(row.get("metadata") or {})
+                        metadata["last_check_outcome"] = "request_error"
+                        await supabase._retry(
+                            lambda i=identity, payload=metadata: client.table("source_registry")
+                                .update({
+                                    "last_checked": datetime.now(UTC).isoformat(),
+                                    "metadata": payload,
+                                }).eq("identity", i).execute(),
+                            attempts=1,
+                        )
+                        await self.event(
+                            identity, "configured_public_source_check_error",
+                            {"error_type": type(exc).__name__}, str(row.get("id") or "") or None,
+                        )
+                    except Exception:
+                        logger.warning(
+                            "unable to persist configured source failure identity=%s",
+                            identity, exc_info=True,
+                        )
+                await asyncio.sleep(1.0)
+
+        result = {
+            "configured": len(targets),
+            "checked": checked,
+            "online": online,
+            "expired": expired,
+            "inconclusive": inconclusive,
+            "errors": errors,
+        }
+        logger.info("dark web configured-source validation %s", result)
+        return result
+
     async def tick(self, max_sources: int = DEFAULT_DISCOVERY_BATCH) -> dict:
         await self.seed(configured_telegram_channels())
         client = await self.client()
