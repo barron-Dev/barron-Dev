@@ -11,6 +11,7 @@ import httpx
 
 from cyclothone.darkweb.matcher import DarkWebMatcher
 from cyclothone.darkweb.pullers import (
+    Finding,
     GitHubCodeMonitor,
     HIBPPuller,
     PastePublicMonitor,
@@ -100,6 +101,46 @@ def _finding_matches_target(finding: object, watch_kind: str, watch_value: str) 
         local, separator, domain = value.rpartition("@")
         return bool(local and separator and domain.rstrip(".") == expected)
     return False
+
+
+def _checkpoint_finding(finding: Finding) -> dict:
+    """Serialize only the exact-match fields needed to resume a request safely."""
+    return {
+        "source_id": str(finding.source_id),
+        "kind": str(finding.kind),
+        "matched_value": str(finding.matched_value),
+        "context": finding.context,
+        "severity": str(finding.severity),
+        "source_url": finding.source_url,
+        "metadata": dict(finding.metadata or {}),
+    }
+
+
+def _restore_checkpoint_finding(payload: object) -> Finding:
+    """Restore a validated checkpoint entry; malformed state fails closed."""
+    if not isinstance(payload, dict):
+        raise ValueError("invalid_darkweb_checkpoint_finding")
+    required = ("source_id", "kind", "matched_value", "severity")
+    if any(not isinstance(payload.get(key), str) or not payload[key] for key in required):
+        raise ValueError("invalid_darkweb_checkpoint_finding")
+    metadata = payload.get("metadata", {})
+    if not isinstance(metadata, dict):
+        raise ValueError("invalid_darkweb_checkpoint_finding")
+    context = payload.get("context")
+    source_url = payload.get("source_url")
+    if context is not None and not isinstance(context, str):
+        raise ValueError("invalid_darkweb_checkpoint_finding")
+    if source_url is not None and not isinstance(source_url, str):
+        raise ValueError("invalid_darkweb_checkpoint_finding")
+    return Finding(
+        source_id=payload["source_id"],
+        kind=payload["kind"],
+        matched_value=payload["matched_value"],
+        context=context,
+        severity=payload["severity"],
+        source_url=source_url,
+        metadata=metadata,
+    )
 
 
 class DarkWebRequestWorker:
@@ -280,12 +321,65 @@ class DarkWebRequestWorker:
             ("pastebin_public", PastePublicMonitor().pull if public_target_supported else None, 50, paste_reason),
             ("telegram_public", telegram_monitor.pull if telegram_monitor and public_target_supported else None, 90, telegram_reason),
         ]
-        provider_results = await asyncio.gather(*(
-            run_source(source_id, pull, timeout, reason)
-            for source_id, pull, timeout, reason in provider_specs
-        ))
-        sources = [status for status, _ in provider_results]
-        pulled = [finding for _, batch in provider_results for finding in batch]
+        # Source checkpoints live in a service-only table, not service_requests.result,
+        # so partial execution state is never exposed as a customer result.
+        checkpoint_row = await supabase.select_one(
+            "service_request_execution_checkpoints",
+            "checkpoint",
+            service_request_id=request_id,
+        )
+        checkpoint = checkpoint_row.get("checkpoint") if checkpoint_row else {}
+        if not isinstance(checkpoint, dict) or checkpoint.get("version") != 1:
+            checkpoint = {"version": 1, "sources": {}}
+        checkpoint_sources = checkpoint.get("sources")
+        if not isinstance(checkpoint_sources, dict):
+            checkpoint_sources = {}
+        # Do not trust arbitrary checkpoint payloads. Only validated exact target
+        # matches are restored; every other provider finding is intentionally omitted.
+        sources = []
+        pulled = []
+        for source_id, pull, timeout, reason in provider_specs:
+            prior = checkpoint_sources.get(source_id)
+            if isinstance(prior, dict) and prior.get("state") in {"checked", "unavailable"}:
+                status = prior.get("status")
+                if not isinstance(status, dict) or status.get("source") != source_id:
+                    raise RuntimeError("invalid_darkweb_checkpoint_source")
+                sources.append(status)
+                if status.get("state") == "checked":
+                    saved_findings = prior.get("findings", [])
+                    if not isinstance(saved_findings, list):
+                        raise RuntimeError("invalid_darkweb_checkpoint_findings")
+                    restored = [_restore_checkpoint_finding(item) for item in saved_findings]
+                    if any(not _finding_matches_target(item, watch_kind, watch_value) for item in restored):
+                        raise RuntimeError("darkweb_checkpoint_target_mismatch")
+                    pulled.extend(restored)
+                continue
+
+            status, batch = await run_source(source_id, pull, timeout, reason)
+            exact_batch = [
+                item for item in batch
+                if _finding_matches_target(item, watch_kind, watch_value)
+            ]
+            sources.append(status)
+            pulled.extend(exact_batch)
+            checkpoint_sources[source_id] = {
+                "state": status["state"],
+                "status": status,
+                "findings": [_checkpoint_finding(item) for item in exact_batch],
+            }
+            checkpoint_payload = {
+                "version": 1,
+                "sources": checkpoint_sources,
+                "updated_at": datetime.now(UTC).isoformat(),
+            }
+            saved = await supabase.rpc("checkpoint_service_request", {
+                "p_id": request_id,
+                "p_attempt": int(request["attempts"]),
+                "p_checkpoint": checkpoint_payload,
+                "p_lease_seconds": 180,
+            })
+            if saved is not True:
+                raise RuntimeError("checkpoint_fence_rejected")
 
         # A completed search requires at least one provider call to succeed.
         # An empty result from a checked source is a valid zero-match result;
