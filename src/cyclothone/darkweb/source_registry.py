@@ -104,6 +104,13 @@ def validation_signals(page: str, connected_links: int = 0) -> tuple[int, list[s
     return min(10, len(signals)), signals, messages
 
 
+def merge_validation_metadata(existing: dict | None, signals: list[str]) -> dict:
+    """Add current validation signals without destroying source provenance."""
+    merged = dict(existing) if isinstance(existing, dict) else {}
+    merged["validation_signals"] = list(signals)
+    return merged
+
+
 def classify_validation(score: int) -> str | None:
     """Return a validation tier only when enough positive evidence exists.
 
@@ -265,8 +272,7 @@ class TelegramSourceRegistry:
                                     logger.debug("source registry edge write failed", exc_info=True)
                     score, signals, message_count = validation_signals(page)
                     validation = classify_validation(score)
-                    metadata = dict(row.get("metadata") or {})
-                    metadata["validation_signals"] = signals
+                    metadata = merge_validation_metadata(row.get("metadata"), signals)
                     await supabase._retry(lambda i=identity, sc=score, sig=signals, mc=message_count, v=validation, md=metadata: client.table("source_registry").update({
                         "validation_score": sc, "validation_status": v, "message_count": mc,
                         "metadata": md, "last_seen": now,
@@ -311,8 +317,7 @@ class TelegramSourceRegistry:
                     check.raise_for_status()
                     score, signals, message_count = validation_signals(check.text)
                     validation = classify_validation(score)
-                    metadata = dict(candidate.get("metadata") or {})
-                    metadata["validation_signals"] = signals
+                    metadata = merge_validation_metadata(candidate.get("metadata"), signals)
                     await supabase._retry(lambda c=candidate, sc=score, sig=signals, mc=message_count, v=validation, md=metadata: client.table("source_registry").update({
                         "channel_status": "ONLINE", "validation_score": sc, "validation_status": v,
                         "message_count": mc, "metadata": md,
