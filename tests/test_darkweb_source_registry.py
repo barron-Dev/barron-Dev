@@ -8,6 +8,7 @@ from __future__ import annotations
 import unittest
 
 from cyclothone.darkweb.source_registry import (
+    classify_public_http_response,
     classify_validation,
     clean_handle,
     extract_candidates,
@@ -52,6 +53,15 @@ class SourceRegistryParsingTests(unittest.TestCase):
         score, signals, _ = validation_signals("small public page", connected_links=2)
         self.assertEqual(score, 1)
         self.assertEqual(signals, ["connected_link_network"])
+
+    def test_http_outcomes_do_not_confuse_unknown_with_offline(self) -> None:
+        self.assertEqual(classify_public_http_response(200, "public content"), ("ONLINE", "checked"))
+        self.assertEqual(classify_public_http_response(200, "  "), (None, "empty_response"))
+        self.assertEqual(classify_public_http_response(302, ""), (None, "redirect_not_followed"))
+        self.assertEqual(classify_public_http_response(429, ""), (None, "rate_limited"))
+        self.assertEqual(classify_public_http_response(503, ""), (None, "provider_error"))
+        self.assertEqual(classify_public_http_response(403, ""), ("PRIVATE", "access_restricted"))
+        self.assertEqual(classify_public_http_response(404, ""), ("EXPIRED", "not_found"))
 
     def test_empty_page_never_scores_as_verified(self) -> None:
         score, signals, messages = validation_signals("")
