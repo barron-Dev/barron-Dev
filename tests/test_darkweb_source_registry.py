@@ -19,7 +19,7 @@ class SourceRegistryParsingTests(unittest.TestCase):
         self.assertEqual(clean_handle("@Example_Channel"), "example_channel")
         self.assertIsNone(clean_handle("joinchat"))
         self.assertIsNone(clean_handle("https://t.me/example_channel"))
-        self.assertIsNone(clean_handle("short"))
+        self.assertIsNone(clean_handle("tiny"))
 
     def test_extract_candidates_only_returns_channel_handles(self) -> None:
         page = """
