@@ -105,6 +105,25 @@ def validation_signals(page: str, connected_links: int = 0) -> tuple[int, list[s
     return min(10, len(signals)), signals, messages
 
 
+def classify_public_http_response(status_code: int, body: str) -> tuple[str | None, str]:
+    """Separate confirmed public-page states from inconclusive HTTP outcomes."""
+    if status_code in (401, 403):
+        return "PRIVATE", "access_restricted"
+    if status_code == 404:
+        return "EXPIRED", "not_found"
+    if 200 <= status_code < 300:
+        if body.strip():
+            return "ONLINE", "checked"
+        return None, "empty_response"
+    if 300 <= status_code < 400:
+        return None, "redirect_not_followed"
+    if status_code == 429:
+        return None, "rate_limited"
+    if status_code >= 500:
+        return None, "provider_error"
+    return None, "unexpected_http_status"
+
+
 def merge_validation_metadata(existing: dict | None, signals: list[str]) -> dict:
     """Add current validation signals without destroying source provenance."""
     merged = dict(existing) if isinstance(existing, dict) else {}
@@ -216,7 +235,7 @@ class TelegramSourceRegistry:
         active = response.data or []
         discovered = checked = promoted = excluded = 0
         async with httpx.AsyncClient(
-            timeout=12.0, follow_redirects=True,
+            timeout=12.0, follow_redirects=False,
             headers={"user-agent": "CyclothonePublicExposureMonitor/1.0"},
         ) as http:
             for row in active:
@@ -226,24 +245,24 @@ class TelegramSourceRegistry:
                 now = datetime.now(UTC).isoformat()
                 try:
                     page_response = await http.get(f"https://t.me/s/{identity}")
-                    if page_response.status_code in (401, 403):
-                        status, page = "PRIVATE", ""
-                    elif page_response.status_code == 404:
-                        status, page = "EXPIRED", ""
-                    else:
-                        page_response.raise_for_status()
-                        page = page_response.text
-                        status = "ONLINE" if page else "OFFLINE"
+                    page = page_response.text if 200 <= page_response.status_code < 300 else ""
+                    status, outcome = classify_public_http_response(page_response.status_code, page)
+                    metadata = dict(row.get("metadata") or {})
+                    metadata["last_check_outcome"] = outcome
+                    updates = {
+                        "last_checked": now, "updated_at": now, "metadata": metadata,
+                    }
+                    if status is not None:
+                        updates["channel_status"] = status
+                    if status == "ONLINE":
+                        updates["last_seen"] = now
                     await supabase._retry(
-                        lambda i=identity, s=status, old=row: client.table("source_registry").update({
-                            "channel_status": s, "last_checked": now,
-                            "last_seen": now if s == "ONLINE" else old.get("last_seen"),
-                            "updated_at": now,
-                        }).eq("identity", i).execute(),
+                        lambda i=identity, payload=updates: client.table("source_registry").update(payload).eq("identity", i).execute(),
                         attempts=1,
                     )
                     checked += 1
                     if status != "ONLINE":
+                        await self.event(identity, "public_source_check", {"outcome": outcome, "http_status": page_response.status_code}, str(row.get("id") or "") or None)
                         continue
                     candidates = extract_candidates(page, identity)
                     if candidates:
@@ -298,26 +317,29 @@ class TelegramSourceRegistry:
             if candidate.get("validation_score") is None:
                 identity = str(candidate.get("identity") or "").lower()
                 try:
-                    async with httpx.AsyncClient(timeout=12.0, follow_redirects=True, headers={"user-agent": "CyclothonePublicExposureMonitor/1.0"}) as http:
+                    async with httpx.AsyncClient(timeout=12.0, follow_redirects=False, headers={"user-agent": "CyclothonePublicExposureMonitor/1.0"}) as http:
                         check = await http.get(f"https://t.me/s/{identity}")
-                    if check.status_code == 404:
-                        await supabase._retry(lambda c=candidate: client.table("source_registry").update({
-                            "channel_status": "EXPIRED", "monitoring_status": "EXPIRED",
+                    check_page = check.text if 200 <= check.status_code < 300 else ""
+                    check_status, outcome = classify_public_http_response(check.status_code, check_page)
+                    if check_status in {"EXPIRED", "PRIVATE"}:
+                        new_state = "EXPIRED" if check_status == "EXPIRED" else "EXCLUDED"
+                        await supabase._retry(lambda c=candidate, cs=check_status, ns=new_state, out=outcome: client.table("source_registry").update({
+                            "channel_status": cs, "monitoring_status": ns,
                             "last_checked": datetime.now(UTC).isoformat(),
                         }).eq("id", c["id"]).eq("monitoring_status", "QUARANTINED").execute(), attempts=1)
-                        await self.event(identity, "quarantined_source_expired", {}, str(candidate["id"]))
+                        await self.event(identity, "quarantined_source_terminal_state", {"channel_status": check_status, "outcome": outcome}, str(candidate["id"]))
+                        excluded += int(new_state == "EXCLUDED")
                         continue
-                    if check.status_code in (401, 403):
-                        await supabase._retry(lambda c=candidate: client.table("source_registry").update({
-                            "channel_status": "PRIVATE", "monitoring_status": "EXCLUDED",
-                            "last_checked": datetime.now(UTC).isoformat(),
+                    if check_status != "ONLINE":
+                        metadata = merge_validation_metadata(candidate.get("metadata"), [])
+                        metadata["last_check_outcome"] = outcome
+                        await supabase._retry(lambda c=candidate, md=metadata: client.table("source_registry").update({
+                            "metadata": md, "last_checked": datetime.now(UTC).isoformat(),
                         }).eq("id", c["id"]).eq("monitoring_status", "QUARANTINED").execute(), attempts=1)
-                        await self.event(identity, "quarantined_source_private_excluded", {}, str(candidate["id"]))
-                        excluded += 1
+                        await self.event(identity, "quarantined_source_check_inconclusive", {"outcome": outcome, "http_status": check.status_code}, str(candidate["id"]))
                         continue
-                    check.raise_for_status()
-                    related_candidates = extract_candidates(check.text, identity)
-                    score, signals, message_count = validation_signals(check.text, connected_links=len(related_candidates))
+                    related_candidates = extract_candidates(check_page, identity)
+                    score, signals, message_count = validation_signals(check_page, connected_links=len(related_candidates))
                     validation = classify_validation(score)
                     metadata = merge_validation_metadata(candidate.get("metadata"), signals)
                     await supabase._retry(lambda c=candidate, sc=score, sig=signals, mc=message_count, v=validation, md=metadata: client.table("source_registry").update({
