@@ -104,6 +104,21 @@ def validation_signals(page: str, connected_links: int = 0) -> tuple[int, list[s
     return min(10, len(signals)), signals, messages
 
 
+def classify_validation(score: int) -> str | None:
+    """Return a validation tier only when enough positive evidence exists.
+
+    A low/empty page is unknown, not proof of fraud. SCAM requires separate,
+    affirmative fraud signals and is intentionally never inferred from absence.
+    """
+    if score >= 8:
+        return "HIGH"
+    if score >= 5:
+        return "MEDIUM"
+    if score >= 3:
+        return "LOW"
+    return None
+
+
 class TelegramSourceRegistry:
     def __init__(self) -> None:
         self._client_cache = None
@@ -249,7 +264,7 @@ class TelegramSourceRegistry:
                                 except Exception:
                                     logger.debug("source registry edge write failed", exc_info=True)
                     score, signals, message_count = validation_signals(page)
-                    validation = "HIGH" if score >= 8 else "MEDIUM" if score >= 5 else "LOW" if score >= 3 else "SCAM"
+                    validation = classify_validation(score)
                     await supabase._retry(lambda i=identity, sc=score, sig=signals, mc=message_count, v=validation: client.table("source_registry").update({
                         "validation_score": sc, "validation_status": v, "message_count": mc,
                         "metadata": {"validation_signals": sig}, "last_seen": now,
@@ -293,7 +308,7 @@ class TelegramSourceRegistry:
                         continue
                     check.raise_for_status()
                     score, signals, message_count = validation_signals(check.text)
-                    validation = "HIGH" if score >= 8 else "MEDIUM" if score >= 5 else "LOW" if score >= 3 else "SCAM"
+                    validation = classify_validation(score)
                     await supabase._retry(lambda c=candidate, sc=score, sig=signals, mc=message_count, v=validation: client.table("source_registry").update({
                         "channel_status": "ONLINE", "validation_score": sc, "validation_status": v,
                         "message_count": mc, "metadata": {"validation_signals": sig},
