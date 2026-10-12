@@ -199,7 +199,7 @@ class TelegramSourceRegistry:
         client = await self.client()
         response = await supabase._retry(
             lambda: client.table("source_registry")
-                .select("id,identity,last_seen").eq("source_type", "telegram")
+                .select("id,identity,last_seen,metadata").eq("source_type", "telegram")
                 .eq("monitoring_status", "ACTIVE")
                 .order("last_checked", desc=False, nullsfirst=True)
                 .limit(max(1, min(max_sources, 2000))).execute(),
@@ -265,9 +265,11 @@ class TelegramSourceRegistry:
                                     logger.debug("source registry edge write failed", exc_info=True)
                     score, signals, message_count = validation_signals(page)
                     validation = classify_validation(score)
-                    await supabase._retry(lambda i=identity, sc=score, sig=signals, mc=message_count, v=validation: client.table("source_registry").update({
+                    metadata = dict(row.get("metadata") or {})
+                    metadata["validation_signals"] = signals
+                    await supabase._retry(lambda i=identity, sc=score, sig=signals, mc=message_count, v=validation, md=metadata: client.table("source_registry").update({
                         "validation_score": sc, "validation_status": v, "message_count": mc,
-                        "metadata": {"validation_signals": sig}, "last_seen": now,
+                        "metadata": md, "last_seen": now,
                     }).eq("identity", i).execute(), attempts=1)
                 except asyncio.CancelledError:
                     raise
@@ -279,7 +281,7 @@ class TelegramSourceRegistry:
         cutoff = (datetime.now(UTC) - timedelta(days=QUARANTINE_DAYS)).isoformat()
         quarantined = await supabase._retry(
             lambda: client.table("source_registry")
-                .select("id,identity,validation_score").eq("monitoring_status", "QUARANTINED")
+                .select("id,identity,validation_score,metadata").eq("monitoring_status", "QUARANTINED")
                 .lte("first_seen", cutoff).execute(),
             attempts=1,
         )
@@ -309,9 +311,11 @@ class TelegramSourceRegistry:
                     check.raise_for_status()
                     score, signals, message_count = validation_signals(check.text)
                     validation = classify_validation(score)
-                    await supabase._retry(lambda c=candidate, sc=score, sig=signals, mc=message_count, v=validation: client.table("source_registry").update({
+                    metadata = dict(candidate.get("metadata") or {})
+                    metadata["validation_signals"] = signals
+                    await supabase._retry(lambda c=candidate, sc=score, sig=signals, mc=message_count, v=validation, md=metadata: client.table("source_registry").update({
                         "channel_status": "ONLINE", "validation_score": sc, "validation_status": v,
-                        "message_count": mc, "metadata": {"validation_signals": sig},
+                        "message_count": mc, "metadata": md,
                         "last_checked": datetime.now(UTC).isoformat(), "last_seen": datetime.now(UTC).isoformat(),
                     }).eq("id", c["id"]).eq("monitoring_status", "QUARANTINED").execute(), attempts=1)
                     candidate["validation_score"] = score
