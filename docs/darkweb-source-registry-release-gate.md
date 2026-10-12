@@ -11,6 +11,15 @@ This checklist is intentionally evidence-driven. A healthy API process does not 
 - Production registry row counts were zero at the 2026-10-12 audit. No live collection is claimed by this branch.
 - Migration versions `20261012083522` and `20261012083534` are present in the live Supabase migration history, but their source files were absent from the repository. Matching source files are restored here for future reproducible database builds. Do not manually re-apply these versions to production.
 
+## Newly confirmed database privilege blocker (2026-10-12)
+
+A read-only production query found RLS enabled on all three registry tables, but table-level grants remain for the `authenticated` role. No policies were found in the earlier inspection, so ordinary authenticated queries should still be denied by RLS; nevertheless, the grants violate the intended least-privilege boundary.
+
+- Added `20261012100000_darkweb_source_registry_privilege_hardening.sql` to revoke table privileges from `PUBLIC`, `anon`, and `authenticated`, while granting required privileges to `service_role`.
+- This corrective migration exists on this branch only and has **not** been applied to production.
+- Before deployment, review the exact privilege delta, run it against a disposable Supabase database, and verify effective privileges with `has_table_privilege` plus RLS/policy checks.
+- Do not treat the restored historical migration files as proof that production grants already match repository intent.
+
 ## Required verification before merge/deploy
 
 - [ ] Run network-free unit tests for handle normalization, candidate extraction, conservative validation tiers, provenance preservation, and connected-reference scoring.
