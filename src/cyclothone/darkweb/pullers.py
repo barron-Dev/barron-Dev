@@ -5,6 +5,7 @@ import hashlib
 import json
 import logging
 import re
+from datetime import UTC, datetime
 from dataclasses import dataclass
 from urllib.parse import urlsplit
 
@@ -169,8 +170,9 @@ class TelegramPublicMonitor:
 
     def __init__(self, channels: list[str]) -> None:
         self.channels = list(dict.fromkeys(c.strip().lstrip("@") for c in channels if c.strip()))
-        # Per-channel outcomes remain available to the scheduler for honest coverage.
+        # Per-channel outcomes are returned with the request result for customer-visible coverage.
         self.channel_status: dict[str, str] = {}
+        self.channel_results: list[dict[str, object]] = []
 
     async def pull(self) -> list[Finding]:
         semaphore = asyncio.Semaphore(5)
@@ -199,10 +201,20 @@ class TelegramPublicMonitor:
                 return channel, None
 
         results = await asyncio.gather(*(pull_channel(channel) for channel in self.channels))
+        checked_at = datetime.now(UTC).isoformat()
         self.channel_status = {
             channel: "checked" if findings is not None else "failed"
             for channel, findings in results
         }
+        self.channel_results = [
+            {
+                "channel": channel,
+                "state": "checked" if findings is not None else "failed",
+                "findings_count": len(findings) if findings is not None else 0,
+                "checked_at": checked_at,
+            }
+            for channel, findings in results
+        ]
         successful = [findings for _, findings in results if findings is not None]
         if self.channels and not successful:
             raise RuntimeError("all configured Telegram public channels failed")
