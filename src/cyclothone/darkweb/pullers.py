@@ -381,8 +381,10 @@ class MetaPublicMonitor:
                 return findings
             batches = await asyncio.gather(*(search(d) for d in domains[:10]), return_exceptions=True)
         failures = sum(isinstance(batch, BaseException) for batch in batches)
-        if failures == min(len(domains), 10):
-            raise RuntimeError("all Instagram public searches failed")
+        if failures:
+            # Fail closed: do not label an incomplete set of domain searches as
+            # a complete check. The request worker records this source as failed.
+            raise RuntimeError(f"instagram_public_searches_incomplete:{failures}/{len(batches)}")
         return [item for batch in batches if isinstance(batch, list) for item in batch]
 
     async def pull_facebook_domains(self, domains: list[str]) -> list[Finding]:
@@ -421,8 +423,10 @@ class MetaPublicMonitor:
             jobs = [page_search(page_id, domain) for page_id in self.facebook_page_ids[:50] for domain in domains[:10]]
             batches = await asyncio.gather(*jobs, return_exceptions=True)
         failures = sum(isinstance(batch, BaseException) for batch in batches)
-        if batches and failures == len(batches):
-            raise RuntimeError("all Facebook public Page searches failed")
+        if failures:
+            # Do not report a complete source check when any configured Page
+            # or target query failed; this prevents silent partial coverage.
+            raise RuntimeError(f"facebook_public_page_searches_incomplete:{failures}/{len(batches)}")
         return [item for batch in batches if isinstance(batch, list) for item in batch]
 
 
