@@ -53,3 +53,39 @@ async def test_watchlist_match_fans_out_per_tenant():
         })
     assert result == {"matched": 2, "alerts": 2, "errors": 0}
     assert record.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_github_partial_query_failures_are_reported(monkeypatch):
+    from cyclothone.darkweb.pullers import GitHubCodeMonitor
+
+    class Response:
+        def __init__(self, status):
+            self.status = status
+
+        def raise_for_status(self):
+            if self.status != 200:
+                raise RuntimeError("provider error")
+
+        def json(self):
+            return {"items": []}
+
+    class Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def get(self, url, *, params, headers):
+            term = params["q"].rsplit(" ", 1)[-1]
+            return Response(200 if term == "password" else 403)
+
+    monkeypatch.setattr("cyclothone.darkweb.pullers.httpx.AsyncClient", lambda **kwargs: Client())
+    monitor = GitHubCodeMonitor("test-token")
+    assert await monitor.pull_domain("example.com") == []
+    assert monitor.channel_status == {
+        "password": "checked",
+        "api_key": "failed",
+        "secret": "failed",
+    }
