@@ -8,6 +8,7 @@ from __future__ import annotations
 import unittest
 
 from cyclothone.darkweb.source_registry import (
+    classify_validation,
     clean_handle,
     extract_candidates,
     validation_signals,
@@ -49,6 +50,13 @@ class SourceRegistryParsingTests(unittest.TestCase):
     def test_empty_page_never_scores_as_verified(self) -> None:
         score, signals, messages = validation_signals("")
         self.assertEqual((score, signals, messages), (0, [], 0))
+
+    def test_absence_of_evidence_is_not_a_scam_classification(self) -> None:
+        self.assertIsNone(classify_validation(0))
+        self.assertIsNone(classify_validation(2))
+        self.assertEqual(classify_validation(3), "LOW")
+        self.assertEqual(classify_validation(5), "MEDIUM")
+        self.assertEqual(classify_validation(8), "HIGH")
 
 
 if __name__ == "__main__":
