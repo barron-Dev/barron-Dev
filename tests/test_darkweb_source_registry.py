@@ -48,6 +48,11 @@ class SourceRegistryParsingTests(unittest.TestCase):
         self.assertEqual(score, len(signals))
         self.assertEqual(messages, 0)
 
+    def test_connected_public_references_contribute_only_observed_evidence(self) -> None:
+        score, signals, _ = validation_signals("small public page", connected_links=2)
+        self.assertEqual(score, 1)
+        self.assertEqual(signals, ["connected_link_network"])
+
     def test_empty_page_never_scores_as_verified(self) -> None:
         score, signals, messages = validation_signals("")
         self.assertEqual((score, signals, messages), (0, [], 0))
