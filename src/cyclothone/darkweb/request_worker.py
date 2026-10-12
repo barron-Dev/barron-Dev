@@ -225,16 +225,21 @@ class DarkWebRequestWorker:
                 findings = await asyncio.wait_for(pull(), timeout=timeout)
                 monitor = getattr(pull, "__self__", None)
                 channel_status = getattr(monitor, "channel_status", {})
+                channel_results = getattr(monitor, "channel_results", [])
                 failed_channels = [
                     channel for channel, state in channel_status.items()
                     if state != "checked"
                 ]
                 if channel_status:
+                    checked_count = sum(state == "checked" for state in channel_status.values())
                     return {
                         "source": source_id,
                         "state": "checked",
                         "coverage": "partial" if failed_channels else "all_configured_channels_checked",
-                        "channels": [
+                        "channel_count_configured": len(channel_status),
+                        "channel_count_checked": checked_count,
+                        "channel_count_failed": len(failed_channels),
+                        "channels": channel_results or [
                             {"channel": channel, "state": state}
                             for channel, state in sorted(channel_status.items())
                         ],
