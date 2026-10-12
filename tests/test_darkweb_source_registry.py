@@ -9,6 +9,7 @@ import unittest
 
 from cyclothone.darkweb.source_registry import (
     classify_public_http_response,
+    bounded_configured_handles,
     classify_validation,
     clean_handle,
     extract_candidates,
@@ -18,6 +19,14 @@ from cyclothone.darkweb.source_registry import (
 
 
 class SourceRegistryParsingTests(unittest.TestCase):
+    def test_configured_target_batch_is_deduplicated_and_hard_capped(self) -> None:
+        targets = [f"public_{index}" for index in range(40)]
+        bounded = bounded_configured_handles(targets + [targets[0], "bad handle"], 1000)
+        self.assertEqual(len(bounded), 25)
+        self.assertEqual(len(set(bounded)), 25)
+        self.assertEqual(bounded, targets[:25])
+        self.assertEqual(bounded_configured_handles(targets, 0), [])
+
     def test_clean_handle_normalizes_public_handles(self) -> None:
         self.assertEqual(clean_handle("@Example_Channel"), "example_channel")
         self.assertIsNone(clean_handle("joinchat"))
