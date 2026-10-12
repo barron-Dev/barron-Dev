@@ -60,7 +60,8 @@ class SourceRegistryParsingTests(unittest.TestCase):
         self.assertEqual(classify_public_http_response(302, ""), (None, "redirect_not_followed"))
         self.assertEqual(classify_public_http_response(429, ""), (None, "rate_limited"))
         self.assertEqual(classify_public_http_response(503, ""), (None, "provider_error"))
-        self.assertEqual(classify_public_http_response(403, ""), ("PRIVATE", "access_restricted"))
+        self.assertEqual(classify_public_http_response(401, ""), (None, "access_restricted"))
+        self.assertEqual(classify_public_http_response(403, ""), (None, "access_restricted"))
         self.assertEqual(classify_public_http_response(404, ""), ("EXPIRED", "not_found"))
 
     def test_empty_page_never_scores_as_verified(self) -> None:
