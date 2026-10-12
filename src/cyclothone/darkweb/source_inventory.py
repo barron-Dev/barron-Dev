@@ -15,7 +15,7 @@ from typing import Iterable
 SOURCE_CATALOG: tuple[dict[str, str], ...] = (
     {"source": "telegram_public", "category": "Messaging & social", "access_mode": "public_web_preview", "integration": "implemented"},
     {"source": "reddit_public", "category": "Messaging & social", "access_mode": "api_credentials", "integration": "planned"},
-    {"source": "bluesky_public", "category": "Messaging & social", "access_mode": "public_api", "integration": "planned"},
+    {"source": "bluesky_public", "category": "Messaging & social", "access_mode": "public_api", "integration": "implemented"},
     {"source": "tiktok_commercial", "category": "Messaging & social", "access_mode": "commercial_api_credentials", "integration": "planned"},
     {"source": "youtube_public", "category": "Messaging & social", "access_mode": "public_api", "integration": "planned"},
     {"source": "discord_public", "category": "Messaging & social", "access_mode": "authorized_api_or_public_content", "integration": "planned"},
