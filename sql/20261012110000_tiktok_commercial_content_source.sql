@@ -4,7 +4,7 @@
 insert into public.dw_sources
   (id, name, kind, endpoint, enabled, poll_interval_seconds, web_layer, access_mode, last_status)
 values
-  ('tiktok_commercial', 'TikTok Commercial Content API (EU ads)', 'social',
+  ('tiktok_commercial', 'TikTok Commercial Content API (EU ads)', 'forum',
    'https://open.tiktokapis.com/v2/research/adlib/ad/query/',
    true, 900, 'surface', 'public', 'awaiting_api_credentials')
 on conflict (id) do update set
