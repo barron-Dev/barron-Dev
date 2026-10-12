@@ -45,6 +45,11 @@ async def test_telegram_monitor_queries_all_configured_channels_and_keeps_source
         "https://t.me/s/channel-two",
     }
     assert monitor.channel_status == {"channel-one": "checked", "channel-two": "checked"}
+    assert {row["channel"]: row["findings_count"] for row in monitor.channel_results} == {
+        "channel-one": 1,
+        "channel-two": 1,
+    }
+    assert all(row["state"] == "checked" and row["checked_at"] for row in monitor.channel_results)
 
 
 @pytest.mark.asyncio
@@ -60,6 +65,10 @@ async def test_telegram_monitor_preserves_partial_channel_failure_status():
         "channel-one": "checked",
         "broken-channel": "failed",
     }
+    outcomes = {row["channel"]: row for row in monitor.channel_results}
+    assert outcomes["channel-one"]["findings_count"] == 1
+    assert outcomes["broken-channel"]["findings_count"] == 0
+    assert outcomes["broken-channel"]["state"] == "failed"
 
 
 @pytest.mark.asyncio
