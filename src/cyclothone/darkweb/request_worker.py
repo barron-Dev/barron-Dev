@@ -10,6 +10,7 @@ from urllib.parse import urlsplit
 import httpx
 
 from cyclothone.darkweb.matcher import DarkWebMatcher
+from cyclothone.darkweb.bluesky import BlueskyPublicMonitor
 from cyclothone.darkweb.pullers import (
     Finding,
     GitHubCodeMonitor,
@@ -318,6 +319,7 @@ class DarkWebRequestWorker:
             ("ransomwatch", RansomwatchPuller().pull if not ransom_reason else None, 35, ransom_reason),
             ("hibp", hibp_call, 25, hibp_reason),
             ("github_code", (lambda: GitHubCodeMonitor(github_token).pull_domain(provider_domain)) if github_token and provider_domain else None, 65, github_reason),
+            ("bluesky_public", (lambda: BlueskyPublicMonitor().pull_target(provider_email or provider_domain, "email" if provider_email else "domain")) if (provider_email or provider_domain) else None, 45, None if (provider_email or provider_domain) else "unsupported_target_type"),
             ("pastebin_public", PastePublicMonitor().pull if public_target_supported else None, 50, paste_reason),
             ("telegram_public", telegram_monitor.pull if telegram_monitor and public_target_supported else None, 90, telegram_reason),
         ]
