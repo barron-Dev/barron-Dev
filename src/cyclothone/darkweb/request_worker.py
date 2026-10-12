@@ -78,6 +78,27 @@ def _coverage_state(sources: list[dict]) -> str:
     return "partial"
 
 
+def _safe_evidence_url(value: object) -> str | None:
+    """Return a directly usable HTTPS evidence URL; never expose appended titles."""
+    if not isinstance(value, str):
+        return None
+    candidate = value.strip()
+    if not candidate or any(char.isspace() or ord(char) < 32 for char in candidate):
+        return None
+    try:
+        parsed = urlsplit(candidate)
+        # Evidence links must be absolute HTTPS URLs with a hostname and no
+        # embedded credentials. Do not try to salvage malformed URLs by slicing.
+        if parsed.scheme.lower() != "https" or not parsed.hostname:
+            return None
+        if parsed.username is not None or parsed.password is not None:
+            return None
+        _ = parsed.port  # Force validation of malformed port values.
+    except ValueError:
+        return None
+    return candidate
+
+
 def _require_recorded_finding(response: object) -> dict:
     """Require the database RPC to confirm a durable finding and alert."""
     rows = response if isinstance(response, list) else [response]
@@ -339,7 +360,7 @@ class DarkWebRequestWorker:
         for item in exact:
             evidence.append({
                 "source": item.get("source_id"), "collected_at": item.get("collected_at") or item.get("first_seen"),
-                "content_hash": item.get("content_hash"), "source_url": item.get("source_url"),
+                "content_hash": item.get("content_hash"), "source_url": _safe_evidence_url(item.get("source_url")),
                 "label": "possible match — review",
             })
         for finding in pulled[:2000]:
@@ -353,12 +374,12 @@ class DarkWebRequestWorker:
                     "p_source_id": finding.source_id, "p_content_hash": tenant_hash,
                     "p_kind": finding.kind, "p_matched_value": str(finding.matched_value).strip().lower(),
                     "p_context": finding.context, "p_severity": finding.severity,
-                    "p_source_url": finding.source_url, "p_metadata": meta,
+                    "p_source_url": _safe_evidence_url(finding.source_url), "p_metadata": meta,
                     "p_tenant_id": tenant_id, "p_watchlist_id": watch_id,
                 })
                 _require_recorded_finding(recorded)
                 evidence.append({"source": finding.source_id, "collected_at": datetime.now(UTC).isoformat(),
-                                 "content_hash": tenant_hash, "source_url": finding.source_url})
+                                 "content_hash": tenant_hash, "source_url": _safe_evidence_url(finding.source_url)})
             except Exception:
                 persistence_failures += 1
                 logger.warning("unable to persist customer dark-web match", exc_info=True)
@@ -390,10 +411,16 @@ class DarkWebRequestWorker:
                 "source": item.get("source_id"),
                 "collected_at": item.get("collected_at") or item.get("first_seen"),
                 "content_hash": content_hash,
-                "source_url": item.get("source_url"),
+                "source_url": _safe_evidence_url(item.get("source_url")),
                 "label": "possible match — review",
             })
         evidence = list(evidence_by_hash.values())
+        # Apply the same provenance boundary to finding links shown in the
+        # customer result; this does not mutate historical database rows.
+        result_findings = [
+            {**item, "source_url": _safe_evidence_url(item.get("source_url"))}
+            for item in persisted
+        ]
         alerts = await supabase.select(
             "dw_alerts",
             "id,title,summary,severity,status,finding_id,created_at,case_id",
@@ -443,7 +470,7 @@ class DarkWebRequestWorker:
             "service": "dark_web_monitoring", "target": watch_value, "target_type": target_type,
             "coverage": coverage, "sources_checked": checked_sources,
             "sources_unavailable": unavailable_sources,
-            "findings": persisted[:200], "evidence": evidence[:200], "alerts": relevant_alerts[:200],
+            "findings": result_findings[:200], "evidence": evidence[:200], "alerts": relevant_alerts[:200],
             "case_id": case_id, "recommendations": (
                 ["Review each possible match against the source evidence.", "Rotate exposed credentials and investigate affected accounts."]
                 if persisted else ["No exact matches were confirmed in the sources checked.",
