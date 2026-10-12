@@ -7,7 +7,7 @@ This checklist is intentionally evidence-driven. A healthy API process does not 
 - Registry tables: `source_registry`, `source_registry_edges`, `source_registry_events`.
 - Collection module: `src/cyclothone/darkweb/source_registry.py`.
 - Existing scheduled collector: `src/cyclothone/darkweb/scheduler.py`.
-- The source-registry module is **not wired into the scheduler**. Do not report registry discovery as running until a separately reviewed, bounded integration is merged and observed.
+- A bounded configured-source validation entry point is wired into `DarkWebScheduler` behind `CYCLOTHONE_DW_SOURCE_REGISTRY_ENABLED=true`; it is disabled by default. It checks at most 25 operator-configured public Telegram targets per 15-minute scheduler cycle, with an 8-second request timeout, one-second pacing, no redirects, no login, no proxy rotation, and no target expansion. The recursive snowball-discovery `tick()` is deliberately **not** scheduled. Do not report validation as running unless the flag is explicitly enabled and persisted events prove it ran.
 - Production registry row counts were zero at the 2026-10-12 audit. No live collection is claimed by this branch.
 - Migration versions `20261012083522` and `20261012083534` are present in the live Supabase migration history, but their source files were absent from the repository. Matching source files are restored here for future reproducible database builds. Do not manually re-apply these versions to production.
 
@@ -24,7 +24,7 @@ A read-only production query found RLS enabled on all three registry tables, but
 
 - [ ] Run network-free unit tests for handle normalization, candidate extraction, conservative validation tiers, provenance preservation, and connected-reference scoring.
 - [ ] Review the two restored SQL migration files against the live schema and a clean disposable database. Confirm constraints, indexes, identity generation, RLS, and grants.
-- [ ] Decide and document an approved source-registry scheduler entry point with a strict per-tick source cap, bounded request timeouts, pacing, cancellation, and observable failures. Do not add proxy rotation, login, private/invite access, or detection evasion.
+- [ ] Enable `CYCLOTHONE_DW_SOURCE_REGISTRY_ENABLED=true` only after review; then verify the bounded configured-target validator writes source status and event evidence. Recursive snowball discovery remains out of scope for this release gate.
 - [ ] Run a bounded test against operator-approved public Telegram targets only. Persist source rows, graph edges, and event rows; verify timestamps and source status reflect actual HTTP outcomes.
 - [ ] Confirm a source timeout, rate limit, provider error, empty page, or missing credential is reported as unknown/unavailable/degraded—not as clean.
 - [ ] Verify customer request execution end-to-end under an authenticated tenant: request accepted, worker claimed, source pull attempted, findings/evidence persisted, and result visible to that same tenant. A generic “workflow recorded” response is not sufficient.
