@@ -20,6 +20,7 @@ from cyclothone.darkweb.telegram_config import (
     DEFAULT_PUBLIC_TELEGRAM_CHANNELS,  # noqa: F401 — compatibility export
     configured_telegram_channels,
 )
+from cyclothone.darkweb.tiktok import TikTokCommercialContentMonitor
 from cyclothone.storage.supabase_client import supabase
 
 logger = logging.getLogger(__name__)
@@ -92,6 +93,19 @@ class DarkWebScheduler:
         elif "telegram_public" in enabled:
             await self._mark_source("telegram_public", "unavailable_missing_channel", pulled=False)
         domains = await self._tenant_domains()
+        tiktok_credentials = bool(
+            (os.getenv("CYCLOTHONE_TIKTOK_CLIENT_KEY") or "").strip()
+            and (os.getenv("CYCLOTHONE_TIKTOK_CLIENT_SECRET") or "").strip()
+        )
+        if "tiktok_commercial" in enabled and not tiktok_credentials:
+            await self._mark_source("tiktok_commercial", "unavailable_missing_api_credentials", pulled=False)
+        elif "tiktok_commercial" in enabled:
+            targets = await self._tenant_tiktok_targets()
+            if targets:
+                monitor = TikTokCommercialContentMonitor()
+                await self._run_pull("tiktok_commercial", lambda m=monitor, t=targets: m.pull_targets(t))
+            else:
+                await self._mark_source("tiktok_commercial", "unavailable_missing_watch_targets", pulled=False)
         youtube_api_key = (os.getenv("CYCLOTHONE_YOUTUBE_API_KEY") or "").strip()
         if domains and "youtube_public" in enabled and youtube_api_key:
             monitor = YouTubePublicMonitor(youtube_api_key)
@@ -143,7 +157,7 @@ class DarkWebScheduler:
             monitor = getattr(pull, "__self__", None)
             channel_status = getattr(monitor, "channel_status", {})
             failed_channels = [channel for channel, state in channel_status.items() if state != "checked"]
-            source_status = "degraded" if result["errors"] or failed_channels else "ok"
+            source_status = "degraded" if result["errors"] or failed_channels or bool(getattr(monitor, "coverage_partial", False)) else "ok"
             for channel, state in channel_status.items():
                 logger.info("dark web source=%s channel=%s state=%s", source_id, channel, state)
             await self._mark_source(source_id, source_status)
@@ -198,6 +212,25 @@ class DarkWebScheduler:
             await supabase._retry(_do, attempts=1)
         except Exception:
             logger.warning("unable to persist dark web source health: %s", source_id, exc_info=True)
+
+
+    async def _tenant_tiktok_targets(self) -> list[tuple[str, str]]:
+        async def _do():
+            return await (await supabase._ensure()).table("dw_watchlist").select("kind,value").in_(
+                "kind", ["domain", "company_name", "username"]
+            ).execute()
+        try:
+            rows = (await supabase._retry(_do, attempts=1)).data or []
+            unique = {
+                (str(row.get("kind") or "").strip().lower(), str(row.get("value") or "").strip().lower())
+                for row in rows
+                if row.get("kind") and row.get("value")
+            }
+            targets = sorted(unique)
+            return targets[:20]
+        except Exception:
+            logger.debug("TikTok commercial watchlist unavailable", exc_info=True)
+            return []
 
     async def _tenant_domains(self) -> list[str]:
         async def _do():

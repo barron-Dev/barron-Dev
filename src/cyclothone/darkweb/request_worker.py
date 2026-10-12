@@ -21,6 +21,7 @@ from cyclothone.darkweb.pullers import (
     TelegramPublicMonitor,
 )
 from cyclothone.darkweb.telegram_config import configured_telegram_channels
+from cyclothone.darkweb.tiktok import TikTokCommercialContentMonitor
 from cyclothone.storage.supabase_client import supabase
 
 logger = logging.getLogger(__name__)
@@ -219,6 +220,14 @@ class DarkWebRequestWorker:
             (os.getenv("CYCLOTHONE_REDDIT_CLIENT_ID") or "").strip()
             and (os.getenv("CYCLOTHONE_REDDIT_CLIENT_SECRET") or "").strip()
         )
+        tiktok_client_key = (os.getenv("CYCLOTHONE_TIKTOK_CLIENT_KEY") or "").strip()
+        tiktok_client_secret = (os.getenv("CYCLOTHONE_TIKTOK_CLIENT_SECRET") or "").strip()
+        tiktok_credentials = bool(tiktok_client_key and tiktok_client_secret)
+        tiktok_supported_target = target_type in {"domain", "url", "brand", "username"}
+        tiktok_reason = (
+            "missing_api_credentials" if not tiktok_credentials
+            else ("unsupported_target_type" if not tiktok_supported_target else None)
+        )
         provider_domain = watch_value if target_type in {"domain", "url"} else ""
         provider_email = watch_value if target_type == "email" else ""
         async def run_source(source_id: str, pull, timeout: int, unavailable_reason: str | None = None):
@@ -291,6 +300,7 @@ class DarkWebRequestWorker:
             ("reddit_public", (lambda: RedditPublicMonitor().pull_domains([provider_domain])) if provider_domain and reddit_credentials else None, 45, reddit_reason),
             ("hackernews_public", (lambda: HackerNewsPublicMonitor().pull_domains([provider_domain])) if provider_domain else None, 45, social_reason),
             ("lemmy_public", (lambda: LemmyPublicMonitor().pull_domains([provider_domain])) if provider_domain else None, 45, social_reason),
+            ("tiktok_commercial", (lambda: TikTokCommercialContentMonitor().pull_target(watch_kind, watch_value)) if tiktok_credentials and tiktok_supported_target else None, 60, tiktok_reason),
         ]
         provider_results = await asyncio.gather(*(
             run_source(source_id, pull, timeout, reason)
