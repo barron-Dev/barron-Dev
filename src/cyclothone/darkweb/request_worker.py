@@ -92,6 +92,27 @@ def _merge_result_findings(persisted: list[dict], historical_exact: list[dict]) 
     return list(merged.values())
 
 
+def _merge_evidence_for_findings(evidence: list[dict], findings: list[dict]) -> list[dict]:
+    """Ensure each returned durable finding has a provenance entry when possible."""
+    merged: dict[str, dict] = {}
+    for item in evidence:
+        key = str(item.get("content_hash") or "")
+        if key:
+            merged.setdefault(key, item)
+    for finding in findings:
+        content_hash = str(finding.get("content_hash") or "")
+        if not content_hash or content_hash in merged:
+            continue
+        merged[content_hash] = {
+            "source": finding.get("source_id"),
+            "collected_at": finding.get("collected_at") or finding.get("first_seen"),
+            "content_hash": content_hash,
+            "source_url": _safe_evidence_url(finding.get("source_url")),
+            "label": "historical match — review",
+        }
+    return list(merged.values())
+
+
 def _alerts_for_findings(alerts: list[dict], findings: list[dict]) -> list[dict]:
     """Select tenant-scoped alerts linked to any finding shown in this result."""
     finding_ids = {str(item.get("id")) for item in findings if item.get("id") is not None}
@@ -441,6 +462,9 @@ class DarkWebRequestWorker:
         # Apply the same provenance boundary to finding links shown in the
         # customer result; this does not mutate historical database rows.
         result_findings = _merge_result_findings(persisted, exact)
+        # Historical matches must carry their own evidence references too;
+        # otherwise a finding can appear in the result without provenance.
+        evidence = _merge_evidence_for_findings(evidence, result_findings)
         alerts = await supabase.select(
             "dw_alerts",
             "id,title,summary,severity,status,finding_id,created_at,case_id",
