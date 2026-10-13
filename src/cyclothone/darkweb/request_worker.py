@@ -551,7 +551,7 @@ class DarkWebRequestWorker:
                 case_ids = [case_id]
             # Link a request to a pre-existing tenant-owned case when one case
             # already owns the matching alerts. Never overwrite an alert's case.
-            if case_id and not existing_link and not plan["create_case"]:
+            if case_id and not existing_link:
                 requester_user_id = str(request.get("requester_user_id") or "").strip()
                 if not requester_user_id:
                     raise RuntimeError("case_link_requester_missing")
