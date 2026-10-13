@@ -122,6 +122,45 @@ def _alerts_for_findings(alerts: list[dict], findings: list[dict]) -> list[dict]
     ]
 
 
+def _case_resolution(existing_request_case_id: object, alerts: list[dict]) -> dict:
+    """Choose a non-duplicating case action without reassigning linked alerts."""
+    linked_alert_cases = sorted({
+        str(alert["case_id"])
+        for alert in alerts
+        if alert.get("case_id")
+    })
+    if existing_request_case_id:
+        case_id = str(existing_request_case_id)
+        return {
+            "case_id": case_id,
+            "case_ids": sorted(set([case_id, *linked_alert_cases])),
+            "create_case": False,
+            "attach_unlinked_alerts": not linked_alert_cases or linked_alert_cases == [case_id],
+        }
+    if len(linked_alert_cases) == 1:
+        return {
+            "case_id": linked_alert_cases[0],
+            "case_ids": linked_alert_cases,
+            "create_case": False,
+            "attach_unlinked_alerts": True,
+        }
+    if len(linked_alert_cases) > 1:
+        # Several cases already own alerts for this finding set. A new case
+        # would duplicate the investigation, and choosing one would be arbitrary.
+        return {
+            "case_id": None,
+            "case_ids": linked_alert_cases,
+            "create_case": False,
+            "attach_unlinked_alerts": False,
+        }
+    return {
+        "case_id": None,
+        "case_ids": [],
+        "create_case": True,
+        "attach_unlinked_alerts": True,
+    }
+
+
 def _safe_evidence_url(value: object) -> str | None:
     """Return a directly usable HTTPS evidence URL; never expose appended titles."""
     if not isinstance(value, str):
@@ -472,14 +511,27 @@ class DarkWebRequestWorker:
         )
         relevant_alerts = _alerts_for_findings(alerts, result_findings)
         case_id = None
+        case_ids: list[str] = []
         if relevant_alerts:
-            # Reuse a case already linked to this request if a worker retry occurs.
+            # The request link is the retry idempotency anchor. Scope it to the
+            # request's organization and verify the linked case belongs to the tenant.
             existing_link = await supabase.select_one(
-                "customer_case_links", "case_id", service_request_id=request_id,
+                "customer_case_links", "case_id",
+                service_request_id=request_id, organization_id=organization_id,
             )
-            if existing_link:
-                case_id = str(existing_link["case_id"])
-            else:
+            plan = _case_resolution(
+                existing_link.get("case_id") if existing_link else None,
+                relevant_alerts,
+            )
+            case_id = plan["case_id"]
+            case_ids = list(plan["case_ids"])
+            if case_id:
+                owned_case = await supabase.select_one(
+                    "crime_cases", "id,tenant_id", id=case_id, tenant_id=tenant_id,
+                )
+                if not owned_case:
+                    raise RuntimeError("case_link_tenant_mismatch")
+            elif plan["create_case"]:
                 requester_user_id = str(request.get("requester_user_id") or "").strip()
                 if not requester_user_id:
                     raise RuntimeError("case_link_requester_missing")
@@ -496,15 +548,34 @@ class DarkWebRequestWorker:
                     "evidence": evidence[:200],
                 })
                 case_id = str(case["id"])
+                case_ids = [case_id]
+            # Link a request to a pre-existing tenant-owned case when one case
+            # already owns the matching alerts. Never overwrite an alert's case.
+            if case_id and not existing_link and not plan["create_case"]:
+                requester_user_id = str(request.get("requester_user_id") or "").strip()
+                if not requester_user_id:
+                    raise RuntimeError("case_link_requester_missing")
                 await supabase.insert_one("customer_case_links", {
                     "organization_id": organization_id,
                     "service_request_id": request_id,
                     "case_id": case_id,
                     "created_by": requester_user_id,
                 })
-            for alert in relevant_alerts:
-                if not alert.get("case_id"):
-                    await supabase.update("dw_alerts", {"case_id": case_id}, id=str(alert["id"]), tenant_id=tenant_id)
+            if plan["attach_unlinked_alerts"] and case_id:
+                for alert in relevant_alerts:
+                    if not alert.get("case_id"):
+                        await supabase.update(
+                            "dw_alerts", {"case_id": case_id},
+                            id=str(alert["id"]), tenant_id=tenant_id,
+                        )
+                        alert["case_id"] = case_id
+            case_ids = sorted(set([*case_ids, *[
+                str(alert["case_id"]) for alert in relevant_alerts if alert.get("case_id")
+            ]]))
+            if len(case_ids) != 1:
+                case_id = None
+            elif case_ids:
+                case_id = case_ids[0]
         checked_sources = [x for x in sources if x["state"] == "checked"]
         unavailable_sources = [x for x in sources if x["state"] != "checked"]
         # Coverage describes this configured provider set only; it never claims
@@ -515,7 +586,8 @@ class DarkWebRequestWorker:
             "coverage": coverage, "sources_checked": checked_sources,
             "sources_unavailable": unavailable_sources,
             "findings": result_findings[:200], "evidence": evidence[:200], "alerts": relevant_alerts[:200],
-            "case_id": case_id, "recommendations": (
+            "case_id": case_id, "case_ids": case_ids, "alert_count": len(relevant_alerts),
+            "recommendations": (
                 ["Review each possible match against the source evidence.", "Rotate exposed credentials and investigate affected accounts."]
                 if result_findings else ["No exact matches were confirmed in the sources checked.",
                                           "Coverage is partial; unavailable sources were not searched."]
