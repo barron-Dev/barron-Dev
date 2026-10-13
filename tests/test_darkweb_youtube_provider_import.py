@@ -1,0 +1,6 @@
+from cyclothone.darkweb.pullers import YouTubePublicMonitor as PullerYouTubePublicMonitor
+from cyclothone.darkweb.request_worker import YouTubePublicMonitor as WorkerYouTubePublicMonitor
+
+
+def test_request_worker_imports_the_youtube_public_monitor():
+    assert WorkerYouTubePublicMonitor is PullerYouTubePublicMonitor
