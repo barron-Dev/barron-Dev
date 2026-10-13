@@ -519,6 +519,8 @@ class DarkWebRequestWorker:
                 "customer_case_links", "case_id",
                 service_request_id=request_id, organization_id=organization_id,
             )
+            if existing_link and not existing_link.get("case_id"):
+                raise RuntimeError("case_link_missing_case_id")
             plan = _case_resolution(
                 existing_link.get("case_id") if existing_link else None,
                 relevant_alerts,
@@ -549,8 +551,16 @@ class DarkWebRequestWorker:
                 })
                 case_id = str(case["id"])
                 case_ids = [case_id]
-            # Link a request to a pre-existing tenant-owned case when one case
-            # already owns the matching alerts. Never overwrite an alert's case.
+            if plan["attach_unlinked_alerts"] and case_id:
+                for alert in relevant_alerts:
+                    if not alert.get("case_id"):
+                        await supabase.update(
+                            "dw_alerts", {"case_id": case_id},
+                            id=str(alert["id"]), tenant_id=tenant_id,
+                        )
+                        alert["case_id"] = case_id
+            # Link only after the alert rows point at the case. If link persistence
+            # fails, a retry can recover the case from those durable alert links.
             if case_id and not existing_link:
                 requester_user_id = str(request.get("requester_user_id") or "").strip()
                 if not requester_user_id:
@@ -561,14 +571,6 @@ class DarkWebRequestWorker:
                     "case_id": case_id,
                     "created_by": requester_user_id,
                 })
-            if plan["attach_unlinked_alerts"] and case_id:
-                for alert in relevant_alerts:
-                    if not alert.get("case_id"):
-                        await supabase.update(
-                            "dw_alerts", {"case_id": case_id},
-                            id=str(alert["id"]), tenant_id=tenant_id,
-                        )
-                        alert["case_id"] = case_id
             case_ids = sorted(set([*case_ids, *[
                 str(alert["case_id"]) for alert in relevant_alerts if alert.get("case_id")
             ]]))
