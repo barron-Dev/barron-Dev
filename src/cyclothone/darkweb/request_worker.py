@@ -493,8 +493,8 @@ class DarkWebRequestWorker:
             "findings": result_findings[:200], "evidence": evidence[:200], "alerts": relevant_alerts[:200],
             "case_id": case_id, "recommendations": (
                 ["Review each possible match against the source evidence.", "Rotate exposed credentials and investigate affected accounts."]
-                if persisted else ["No exact matches were confirmed in the sources checked.",
-                                   "Coverage is partial; unavailable sources were not searched."]
+                if result_findings else ["No exact matches were confirmed in the sources checked.",
+                                          "Coverage is partial; unavailable sources were not searched."]
             ),
             "completed_at": datetime.now(UTC).isoformat(),
         }
