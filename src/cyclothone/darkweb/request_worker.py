@@ -78,6 +78,29 @@ def _coverage_state(sources: list[dict]) -> str:
     return "partial"
 
 
+def _merge_result_findings(persisted: list[dict], historical_exact: list[dict]) -> list[dict]:
+    """Merge tenant-owned exact historical matches with this watchlist's findings."""
+    merged: dict[str, dict] = {}
+    for item in [*persisted, *historical_exact]:
+        finding_id = item.get("id")
+        if finding_id is None:
+            continue
+        key = str(finding_id)
+        # Prefer the current watchlist representation if the same durable row
+        # appears in both sets.
+        merged.setdefault(key, {**item, "source_url": _safe_evidence_url(item.get("source_url"))})
+    return list(merged.values())
+
+
+def _alerts_for_findings(alerts: list[dict], findings: list[dict]) -> list[dict]:
+    """Select tenant-scoped alerts linked to any finding shown in this result."""
+    finding_ids = {str(item.get("id")) for item in findings if item.get("id") is not None}
+    return [
+        alert for alert in alerts
+        if alert.get("finding_id") is not None and str(alert["finding_id"]) in finding_ids
+    ]
+
+
 def _safe_evidence_url(value: object) -> str | None:
     """Return a directly usable HTTPS evidence URL; never expose appended titles."""
     if not isinstance(value, str):
@@ -417,16 +440,13 @@ class DarkWebRequestWorker:
         evidence = list(evidence_by_hash.values())
         # Apply the same provenance boundary to finding links shown in the
         # customer result; this does not mutate historical database rows.
-        result_findings = [
-            {**item, "source_url": _safe_evidence_url(item.get("source_url"))}
-            for item in persisted
-        ]
+        result_findings = _merge_result_findings(persisted, exact)
         alerts = await supabase.select(
             "dw_alerts",
             "id,title,summary,severity,status,finding_id,created_at,case_id",
             tenant_id=tenant_id,
         )
-        relevant_alerts = [a for a in alerts if str(a.get("finding_id")) in {str(f["id"]) for f in persisted}]
+        relevant_alerts = _alerts_for_findings(alerts, result_findings)
         case_id = None
         if relevant_alerts:
             # Reuse a case already linked to this request if a worker retry occurs.
