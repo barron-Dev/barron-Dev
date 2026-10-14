@@ -100,7 +100,7 @@ def _historical_finding_matches_target(row: dict, watch_kind: str, watch_value: 
     return False
 
 
-async def _load_historical_matches(tenant_id: str, watch_kind: str, watch_value: str, *, page_size: int = 500) -> list[dict]:
+async def _load_historical_matches(tenant_id: str, watch_kind: str, watch_value: str, *, page_size: int = 500) -> tuple[list[dict], int]:
     """Page through tenant and shared intelligence so PostgREST's row cap cannot hide matches."""
     if page_size < 1 or page_size > 1000:
         raise ValueError("invalid_historical_page_size")
@@ -110,6 +110,7 @@ async def _load_historical_matches(tenant_id: str, watch_kind: str, watch_value:
     )
     client = await supabase._ensure()
     matches: list[dict] = []
+    records_scanned = 0
     offset = 0
     while True:
         async def _page():
@@ -123,6 +124,7 @@ async def _load_historical_matches(tenant_id: str, watch_kind: str, watch_value:
             )
         response = await supabase._retry(_page, attempts=2)
         batch = list(response.data or [])
+        records_scanned += len(batch)
         for row in batch:
             row_tenant = row.get("tenant_id")
             if row_tenant is not None and str(row_tenant) != tenant_id:
@@ -139,7 +141,7 @@ async def _load_historical_matches(tenant_id: str, watch_kind: str, watch_value:
         identity = str(row.get("content_hash") or row.get("id") or "")
         if identity:
             unique.setdefault(identity, row)
-    return list(unique.values())
+    return list(unique.values()), records_scanned
 
 
 def _finding_matches_target(finding: object, watch_kind: str, watch_value: str) -> bool:
@@ -258,7 +260,7 @@ class DarkWebRequestWorker:
         # Sweep the full tenant/shared corpus in bounded pages. A single
         # supabase.select() call is subject to PostgREST row limits and can silently
         # omit older matches when the corpus grows beyond the default page size.
-        exact = await _load_historical_matches(tenant_id, watch_kind, watch_value)
+        exact, historical_records_scanned = await _load_historical_matches(tenant_id, watch_kind, watch_value)
         enabled_rows = await supabase.select("dw_sources", "id,enabled,last_status,last_pull_at", enabled=True)
         enabled = {str(x["id"]) for x in enabled_rows}
         sources: list[dict] = []
@@ -538,6 +540,12 @@ class DarkWebRequestWorker:
             "service": "dark_web_monitoring", "target": watch_value, "target_type": target_type,
             "coverage": coverage, "sources_checked": checked_sources,
             "sources_unavailable": unavailable_sources,
+            "historical_corpus": {
+                "records_scanned": historical_records_scanned,
+                "exact_matches": len(exact),
+                "scope": "tenant_and_shared_intelligence",
+                "match_policy": "exact_identifier_or_exact_email_domain",
+            },
             "findings": persisted[:200], "evidence": evidence[:200], "alerts": relevant_alerts[:200],
             "case_id": case_id, "recommendations": (
                 ["Review each possible match against the source evidence.", "Rotate exposed credentials and investigate affected accounts."]
