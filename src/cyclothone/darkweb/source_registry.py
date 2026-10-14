@@ -152,6 +152,9 @@ class TelegramSourceRegistry:
         response = await supabase._retry(
             lambda: client.table("source_registry").select("identity")
                 .eq("source_type", "telegram").eq("monitoring_status", "ACTIVE")
+                .eq("channel_status", "ONLINE")
+                .in_("validation_status", ["HIGH", "MEDIUM", "LOW"])
+                .gte("last_checked", (datetime.now(UTC) - timedelta(hours=24)).isoformat())
                 .order("last_checked", desc=False, nullsfirst=True)
                 .limit(max(1, min(limit, 1000))).execute(),
             attempts=1,
@@ -211,9 +214,10 @@ class TelegramSourceRegistry:
                         page_response.raise_for_status()
                         page = page_response.text
                         status = "ONLINE" if page else "OFFLINE"
+                    monitoring_status = "EXCLUDED" if status == "PRIVATE" else "EXPIRED" if status == "EXPIRED" else "ACTIVE"
                     await supabase._retry(
-                        lambda i=identity, s=status, old=row: client.table("source_registry").update({
-                            "channel_status": s, "last_checked": now,
+                        lambda i=identity, s=status, old=row, m=monitoring_status: client.table("source_registry").update({
+                            "channel_status": s, "monitoring_status": m, "last_checked": now,
                             "last_seen": now if s == "ONLINE" else old.get("last_seen"),
                             "updated_at": now,
                         }).eq("identity", i).execute(),
