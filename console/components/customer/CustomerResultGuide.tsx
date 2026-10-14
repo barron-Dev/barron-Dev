@@ -1,6 +1,7 @@
 "use client";
 
-import React from "react";
+import React, { useState } from "react";
+import { openCustomerCase } from "../../lib/api";
 
 type AnyRecord = Record<string, any>;
 type Props = { service: string; request: AnyRecord; result: AnyRecord };
@@ -67,6 +68,9 @@ function actionPlan(kind: string, service: string, findings: AnyRecord[]): strin
 }
 
 export function CustomerResultGuide({ service, request, result }: Props) {
+  const [openingCase, setOpeningCase] = useState(false);
+  const [caseMessage, setCaseMessage] = useState("");
+  const [createdCaseId, setCreatedCaseId] = useState("");
   const findings = arr(result.findings);
   const alerts = arr(result.alerts);
   const checked = arr(result.sources_checked);
@@ -97,7 +101,7 @@ export function CustomerResultGuide({ service, request, result }: Props) {
       : "No findings were recorded in the available result. This means no matching signal was recorded within this run's scope and completed checks; it does not prove that the asset is risk-free or that every global source was searched.";
   const primaryKind = findings.length ? titleCase(exposureKind(findings[0])) : isDarkWeb ? "Public and dark-web exposure" : LABELS[service] ?? titleCase(service);
   const steps = actionPlan(primaryKind, service, findings);
-  const caseId = text(result.case_id, request.case_id);
+  const caseId = text(createdCaseId, result.case_id, request.case_id);
   const state = titleCase(outcome);
   const evidenceLinks = Array.from(new Set(findings.map((f) => text(f.source_url, f.evidence_url, f.url)).filter((u) => /^https?:\/\//i.test(u)))).slice(0, 4);
 
@@ -128,6 +132,12 @@ export function CustomerResultGuide({ service, request, result }: Props) {
       <ol className="mt-2 list-decimal space-y-1 pl-4 text-[#d9e5e7]">{steps.map((step, i) => <li key={i}>{step}</li>)}</ol>
     </div>
 
+    {findingCount > 0 && !caseId && <div className="rounded-xl border border-[#8ddcff]/20 bg-[#8ddcff]/[0.035] p-3">
+      <div className="text-[9px] uppercase tracking-wider text-[#8ddcff]">Continue with a case</div>
+      <p className="mt-1 text-[#b7c9cd]">Create a tracked case so your team can assign an owner, record investigation notes, and follow the issue through resolution. Creating a case does not itself remediate the exposure.</p>
+      <button type="button" disabled={openingCase || !request.id} onClick={async()=>{setOpeningCase(true);setCaseMessage("");try{const response=await openCustomerCase(String(request.id),service, severity.rank>=3?"high":severity.rank===2?"medium":"low");const id=text(response.case_id);if(id)setCreatedCaseId(id);setCaseMessage(id?`Case created: ${id}`:"Case request accepted; refresh to confirm the case link.");window.dispatchEvent(new Event("cyclothone-refresh-customer-service"));}catch(error){setCaseMessage(error instanceof Error?error.message:"Unable to open a case. Your result remains unchanged.");}finally{setOpeningCase(false)}}} className="mt-2 rounded-full border border-[#8ddcff]/30 px-4 py-2 text-[10px] text-[#8ddcff] disabled:opacity-50">{openingCase?"Opening case…":"Open a tracked case →"}</button>
+      {caseMessage && <p role="status" className="mt-2 text-[#b7c9cd]">{caseMessage}</p>}
+    </div>}
     {findings.length > 0 && <div className="rounded-xl border border-white/[0.07] p-3">
       <div className="text-[9px] uppercase tracking-wider text-[#82aab1]">Signals to review</div>
       <div className="mt-2 space-y-2">{findings.slice(0, 5).map((finding, i) => <div key={String(finding.id ?? finding.fingerprint ?? i)} className="border-l-2 border-[#ffb36b]/50 pl-3">
