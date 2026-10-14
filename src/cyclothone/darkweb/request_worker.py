@@ -13,10 +13,10 @@ from cyclothone.darkweb.matcher import DarkWebMatcher
 from cyclothone.darkweb.pullers import (
     BlueskyPublicMonitor,
     GitHubCodeMonitor,
+    HIBPPuller,
     HackerNewsPublicMonitor,
     LemmyPublicMonitor,
     PastePublicMonitor,
-    RedditPublicMonitor,
     RansomwatchPuller,
     TelegramPublicMonitor,
 )
@@ -267,10 +267,7 @@ class DarkWebRequestWorker:
         github_token = (os.getenv("CYCLOTHONE_GITHUB_TOKEN") or os.getenv("SENTINEL_GITHUB_TOKEN") or "").strip()
         youtube_api_key = (os.getenv("CYCLOTHONE_YOUTUBE_API_KEY") or "").strip()
         telegram_channels = configured_telegram_channels(use_defaults=False)
-        reddit_credentials = bool(
-            (os.getenv("CYCLOTHONE_REDDIT_CLIENT_ID") or "").strip()
-            and (os.getenv("CYCLOTHONE_REDDIT_CLIENT_SECRET") or "").strip()
-        )
+        hibp_key = (os.getenv("CYCLOTHONE_HIBP_KEY") or "").strip()
         tiktok_client_key = (os.getenv("CYCLOTHONE_TIKTOK_CLIENT_KEY") or "").strip()
         tiktok_client_secret = (os.getenv("CYCLOTHONE_TIKTOK_CLIENT_SECRET") or "").strip()
         tiktok_credentials = bool(tiktok_client_key and tiktok_client_secret)
@@ -331,9 +328,9 @@ class DarkWebRequestWorker:
             if telegram_channels and telegram_target_supported else None
         )
         social_reason = None if provider_domain else "unsupported_target_type"
-        reddit_reason = (
-            "missing_api_credentials" if not reddit_credentials
-            else social_reason
+        hibp_reason = (
+            "missing_api_key" if not hibp_key
+            else (None if target_type in {"domain", "url", "email"} else "unsupported_target_type")
         )
         youtube_reason = (
             "missing_api_key" if not youtube_api_key
@@ -341,6 +338,13 @@ class DarkWebRequestWorker:
         )
         provider_specs = [
             ("ransomwatch", RansomwatchPuller().pull if not ransom_reason else None, 35, ransom_reason),
+            ("hibp", (
+                (lambda: HIBPPuller(hibp_key).pull_account(provider_email))
+                if target_type == "email" and hibp_key
+                else (lambda: HIBPPuller(hibp_key).pull_domain(provider_domain))
+                if provider_domain and hibp_key
+                else None
+            ), 65, hibp_reason),
             ("github_code", (lambda: GitHubCodeMonitor(github_token).pull_domain(provider_domain)) if github_token and provider_domain else None, 65, github_reason),
             ("pastebin_public", PastePublicMonitor().pull if public_target_supported else None, 50, paste_reason),
             ("telegram_public", telegram_monitor.pull if telegram_monitor else None, 90, telegram_reason),
@@ -348,7 +352,6 @@ class DarkWebRequestWorker:
             # Public social/community sources are checked in the same customer request,
             # so the result reports each source's real outcome instead of scheduler-only status.
             ("bluesky_public", (lambda: BlueskyPublicMonitor().pull_domains([provider_domain])) if provider_domain else None, 45, social_reason),
-            ("reddit_public", (lambda: RedditPublicMonitor().pull_domains([provider_domain])) if provider_domain and reddit_credentials else None, 45, reddit_reason),
             ("hackernews_public", (lambda: HackerNewsPublicMonitor().pull_domains([provider_domain])) if provider_domain else None, 45, social_reason),
             ("lemmy_public", (lambda: LemmyPublicMonitor().pull_domains([provider_domain])) if provider_domain else None, 45, social_reason),
             ("tiktok_commercial", (lambda: TikTokCommercialContentMonitor().pull_target(watch_kind, watch_value)) if tiktok_credentials and tiktok_supported_target else None, 60, tiktok_reason),
