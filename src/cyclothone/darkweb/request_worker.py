@@ -21,7 +21,6 @@ from cyclothone.darkweb.pullers import (
     TelegramPublicMonitor,
     YouTubePublicMonitor,
 )
-from cyclothone.darkweb.telegram_config import configured_telegram_channels
 from cyclothone.darkweb.source_registry import active_telegram_channels, record_telegram_checks
 from cyclothone.darkweb.tiktok import TikTokCommercialContentMonitor
 from cyclothone.storage.supabase_client import supabase
@@ -288,15 +287,10 @@ class DarkWebRequestWorker:
         findings = []
         github_token = (os.getenv("CYCLOTHONE_GITHUB_TOKEN") or "").strip()
         youtube_api_key = (os.getenv("CYCLOTHONE_YOUTUBE_API_KEY") or "").strip()
-        configured_channels = configured_telegram_channels(use_defaults=False)
-        registry_channels = await active_telegram_channels(limit=25)
-        # Keep a bounded, fair request batch; the continuous scheduler works through
-        # the wider registry over time instead of timing out a customer request.
-        # Registry ordering rotates the least-recently checked active channels first;
-        # configured channels are only a fallback if the registry has not populated yet.
-        telegram_channels = list(dict.fromkeys(
-            [channel.lower() for channel in registry_channels + configured_channels]
-        ))[:25]
+        # Only recently checked, public, validated registry entries are eligible.
+        # Configured channel names are seeded into the registry and must pass its
+        # reachability/quality checks before a customer scan can count them.
+        telegram_channels = await active_telegram_channels(limit=25)
         hibp_key = (os.getenv("CYCLOTHONE_HIBP_KEY") or "").strip()
         tiktok_client_key = (os.getenv("CYCLOTHONE_TIKTOK_CLIENT_KEY") or "").strip()
         tiktok_client_secret = (os.getenv("CYCLOTHONE_TIKTOK_CLIENT_SECRET") or "").strip()
