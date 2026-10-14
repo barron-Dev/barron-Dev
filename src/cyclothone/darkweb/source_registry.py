@@ -20,7 +20,7 @@ from cyclothone.storage.supabase_client import supabase
 
 logger = logging.getLogger(__name__)
 QUARANTINE_DAYS = 7
-DEFAULT_DISCOVERY_BATCH = 250
+DEFAULT_DISCOVERY_BATCH = 25
 DEFAULT_MONITOR_BATCH = 100
 TELEGRAM_LINK_RE = re.compile(r"(?i)(?:https?://)?(?:www\.)?(?:t\.me|telegram\.me)/([a-z0-9_]{5,32})(?:[/?#][^\s\"'<>]*)?")
 MENTION_RE = re.compile(r"(?<![a-zA-Z0-9_])@([a-zA-Z0-9_]{5,32})")
@@ -265,7 +265,7 @@ class TelegramSourceRegistry:
         quarantined = await supabase._retry(
             lambda: client.table("source_registry")
                 .select("id,identity,validation_score").eq("monitoring_status", "QUARANTINED")
-                .lte("first_seen", cutoff).execute(),
+                .lte("first_seen", cutoff).limit(max(1, min(max_sources, 100))).execute(),
             attempts=1,
         )
         for candidate in (quarantined.data or []):
