@@ -108,11 +108,9 @@ class DarkWebScheduler:
         paste = PastePublicMonitor()
         if paste.SOURCE in enabled:
             await self._run_pull(paste.SOURCE, paste.pull)
-        configured_channels = _configured_telegram_channels()
-        registry_channels = await active_telegram_channels(limit=50)
-        channels = list(dict.fromkeys(
-            [channel.lower() for channel in configured_channels + registry_channels]
-        ))[:50]
+        # Ingestion only uses channels that the registry recently verified as
+        # public and above its minimum validation threshold.
+        channels = await active_telegram_channels(limit=50)
         if channels and "telegram_public" in enabled:
             monitor = TelegramPublicMonitor(channels)
             await self._run_pull(monitor.SOURCE, monitor.pull)
