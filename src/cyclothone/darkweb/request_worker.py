@@ -405,16 +405,28 @@ class DarkWebRequestWorker:
                 "content_hash": item.get("content_hash"), "source_url": item.get("source_url"),
                 "label": "possible match — review",
             })
-            # Historical rows are candidates, not automatically tenant alerts.
-            # Re-record an exact match against this customer's watchlist through the
-            # existing atomic finding/alert RPC so the result has a durable chain.
-            if str(item.get("tenant_id") or "") == tenant_id and str(item.get("watchlist_id") or "") == watch_id:
-                continue
+            # Historical rows are candidates, not automatically confirmed exposure.
+            # Only enabled, registered sources can be promoted through the atomic
+            # finding/alert RPC; disabled-source rows remain visible as review evidence.
             source_id = str(item.get("source_id") or "").strip()
             original_hash = str(item.get("content_hash") or item.get("id") or "").strip()
             if not source_id or not original_hash:
                 continue
-            historical_hash = hashlib.sha256(
+            if source_id not in enabled:
+                evidence[-1]["label"] = "historical match — source currently disabled; review only"
+                continue
+            historical_kind = str(item.get("kind") or watch_kind).strip().lower()
+            if historical_kind not in {"email", "domain", "ip", "wallet", "phone", "company_name", "executive_name", "api_key_hash", "employee_id", "customer_id"}:
+                evidence[-1]["label"] = "historical match — indicator type is not alertable; review only"
+                continue
+            same_customer_watch = (
+                str(item.get("tenant_id") or "") == tenant_id
+                and str(item.get("watchlist_id") or "") == watch_id
+            )
+            # Reuse the existing row's identity for the same watchlist, so the RPC
+            # can repair a missing alert idempotently. Shared or other-watch rows get
+            # a tenant/watch-specific identity and cannot be reassigned across tenants.
+            historical_hash = original_hash if same_customer_watch else hashlib.sha256(
                 f"historical-correlation:v1:{tenant_id}:{watch_id}:{source_id}:{original_hash}".encode()
             ).hexdigest()
             historical_severity = str(item.get("severity") or "medium").strip().lower()
@@ -429,7 +441,7 @@ class DarkWebRequestWorker:
                 recorded = await supabase.rpc("record_dw_finding", {
                     "p_source_id": source_id,
                     "p_content_hash": historical_hash,
-                    "p_kind": str(item.get("kind") or watch_kind),
+                    "p_kind": historical_kind,
                     "p_matched_value": str(item.get("matched_value") or watch_value).strip().lower(),
                     "p_context": "Exact identifier match in previously persisted source intelligence; validate original source evidence.",
                     "p_severity": historical_severity,
@@ -448,6 +460,14 @@ class DarkWebRequestWorker:
                 logger.warning("unable to persist historical dark-web match request_id=%s", request_id, exc_info=True)
         for finding in pulled[:2000]:
             if not _finding_matches_target(finding, watch_kind, watch_value):
+                continue
+            if str(finding.kind or "").strip().lower() not in {"email", "domain", "ip", "wallet", "phone", "company_name", "executive_name", "api_key_hash", "employee_id", "customer_id"}:
+                evidence.append({
+                    "source": finding.source_id,
+                    "collected_at": datetime.now(UTC).isoformat(),
+                    "source_url": finding.source_url,
+                    "label": "exact provider match — indicator type is not alertable; review only",
+                })
                 continue
             meta = dict(finding.metadata or {})
             meta["customer_match"] = "exact"
