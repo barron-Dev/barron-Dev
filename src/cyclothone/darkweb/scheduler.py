@@ -22,7 +22,7 @@ from cyclothone.darkweb.telegram_config import (
     configured_telegram_channels,
 )
 from cyclothone.darkweb.tiktok import TikTokCommercialContentMonitor
-from cyclothone.darkweb.source_registry import active_telegram_channels, run_discovery_tick
+from cyclothone.darkweb.source_registry import active_telegram_channels, record_provider_execution, run_discovery_tick
 from cyclothone.storage.supabase_client import supabase
 
 logger = logging.getLogger(__name__)
@@ -262,6 +262,12 @@ class DarkWebScheduler:
             await supabase._retry(_do, attempts=1)
         except Exception:
             logger.warning("unable to persist dark web source health: %s", source_id, exc_info=True)
+        # Durable execution history is supplementary: registry failure must not
+        # alter the provider result or cause the source to be marked successful.
+        try:
+            await record_provider_execution(source_id, status, pulled=pulled and status in {"ok", "degraded"})
+        except Exception:
+            logger.warning("unable to persist source registry execution: %s", source_id, exc_info=True)
 
 
     async def _tenant_tiktok_targets(self) -> list[tuple[str, str]]:
