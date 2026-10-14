@@ -266,7 +266,7 @@ class DarkWebRequestWorker:
         sources: list[dict] = []
         pulled = []
         findings = []
-        github_token = (os.getenv("CYCLOTHONE_GITHUB_TOKEN") or os.getenv("SENTINEL_GITHUB_TOKEN") or "").strip()
+        github_token = (os.getenv("CYCLOTHONE_GITHUB_TOKEN") or "").strip()
         youtube_api_key = (os.getenv("CYCLOTHONE_YOUTUBE_API_KEY") or "").strip()
         telegram_channels = configured_telegram_channels(use_defaults=False)
         hibp_key = (os.getenv("CYCLOTHONE_HIBP_KEY") or "").strip()
