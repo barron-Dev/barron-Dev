@@ -48,8 +48,6 @@ def configured_telegram_channels(*, use_defaults: bool = True) -> list[str]:
     An explicitly configured empty value intentionally disables the source.
     """
     configured = os.getenv("CYCLOTHONE_DW_TELEGRAM_CHANNELS")
-    if configured is None:
-        configured = os.getenv("SENTINEL_DW_TELEGRAM_CHANNELS")
     raw_channels = (
         list(DEFAULT_PUBLIC_TELEGRAM_CHANNELS)
         if configured is None and use_defaults
