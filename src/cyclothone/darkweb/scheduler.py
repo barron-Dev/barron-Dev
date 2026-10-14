@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 from cyclothone.darkweb.matcher import DarkWebMatcher
 from cyclothone.darkweb.pullers import (
     BlueskyPublicMonitor,
+    GitHubCodeMonitor,
     HackerNewsPublicMonitor,
     LemmyPublicMonitor,
     PastePublicMonitor,
@@ -160,10 +161,43 @@ class DarkWebScheduler:
     async def _domain_tick(self) -> None:
         domains = await self._tenant_domains()
         enabled = await self._enabled_sources()
-        if "github_code" in enabled:
-            # GitHub Code Search currently returns 403 in production. Do not retry it
-            # on every domain; expose the restriction honestly while public sources run.
-            await self._mark_source("github_code", "unavailable_provider_403", pulled=False)
+        if "github_code" not in enabled:
+            return
+        token = (os.getenv("CYCLOTHONE_GITHUB_TOKEN") or "").strip()
+        if not token:
+            await self._mark_source("github_code", "unavailable_missing_api_key", pulled=False)
+            return
+        if not domains:
+            await self._mark_source("github_code", "unavailable_missing_watch_targets", pulled=False)
+            return
+
+        # Execute real authenticated searches rather than permanently labelling
+        # GitHub unavailable. Bound each cycle to ten distinct monitored domains;
+        # the provider itself performs three exact-domain query terms per domain.
+        monitor = GitHubCodeMonitor(token)
+        semaphore = asyncio.Semaphore(2)
+
+        async def pull_domain(domain: str):
+            async with semaphore:
+                return await monitor.pull_domain(domain)
+
+        batches = await asyncio.gather(
+            *(pull_domain(domain) for domain in domains[:10]),
+            return_exceptions=True,
+        )
+        failures = sum(isinstance(batch, BaseException) for batch in batches)
+        findings = [item for batch in batches if isinstance(batch, list) for item in batch]
+        if failures == min(len(domains), 10):
+            await self._mark_source("github_code", "unavailable_provider_request_failed", pulled=False)
+            logger.warning("GitHub Code Search failed for all domains in bounded cycle")
+            return
+        result = await self._ingest(findings)
+        status = "degraded" if failures or result["errors"] else "ok"
+        await self._mark_source("github_code", status)
+        logger.info(
+            "dark web source=github_code domains_checked=%d domains_failed=%d findings=%d matched=%d alerts=%d errors=%d",
+            min(len(domains), 10), failures, len(findings), result["matched"], result["alerts"], result["errors"],
+        )
 
     async def _run_pull(self, source_id: str, pull) -> None:
         started = time.monotonic()
