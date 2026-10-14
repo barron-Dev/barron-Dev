@@ -292,8 +292,10 @@ class DarkWebRequestWorker:
         registry_channels = await active_telegram_channels(limit=25)
         # Keep a bounded, fair request batch; the continuous scheduler works through
         # the wider registry over time instead of timing out a customer request.
+        # Registry ordering rotates the least-recently checked active channels first;
+        # configured channels are only a fallback if the registry has not populated yet.
         telegram_channels = list(dict.fromkeys(
-            [channel.lower() for channel in configured_channels + registry_channels]
+            [channel.lower() for channel in registry_channels + configured_channels]
         ))[:25]
         hibp_key = (os.getenv("CYCLOTHONE_HIBP_KEY") or "").strip()
         tiktok_client_key = (os.getenv("CYCLOTHONE_TIKTOK_CLIENT_KEY") or "").strip()
