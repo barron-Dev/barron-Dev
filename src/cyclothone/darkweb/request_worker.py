@@ -87,6 +87,61 @@ def _require_recorded_finding(response: object) -> dict:
     raise RuntimeError("finding_persistence_unconfirmed")
 
 
+def _historical_finding_matches_target(row: dict, watch_kind: str, watch_value: str) -> bool:
+    """Match only exact persisted indicators; allow an exact email-to-domain relation."""
+    kind = str(row.get("kind") or "").strip().lower()
+    value = str(row.get("matched_value") or "").strip().lower()
+    expected = watch_value.strip().lower()
+    if kind == watch_kind and value == expected:
+        return True
+    if watch_kind == "domain" and kind == "email":
+        local, separator, domain = value.rpartition("@")
+        return bool(local and separator and domain.rstrip(".") == expected)
+    return False
+
+
+async def _load_historical_matches(tenant_id: str, watch_kind: str, watch_value: str, *, page_size: int = 500) -> list[dict]:
+    """Page through tenant and shared intelligence so PostgREST's row cap cannot hide matches."""
+    if page_size < 1 or page_size > 1000:
+        raise ValueError("invalid_historical_page_size")
+    columns = (
+        "id,source_id,content_hash,kind,matched_value,context,source_url,severity,"
+        "first_seen,collected_at,tenant_id,watchlist_id"
+    )
+    client = await supabase._ensure()
+    matches: list[dict] = []
+    offset = 0
+    while True:
+        async def _page():
+            return await (
+                client.table("dw_findings")
+                .select(columns)
+                .or_(f"tenant_id.eq.{tenant_id},tenant_id.is.null")
+                .order("id")
+                .range(offset, offset + page_size - 1)
+                .execute()
+            )
+        response = await supabase._retry(_page, attempts=2)
+        batch = list(response.data or [])
+        for row in batch:
+            row_tenant = row.get("tenant_id")
+            if row_tenant is not None and str(row_tenant) != tenant_id:
+                continue
+            if _historical_finding_matches_target(row, watch_kind, watch_value):
+                matches.append(row)
+        if len(batch) < page_size:
+            break
+        offset += page_size
+    # A single source record can be duplicated by ingestion retries. Keep the
+    # strongest stable identity and avoid creating duplicate customer alerts.
+    unique: dict[str, dict] = {}
+    for row in matches:
+        identity = str(row.get("content_hash") or row.get("id") or "")
+        if identity:
+            unique.setdefault(identity, row)
+    return list(unique.values())
+
+
 def _finding_matches_target(finding: object, watch_kind: str, watch_value: str) -> bool:
     """Match a provider finding to the monitored identifier without fuzzy guesses.
 
@@ -200,14 +255,10 @@ class DarkWebRequestWorker:
         })
         watch_id = str(watch["id"])
 
-        # Exact retro-sweep only; findings are labeled as review candidates.
-        historical = await supabase.select(
-            "dw_findings",
-            "id,source_id,content_hash,kind,matched_value,context,source_url,severity,first_seen,collected_at,tenant_id,watchlist_id",
-            tenant_id=tenant_id,
-        )
-        exact = [f for f in historical if str(f.get("kind", "")).lower() == watch_kind
-                 and str(f.get("matched_value", "")).strip().lower() == watch_value]
+        # Sweep the full tenant/shared corpus in bounded pages. A single
+        # supabase.select() call is subject to PostgREST row limits and can silently
+        # omit older matches when the corpus grows beyond the default page size.
+        exact = await _load_historical_matches(tenant_id, watch_kind, watch_value)
         enabled_rows = await supabase.select("dw_sources", "id,enabled,last_status,last_pull_at", enabled=True)
         enabled = {str(x["id"]) for x in enabled_rows}
         sources: list[dict] = []
@@ -342,6 +393,47 @@ class DarkWebRequestWorker:
                 "content_hash": item.get("content_hash"), "source_url": item.get("source_url"),
                 "label": "possible match — review",
             })
+            # Historical rows are candidates, not automatically tenant alerts.
+            # Re-record an exact match against this customer's watchlist through the
+            # existing atomic finding/alert RPC so the result has a durable chain.
+            if str(item.get("tenant_id") or "") == tenant_id and str(item.get("watchlist_id") or "") == watch_id:
+                continue
+            source_id = str(item.get("source_id") or "").strip()
+            original_hash = str(item.get("content_hash") or item.get("id") or "").strip()
+            if not source_id or not original_hash:
+                continue
+            historical_hash = hashlib.sha256(
+                f"historical-correlation:v1:{tenant_id}:{watch_id}:{source_id}:{original_hash}".encode()
+            ).hexdigest()
+            historical_severity = str(item.get("severity") or "medium").strip().lower()
+            if historical_severity not in {"medium", "high", "critical"}:
+                historical_severity = "medium"
+            historical_url = item.get("source_url")
+            if historical_url:
+                parsed_evidence_url = urlsplit(str(historical_url))
+                if parsed_evidence_url.scheme not in {"http", "https"} or not parsed_evidence_url.hostname:
+                    historical_url = None
+            try:
+                recorded = await supabase.rpc("record_dw_finding", {
+                    "p_source_id": source_id,
+                    "p_content_hash": historical_hash,
+                    "p_kind": str(item.get("kind") or watch_kind),
+                    "p_matched_value": str(item.get("matched_value") or watch_value).strip().lower(),
+                    "p_context": "Exact identifier match in previously persisted source intelligence; validate original source evidence.",
+                    "p_severity": historical_severity,
+                    "p_source_url": historical_url,
+                    "p_metadata": {
+                        "historical_correlation": True,
+                        "match_type": "exact_persisted_indicator",
+                        "original_content_hash": original_hash,
+                    },
+                    "p_tenant_id": tenant_id,
+                    "p_watchlist_id": watch_id,
+                })
+                _require_recorded_finding(recorded)
+            except Exception:
+                persistence_failures += 1
+                logger.warning("unable to persist historical dark-web match request_id=%s", request_id, exc_info=True)
         for finding in pulled[:2000]:
             if not _finding_matches_target(finding, watch_kind, watch_value):
                 continue
