@@ -22,6 +22,7 @@ from cyclothone.darkweb.pullers import (
     YouTubePublicMonitor,
 )
 from cyclothone.darkweb.telegram_config import configured_telegram_channels
+from cyclothone.darkweb.source_registry import active_telegram_channels, record_telegram_checks
 from cyclothone.darkweb.tiktok import TikTokCommercialContentMonitor
 from cyclothone.storage.supabase_client import supabase
 
@@ -77,6 +78,24 @@ def _coverage_state(sources: list[dict]) -> str:
     ):
         return "all_configured_sources_checked"
     return "partial"
+
+def _source_coverage_summary(sources: list[dict]) -> dict:
+    """Count provider calls separately from the public channels queried inside them."""
+    channel_rows = [
+        channel
+        for source in sources
+        for channel in (source.get("channels") or [])
+        if isinstance(channel, dict)
+    ]
+    return {
+        "provider_count": len(sources),
+        "providers_checked": sum(source.get("state") == "checked" for source in sources),
+        "providers_unavailable_or_failed": sum(source.get("state") != "checked" for source in sources),
+        "telegram_channels_total": len(channel_rows),
+        "telegram_channels_checked": sum(channel.get("state") == "checked" for channel in channel_rows),
+        "telegram_channels_failed": sum(channel.get("state") != "checked" for channel in channel_rows),
+        "coverage_note": "Provider calls and individual Telegram channels are counted separately; this is not a count of all public sources.",
+    }
 
 
 def _require_recorded_finding(response: object) -> dict:
@@ -269,7 +288,13 @@ class DarkWebRequestWorker:
         findings = []
         github_token = (os.getenv("CYCLOTHONE_GITHUB_TOKEN") or "").strip()
         youtube_api_key = (os.getenv("CYCLOTHONE_YOUTUBE_API_KEY") or "").strip()
-        telegram_channels = configured_telegram_channels(use_defaults=False)
+        configured_channels = configured_telegram_channels(use_defaults=False)
+        registry_channels = await active_telegram_channels(limit=25)
+        # Keep a bounded, fair request batch; the continuous scheduler works through
+        # the wider registry over time instead of timing out a customer request.
+        telegram_channels = list(dict.fromkeys(
+            [channel.lower() for channel in configured_channels + registry_channels]
+        ))[:25]
         hibp_key = (os.getenv("CYCLOTHONE_HIBP_KEY") or "").strip()
         tiktok_client_key = (os.getenv("CYCLOTHONE_TIKTOK_CLIENT_KEY") or "").strip()
         tiktok_client_secret = (os.getenv("CYCLOTHONE_TIKTOK_CLIENT_SECRET") or "").strip()
@@ -297,14 +322,19 @@ class DarkWebRequestWorker:
                     if state != "checked"
                 ]
                 if channel_status:
+                    await record_telegram_checks(channel_status)
+                    channels = [
+                        {"channel": channel, "state": state}
+                        for channel, state in sorted(channel_status.items())
+                    ]
                     return {
                         "source": source_id,
                         "state": "checked",
                         "coverage": "partial" if failed_channels else "all_configured_channels_checked",
-                        "channels": [
-                            {"channel": channel, "state": state}
-                            for channel, state in sorted(channel_status.items())
-                        ],
+                        "channels": channels,
+                        "channels_total": len(channels),
+                        "channels_checked": sum(item["state"] == "checked" for item in channels),
+                        "channels_failed": len(failed_channels),
                     }, findings
                 return {"source": source_id, "state": "checked"}, findings
             except Exception:
@@ -376,6 +406,7 @@ class DarkWebRequestWorker:
                 "target_type": target_type,
                 "outcome": "source_unavailable",
                 "coverage": "none",
+                "source_coverage": _source_coverage_summary(sources),
                 "sources_checked": [],
                 "sources_unavailable": [source for source in sources if source["state"] != "checked"],
                 "historical_corpus": {
@@ -567,8 +598,8 @@ class DarkWebRequestWorker:
         result = {
             "service": "dark_web_monitoring", "target": watch_value, "target_type": target_type,
             "outcome": "live_sources_and_historical_correlation" if live_source_checked else "historical_matches_only",
-            "coverage": coverage, "sources_checked": checked_sources,
-            "sources_unavailable": unavailable_sources,
+            "coverage": coverage, "source_coverage": _source_coverage_summary(sources),
+            "sources_checked": checked_sources, "sources_unavailable": unavailable_sources,
             "historical_corpus": {
                 "records_scanned": historical_records_scanned,
                 "exact_matches": len(exact),
