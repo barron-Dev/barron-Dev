@@ -16,9 +16,6 @@ export default function CustomerServices(){
  async function load(){setLoading(true);setError("");try{const[o,r,c]=await Promise.all([getCustomerOrganizations(),getCustomerServiceRequests(),getCustomerCases()]);setOrgs(o.organizations);setRequests(r.service_requests);setCases(c.cases)}catch(e){setError(e instanceof Error?e.message:"Unable to load services")}finally{setLoading(false)}}
  useEffect(()=>{setApiToken(sessionStorage.getItem("cyclothone_access_token")||"");void load()},[]);
  const org=orgs[0]??null;
- const requestCount=useMemo(()=>requests.filter(r=>r.service_key==="cybersecurity_assessment").length,[requests]);
- const caseCount=useMemo(()=>cases.filter(c=>c.service_request?.service_key==="cybersecurity_assessment").length,[cases]);
- const latest=requests.filter(r=>r.service_key==="cybersecurity_assessment").sort((a,b)=>String(b.created_at).localeCompare(String(a.created_at)))[0];
  return <main className="cyclo-water min-h-screen overflow-hidden text-[#e8f1f3]">
   <header className="relative z-10 flex flex-wrap items-center justify-between gap-4 border-b border-white/10 bg-[#02090e]/70 px-5 py-4 backdrop-blur-2xl">
    <div className="flex items-center gap-3"><a href="/customer/overview" className="cyclo-mark text-lg font-bold">◌</a><div><a href="/customer/overview" className="font-semibold tracking-tight">CYCLOTHONE</a><span className="ml-3 text-[9px] uppercase tracking-[.18em] text-[#789aa4]">Customer</span></div></div>
