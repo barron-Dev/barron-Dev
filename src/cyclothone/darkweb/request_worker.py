@@ -163,6 +163,54 @@ async def _load_historical_matches(tenant_id: str, watch_kind: str, watch_value:
     return list(unique.values()), records_scanned
 
 
+
+async def _load_watchlist_findings(tenant_id: str, watchlist_id: str, *, page_size: int = 500) -> list[dict]:
+    """Read every durable finding for one tenant/watchlist, beyond PostgREST's row cap."""
+    if page_size < 1 or page_size > 1000:
+        raise ValueError("invalid_watchlist_page_size")
+    client = await supabase._ensure()
+    rows: list[dict] = []
+    offset = 0
+    columns = (
+        "id,source_id,content_hash,matched_value,context,source_url,severity,"
+        "first_seen,collected_at,watchlist_id"
+    )
+    while True:
+        response = await supabase._retry(
+            lambda: client.table("dw_findings").select(columns)
+                .eq("tenant_id", tenant_id).eq("watchlist_id", watchlist_id)
+                .order("id").range(offset, offset + page_size - 1).execute(),
+            attempts=2,
+        )
+        batch = list(response.data or [])
+        rows.extend(batch)
+        if len(batch) < page_size:
+            break
+        offset += page_size
+    return rows
+
+
+async def _load_tenant_alerts(tenant_id: str, *, page_size: int = 500) -> list[dict]:
+    """Page tenant alerts completely so relevant older alerts aren't silently omitted."""
+    if page_size < 1 or page_size > 1000:
+        raise ValueError("invalid_alert_page_size")
+    client = await supabase._ensure()
+    rows: list[dict] = []
+    offset = 0
+    columns = "id,title,summary,severity,status,finding_id,created_at,case_id"
+    while True:
+        response = await supabase._retry(
+            lambda: client.table("dw_alerts").select(columns).eq("tenant_id", tenant_id)
+                .order("id").range(offset, offset + page_size - 1).execute(),
+            attempts=2,
+        )
+        batch = list(response.data or [])
+        rows.extend(batch)
+        if len(batch) < page_size:
+            break
+        offset += page_size
+    return rows
+
 def _finding_matches_target(finding: object, watch_kind: str, watch_value: str) -> bool:
     """Match a provider finding to the monitored identifier without fuzzy guesses.
 
@@ -542,11 +590,7 @@ class DarkWebRequestWorker:
             raise RuntimeError("finding_persistence_incomplete")
 
         # Re-read tenant-scoped findings for this watchlist and keep result evidence bounded.
-        persisted = await supabase.select(
-            "dw_findings",
-            "id,source_id,content_hash,matched_value,context,source_url,severity,first_seen,collected_at,watchlist_id",
-            tenant_id=tenant_id, watchlist_id=watch_id,
-        )
+        persisted = await _load_watchlist_findings(tenant_id, watch_id)
         # The watchlist may already have findings from the continuous scheduler.
         # Include those durable rows in the explicit evidence collection as well;
         # otherwise the result can list a finding without its corresponding evidence.
@@ -567,11 +611,7 @@ class DarkWebRequestWorker:
                 "label": "possible match — review",
             })
         evidence = list(evidence_by_hash.values())
-        alerts = await supabase.select(
-            "dw_alerts",
-            "id,title,summary,severity,status,finding_id,created_at,case_id",
-            tenant_id=tenant_id,
-        )
+        alerts = await _load_tenant_alerts(tenant_id)
         relevant_alerts = [a for a in alerts if str(a.get("finding_id")) in {str(f["id"]) for f in persisted}]
         case_id = None
         if relevant_alerts:
@@ -623,6 +663,13 @@ class DarkWebRequestWorker:
                 "exact_matches": len(exact),
                 "scope": "tenant_and_shared_intelligence",
                 "match_policy": "exact_identifier_or_exact_email_domain",
+            },
+            "result_totals": {
+                "findings": len(persisted),
+                "evidence": len(evidence),
+                "alerts": len(relevant_alerts),
+                "returned_per_list": 200,
+                "truncated": any(len(items) > 200 for items in (persisted, evidence, relevant_alerts)),
             },
             "findings": persisted[:200], "evidence": evidence[:200], "alerts": relevant_alerts[:200],
             "case_id": case_id, "recommendations": (
