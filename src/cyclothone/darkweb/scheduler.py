@@ -13,7 +13,6 @@ from cyclothone.darkweb.pullers import (
     HackerNewsPublicMonitor,
     LemmyPublicMonitor,
     PastePublicMonitor,
-    RedditPublicMonitor,
     TelegramPublicMonitor,
     YouTubePublicMonitor,
 )
@@ -22,6 +21,7 @@ from cyclothone.darkweb.telegram_config import (
     configured_telegram_channels,
 )
 from cyclothone.darkweb.tiktok import TikTokCommercialContentMonitor
+from cyclothone.darkweb.source_registry import active_telegram_channels, run_discovery_tick
 from cyclothone.storage.supabase_client import supabase
 
 logger = logging.getLogger(__name__)
@@ -39,6 +39,7 @@ class DarkWebScheduler:
     def __init__(self) -> None:
         self.matcher = DarkWebMatcher()
         self._task: asyncio.Task | None = None
+        self._registry_task: asyncio.Task | None = None
         self._stop = asyncio.Event()
         self._last_domain = 0.0
 
@@ -46,16 +47,19 @@ class DarkWebScheduler:
         if self._task is None or self._task.done():
             self._stop.clear()
             self._task = asyncio.create_task(self._loop(), name="cyclothone-darkweb")
+            self._registry_task = asyncio.create_task(self._registry_loop(), name="cyclothone-darkweb-source-registry")
 
     async def stop(self) -> None:
         self._stop.set()
-        if self._task:
-            self._task.cancel()
-            try:
-                await self._task
-            except asyncio.CancelledError:
-                pass
-            self._task = None
+        for task in (self._task, self._registry_task):
+            if task:
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+        self._task = None
+        self._registry_task = None
 
     async def _loop(self) -> None:
         await asyncio.sleep(self.STARTUP_DELAY)
@@ -79,6 +83,23 @@ class DarkWebScheduler:
             except asyncio.TimeoutError:
                 pass
 
+    async def _registry_loop(self) -> None:
+        # Discovery is isolated from the provider scheduler so registry checks
+        # cannot delay customer requests or the regular source-ingestion cycle.
+        await asyncio.sleep(self.STARTUP_DELAY + 15)
+        while not self._stop.is_set():
+            try:
+                result = await run_discovery_tick()
+                logger.info("dark web source registry cycle completed result=%s", result)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception("dark web source registry cycle failed")
+            try:
+                await asyncio.wait_for(self._stop.wait(), timeout=self.GLOBAL_INTERVAL)
+            except asyncio.TimeoutError:
+                pass
+
     async def _global_tick(self) -> None:
         enabled = await self._enabled_sources()
         # Ransomwatch is archived and must never be represented as a fresh source check.
@@ -87,7 +108,11 @@ class DarkWebScheduler:
         paste = PastePublicMonitor()
         if paste.SOURCE in enabled:
             await self._run_pull(paste.SOURCE, paste.pull)
-        channels = _configured_telegram_channels()
+        configured_channels = _configured_telegram_channels()
+        registry_channels = await active_telegram_channels(limit=50)
+        channels = list(dict.fromkeys(
+            [channel.lower() for channel in configured_channels + registry_channels]
+        ))[:50]
         if channels and "telegram_public" in enabled:
             monitor = TelegramPublicMonitor(channels)
             await self._run_pull(monitor.SOURCE, monitor.pull)
@@ -120,17 +145,9 @@ class DarkWebScheduler:
             await self._run_pull("bluesky_public", lambda m=monitor, d=domains: m.pull_domains(d))
         elif "bluesky_public" in enabled:
             await self._mark_source("bluesky_public", "unavailable_missing_watch_targets", pulled=False)
-        reddit_credentials = bool(
-            (os.getenv("CYCLOTHONE_REDDIT_CLIENT_ID") or "").strip()
-            and (os.getenv("CYCLOTHONE_REDDIT_CLIENT_SECRET") or "").strip()
-        )
-        if domains and "reddit_public" in enabled and reddit_credentials:
-            monitor = RedditPublicMonitor()
-            await self._run_pull("reddit_public", lambda m=monitor, d=domains: m.pull_domains(d))
-        elif "reddit_public" in enabled and not reddit_credentials:
-            await self._mark_source("reddit_public", "unavailable_missing_api_credentials", pulled=False)
-        elif "reddit_public" in enabled:
-            await self._mark_source("reddit_public", "unavailable_missing_watch_targets", pulled=False)
+        # Reddit is intentionally excluded from Cyclothone source coverage.
+        if "reddit_public" in enabled:
+            await self._mark_source("reddit_public", "excluded_by_policy", pulled=False)
         if domains and "hackernews_public" in enabled:
             monitor = HackerNewsPublicMonitor()
             await self._run_pull("hackernews_public", lambda m=monitor, d=domains: m.pull_domains(d))
