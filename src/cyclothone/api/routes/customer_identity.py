@@ -619,7 +619,7 @@ async def service_requests(p:DeveloperPrincipal=Depends(principal)):
     for org_id in org_ids:
         rows.extend(await supabase.select(
             "service_requests",
-            "id,organization_id,requester_user_id,service_key,urgency,description,target,target_type,status,processing_state,attempts,failure_code,created_at,updated_at",
+            "id,organization_id,requester_user_id,service_key,urgency,description,target,target_type,status,processing_state,attempts,failure_code,result,created_at,updated_at",
             organization_id=org_id,
         ))
     return {"service_requests":rows}
