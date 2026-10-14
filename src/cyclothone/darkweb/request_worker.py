@@ -324,7 +324,10 @@ class DarkWebRequestWorker:
                     if state != "checked"
                 ]
                 if channel_status:
-                    await record_telegram_checks(channel_status)
+                    try:
+                        await record_telegram_checks(channel_status)
+                    except Exception:
+                        logger.warning("unable to persist Telegram registry outcomes request_id=%s", request_id, exc_info=True)
                     channels = [
                         {"channel": channel, "state": state}
                         for channel, state in sorted(channel_status.items())
@@ -341,6 +344,25 @@ class DarkWebRequestWorker:
                 return {"source": source_id, "state": "checked"}, findings
             except Exception:
                 logger.warning("dark-web provider request failed source=%s request_id=%s", source_id, request_id, exc_info=True)
+                monitor = getattr(pull, "__self__", None)
+                channel_status = getattr(monitor, "channel_status", {})
+                if channel_status:
+                    try:
+                        await record_telegram_checks(channel_status)
+                    except Exception:
+                        logger.warning("unable to persist Telegram registry outcomes request_id=%s", request_id, exc_info=True)
+                    channels = [
+                        {"channel": channel, "state": state}
+                        for channel, state in sorted(channel_status.items())
+                    ]
+                    return {
+                        "source": source_id, "state": "failed", "reason": "source_request_failed",
+                        "coverage": "partial" if any(item["state"] == "checked" for item in channels) else "none",
+                        "channels": channels,
+                        "channels_total": len(channels),
+                        "channels_checked": sum(item["state"] == "checked" for item in channels),
+                        "channels_failed": sum(item["state"] != "checked" for item in channels),
+                    }, []
                 return {"source": source_id, "state": "failed", "reason": "source_request_failed"}, []
 
         # The upstream Ransomwatch corpus is archived. Keep it out of live
