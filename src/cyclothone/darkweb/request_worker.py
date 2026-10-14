@@ -368,7 +368,7 @@ class DarkWebRequestWorker:
         # A completed search requires at least one provider call to succeed.
         # An empty result from a checked source is a valid zero-match result;
         # all-failed/all-unavailable is not a successful search.
-        if not any(source["state"] == "checked" for source in sources):
+        if not any(source["state"] == "checked" for source in sources) and not exact:
             failure_result = {
                 "service": "dark_web_monitoring",
                 "target": watch_value,
@@ -377,6 +377,12 @@ class DarkWebRequestWorker:
                 "coverage": "none",
                 "sources_checked": [],
                 "sources_unavailable": [source for source in sources if source["state"] != "checked"],
+                "historical_corpus": {
+                    "records_scanned": historical_records_scanned,
+                    "exact_matches": 0,
+                    "scope": "tenant_and_shared_intelligence",
+                    "match_policy": "exact_identifier_or_exact_email_domain",
+                },
                 "findings": [],
                 "evidence": [],
                 "alerts": [],
@@ -536,8 +542,10 @@ class DarkWebRequestWorker:
         # Coverage describes this configured provider set only; it never claims
         # visibility into the entire dark web or unconfigured services.
         coverage = _coverage_state(sources)
+        live_source_checked = bool(checked_sources)
         result = {
             "service": "dark_web_monitoring", "target": watch_value, "target_type": target_type,
+            "outcome": "live_sources_and_historical_correlation" if live_source_checked else "historical_matches_only",
             "coverage": coverage, "sources_checked": checked_sources,
             "sources_unavailable": unavailable_sources,
             "historical_corpus": {
