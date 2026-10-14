@@ -53,3 +53,33 @@ async def test_watchlist_match_fans_out_per_tenant():
         })
     assert result == {"matched": 2, "alerts": 2, "errors": 0}
     assert record.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_provider_execution_uses_atomic_state_rpc_not_channel_inventory():
+    from cyclothone.darkweb.source_registry import record_provider_execution
+
+    with patch("cyclothone.darkweb.source_registry.supabase.rpc", new=AsyncMock()) as rpc, patch(
+        "cyclothone.darkweb.source_registry.TelegramSourceRegistry.event", new=AsyncMock()
+    ) as event:
+        await record_provider_execution("hibp", "ok", pulled=True)
+
+    rpc.assert_awaited_once_with("record_dw_source_execution", {
+        "p_source_id": "hibp",
+        "p_status": "ok",
+        "p_pulled": True,
+        "p_error": None,
+    })
+    event.assert_awaited_once()
+    assert event.await_args.args[0] == "provider:hibp"
+    assert event.await_args.args[1] == "provider_execution"
+
+
+@pytest.mark.asyncio
+async def test_provider_execution_rejects_invalid_provider_identity():
+    from cyclothone.darkweb.source_registry import record_provider_execution
+
+    with patch("cyclothone.darkweb.source_registry.supabase.rpc", new=AsyncMock()) as rpc:
+        await record_provider_execution("not a provider id!", "ok", pulled=True)
+
+    rpc.assert_not_awaited()
