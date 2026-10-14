@@ -19,6 +19,7 @@ from cyclothone.darkweb.pullers import (
     PastePublicMonitor,
     RansomwatchPuller,
     TelegramPublicMonitor,
+    YouTubePublicMonitor,
 )
 from cyclothone.darkweb.telegram_config import configured_telegram_channels
 from cyclothone.darkweb.tiktok import TikTokCommercialContentMonitor
