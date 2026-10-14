@@ -105,80 +105,32 @@ def validation_signals(page: str, connected_links: int = 0) -> tuple[int, list[s
 
 
 async def record_provider_execution(source_id: str, status: str, *, pulled: bool) -> None:
-    """Persist provider-level execution history in the shared source registry.
+    """Persist one configured provider execution via the atomic database RPC.
 
-    This is deliberately separate from discovered-source counts: one provider
-    identity is not one underlying source. Failed registry writes must never
-    convert a failed provider check into a successful one.
+    Provider executions are stored separately from Telegram channel inventory.
+    This counter represents provider runs, never underlying sources checked.
     """
     source_id = str(source_id or "").strip().lower()
     if not re.fullmatch(r"[a-z0-9_:-]{1,100}", source_id):
         return
-    identity = f"provider:{source_id}"
-    now = datetime.now(UTC).isoformat()
-    client = await supabase._ensure()
     try:
-        response = await supabase._retry(
-            lambda: client.table("source_registry").select(
-                "id,metadata,first_seen"
-            ).eq("identity", identity).limit(1).execute(),
-            attempts=1,
-        )
-        rows = list(response.data or [])
-        previous = rows[0] if rows else None
-        old_metadata = previous.get("metadata") if previous and isinstance(previous.get("metadata"), dict) else {}
-        try:
-            count = max(0, int(old_metadata.get("execution_count") or 0))
-        except (TypeError, ValueError):
-            count = 0
-        metadata = {
-            **old_metadata,
-            "registry_kind": "provider_execution",
-            "provider_id": source_id,
-            "last_execution_status": str(status)[:100],
-            "last_execution_pulled": bool(pulled),
-            "execution_count": count + 1,
-            "successful_pull_count": max(0, int(old_metadata.get("successful_pull_count") or 0)) + int(pulled),
-            "last_execution_at": now,
-        }
-        if previous:
-            await supabase._retry(
-                lambda: client.table("source_registry").update({
-                    "source_type": "provider",
-                    "display_name": source_id,
-                    "monitoring_status": "ACTIVE",
-                    "last_checked": now,
-                    "last_seen": now if pulled else previous.get("last_seen"),
-                    "updated_at": now,
-                    "metadata": metadata,
-                }).eq("identity", identity).execute(),
-                attempts=1,
-            )
-        else:
-            await supabase._retry(
-                lambda: client.table("source_registry").insert({
-                    "identity": identity,
-                    "source_type": "provider",
-                    "display_name": source_id,
-                    "discovered_by": "scheduler_execution",
-                    "source_url": None,
-                    "monitoring_status": "ACTIVE",
-                    "channel_status": None,
-                    "first_seen": now,
-                    "last_seen": now if pulled else None,
-                    "last_checked": now,
-                    "updated_at": now,
-                    "metadata": metadata,
-                }).execute(),
-                attempts=1,
-            )
-        await TelegramSourceRegistry().event(
-            identity,
-            "provider_execution",
-            {"status": str(status)[:100], "pulled": bool(pulled), "execution_count": count + 1},
-        )
+        await supabase.rpc("record_dw_source_execution", {
+            "p_source_id": source_id,
+            "p_status": str(status)[:100],
+            "p_pulled": bool(pulled),
+            "p_error": None if pulled else str(status)[:1000],
+        })
     except Exception:
-        logger.warning("provider execution registry write failed source=%s", source_id, exc_info=True)
+        logger.warning(
+            "provider execution state RPC failed source=%s status=%s",
+            source_id, status, exc_info=True,
+        )
+        return
+    await TelegramSourceRegistry().event(
+        f"provider:{source_id}",
+        "provider_execution",
+        {"status": str(status)[:100], "pulled": bool(pulled)},
+    )
 
 
 class TelegramSourceRegistry:
