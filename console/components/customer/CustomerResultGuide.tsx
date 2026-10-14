@@ -84,8 +84,9 @@ export function CustomerResultGuide({ service, request, result }: Props) {
   const exactMatches = corpus?.exact_matches;
   const isPartial = unavailable.length > 0 || /partial|source_unavailable|incomplete|failed/.test(outcome);
   const noEvidence = findingCount === 0 && alertCount === 0;
-  const severity = findings.reduce((best, f) => {
-    const s = severityOf(f);
+  // Rank both persisted findings and alerts so the headline cannot hide a more severe alert.
+  const severity = [...findings, ...alerts].reduce((best, item) => {
+    const s = severityOf(item);
     const rank = /critical/.test(s) ? 4 : /high/.test(s) ? 3 : /medium|moderate/.test(s) ? 2 : /low/.test(s) ? 1 : 0;
     return rank > best.rank ? { label: s, rank } : best;
   }, { label: "unrated", rank: 0 });
@@ -104,6 +105,15 @@ export function CustomerResultGuide({ service, request, result }: Props) {
   const caseId = text(createdCaseId, result.case_id, request.case_id);
   const state = titleCase(outcome);
   const evidenceLinks = Array.from(new Set(findings.map((f) => text(f.source_url, f.evidence_url, f.url)).filter((u) => /^https?:\/\//i.test(u)))).slice(0, 4);
+  const remediationStatus = text(result.remediation_status, result.remediation?.status).toLowerCase();
+  const remediationVerified = result.remediation_verified === true || remediationStatus === "verified";
+  const stages = [
+    { name: "Request identity", status: request.id ? "Recorded" : "Missing", detail: request.id ? "This result is attached to a service request." : "A request ID is not present in the loaded result." },
+    { name: "Source checks", status: checked.length ? (unavailable.length ? "Partial" : "Checks recorded") : "Not recorded", detail: checked.length ? `${checked.length} source check(s) recorded; ${unavailable.length} unavailable or incomplete.` : "Cyclothone has no completed source check recorded in this result." },
+    { name: "Evidence", status: findingCount ? "Review signals" : isPartial ? "Incomplete" : "No match recorded", detail: findingCount ? `${findingCount} finding(s) recorded; validate each against its original evidence.` : "Absence of a finding is not proof that the asset is safe." },
+    { name: "Case tracking", status: caseId ? "Linked" : "Not linked", detail: caseId ? `Tracked case: ${caseId}` : findingCount ? "A case has not been linked to this result yet." : "No case link is recorded for this result." },
+    { name: "Fix verification", status: remediationVerified ? "Verified" : "Not recorded", detail: remediationVerified ? "The result explicitly records remediation verification." : "Cyclothone does not have a verified fix recorded here; do not assume the exposure is resolved." },
+  ];
 
   return <section className="mt-3 space-y-3 rounded-2xl border border-[#91aaab]/20 bg-[#061018]/80 p-4 text-[10px] leading-5">
     <div className="flex flex-wrap items-start justify-between gap-2">
@@ -128,8 +138,33 @@ export function CustomerResultGuide({ service, request, result }: Props) {
     </div>
 
     <div className="rounded-xl border border-[#c2f35a]/15 bg-[#c2f35a]/[0.035] p-3">
-      <div className="text-[9px] uppercase tracking-wider text-[#c2f35a]">Recommended next steps</div>
+      <div className="text-[10px] uppercase tracking-wider text-[#c2f35a]">Recommended next steps</div>
       <ol className="mt-2 list-decimal space-y-1 pl-4 text-[#d9e5e7]">{steps.map((step, i) => <li key={i}>{step}</li>)}</ol>
+    </div>
+
+    <div className="rounded-xl border border-[#8ddcff]/20 p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <div className="text-[10px] uppercase tracking-wider text-[#8ddcff]">Cyclothone control tower</div>
+          <p className="mt-1 text-[#b7c9cd]">A simple, auditable view of what happened and what is still missing. No step is marked complete unless the result records it.</p>
+        </div>
+        <span className="rounded-full border border-white/10 px-2 py-1 text-[10px]">{stages.filter((stage) => ["Recorded", "Checks recorded", "Linked", "Verified"].includes(stage.status)).length}/5 evidenced</span>
+      </div>
+      <ol className="mt-3 space-y-2">
+        {stages.map((stage, i) => {
+          const complete = ["Recorded", "Checks recorded", "Linked", "Verified"].includes(stage.status);
+          return <li key={stage.name} className="flex gap-3 rounded-lg border border-white/[0.06] p-3">
+            <span className={"flex h-6 w-6 shrink-0 items-center justify-center rounded-full border text-[10px] " + (complete ? "border-[#9ff5c0]/40 text-[#9ff5c0]" : "border-[#ffd27a]/40 text-[#ffd27a]")}>{i + 1}</span>
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="font-medium text-[#e8f1f3]">{stage.name}</span>
+                <span className={"text-[10px] " + (complete ? "text-[#9ff5c0]" : "text-[#ffd27a]")}>{stage.status}</span>
+              </div>
+              <p className="mt-1 text-[#9fb5bb]">{stage.detail}</p>
+            </div>
+          </li>;
+        })}
+      </ol>
     </div>
 
     {findingCount > 0 && !caseId && <div className="rounded-xl border border-[#8ddcff]/20 bg-[#8ddcff]/[0.035] p-3">
