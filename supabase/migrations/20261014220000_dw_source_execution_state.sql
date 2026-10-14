@@ -31,7 +31,7 @@ create or replace function public.record_dw_source_execution(
 language plpgsql
 security definer
 set search_path = pg_catalog, public
-as $
+as $function$
 begin
     if p_source_id is null or length(trim(p_source_id)) = 0 then
         raise exception 'invalid_darkweb_source_id';
@@ -65,7 +65,7 @@ begin
         last_error = excluded.last_error,
         updated_at = now();
 end;
-$;
+$function$;
 
 revoke all on function public.record_dw_source_execution(text, text, boolean, text) from public, anon, authenticated;
 grant execute on function public.record_dw_source_execution(text, text, boolean, text) to service_role;
