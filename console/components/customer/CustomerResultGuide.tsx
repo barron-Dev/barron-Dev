@@ -76,6 +76,7 @@ export function CustomerResultGuide({ service, request, result }: Props) {
   const checked = arr(result.sources_checked);
   const unavailable = arr(result.sources_unavailable);
   const corpus = result.historical_corpus && typeof result.historical_corpus === "object" ? result.historical_corpus as AnyRecord : null;
+  const sourceCoverage = result.source_coverage && typeof result.source_coverage === "object" ? result.source_coverage as AnyRecord : null;
   const outcome = text(result.outcome, result.state, request.status, request.state, "result recorded").toLowerCase();
   const isDarkWeb = service === "dark_web_monitoring";
   const findingCount = Math.max(findings.length, typeof result.finding_count === "number" ? result.finding_count : 0);
@@ -132,7 +133,8 @@ export function CustomerResultGuide({ service, request, result }: Props) {
       </div>
       <div className="rounded-xl border border-white/[0.07] p-3">
         <div className="text-[9px] uppercase tracking-wider text-[#82aab1]">What Cyclothone actually checked</div>
-        <p className="mt-1 text-[#d9e5e7]">{checked.length ? `${checked.length} source result(s) are marked checked` : "No live source check is listed in the persisted result"}{unavailable.length ? `; ${unavailable.length} source(s) were unavailable or not completed.` : ". No unavailable source is listed in this result."}</p>
+        <p className="mt-1 text-[#d9e5e7]">{checked.length ? `${checked.length} source provider(s) returned a completed check` : "No live source check is listed in the persisted result"}{unavailable.length ? `; ${unavailable.length} provider(s) were unavailable or not completed.` : ". No unavailable provider is listed in this result."}</p>
+        {isDarkWeb && sourceCoverage && <p className="mt-1 text-[#d9e5e7]">Actual source coverage: {safeCount(sourceCoverage.providers_checked)} of {safeCount(sourceCoverage.provider_count)} provider calls completed. Telegram public channels: {safeCount(sourceCoverage.telegram_channels_checked)} of {safeCount(sourceCoverage.telegram_channels_total)} checked successfully; {safeCount(sourceCoverage.telegram_channels_failed)} failed.</p>}
         {isDarkWeb && <p className="mt-1 text-[#9fb5bb]">Historical corpus: {corpus ? `${safeCount(scanned)} records scanned · ${safeCount(exactMatches)} exact matches.` : "scan count not recorded for this request."} A corpus record count is not the same as the number of global websites, forums, channels, or people checked.</p>}
       </div>
     </div>
