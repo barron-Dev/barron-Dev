@@ -1,3 +1,4 @@
+import pytest
 from cyclothone.darkweb.pullers import Finding
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
