@@ -124,9 +124,10 @@ async def test_historical_correlation_pages_past_default_postgrest_limit():
         "cyclothone.darkweb.request_worker.supabase._retry",
         side_effect=retry,
     ):
-        matches = await _load_historical_matches(
+        matches, scanned = await _load_historical_matches(
             tenant_id, "domain", "owned-example.com", page_size=500
         )
 
+    assert scanned == 501
     assert len(matches) == 1
     assert matches[0]["id"] == 501
