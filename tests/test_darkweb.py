@@ -83,3 +83,82 @@ async def test_provider_execution_rejects_invalid_provider_identity():
         await record_provider_execution("not a provider id!", "ok", pulled=True)
 
     rpc.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_customer_findings_and_alerts_are_paged_past_single_page_cap():
+    from types import SimpleNamespace
+
+    from cyclothone.darkweb.request_worker import (
+        _load_tenant_alerts,
+        _load_watchlist_findings,
+    )
+
+    tenant_id, watchlist_id = str(uuid4()), str(uuid4())
+    finding_rows = [
+        {"id": str(i), "tenant_id": tenant_id, "watchlist_id": watchlist_id}
+        for i in range(5)
+    ]
+    alert_rows = [
+        {"id": str(i), "tenant_id": tenant_id, "title": f"alert-{i}"}
+        for i in range(5)
+    ]
+
+    class Query:
+        def __init__(self, rows):
+            self.rows = rows
+            self.filters = []
+            self.start, self.end = 0, 9999
+
+        def select(self, _columns):
+            return self
+
+        def eq(self, key, value):
+            self.filters.append((key, value))
+            return self
+
+        def order(self, *_args, **_kwargs):
+            return self
+
+        def range(self, start, end):
+            self.start, self.end = start, end
+            return self
+
+        async def execute(self):
+            rows = self.rows
+            for key, value in self.filters:
+                rows = [row for row in rows if row.get(key) == value]
+            return SimpleNamespace(data=rows[self.start:self.end + 1])
+
+    class Client:
+        def table(self, name):
+            return Query(finding_rows if name == "dw_findings" else alert_rows)
+
+    async def retry(operation, attempts=2):
+        return await operation()
+
+    with patch("cyclothone.darkweb.request_worker.supabase._ensure", new=AsyncMock(return_value=Client())), patch(
+        "cyclothone.darkweb.request_worker.supabase._retry", side_effect=retry
+    ):
+        findings = await _load_watchlist_findings(tenant_id, watchlist_id, page_size=2)
+        alerts = await _load_tenant_alerts(tenant_id, page_size=2)
+
+    assert [row["id"] for row in findings] == ["0", "1", "2", "3", "4"]
+    assert [row["id"] for row in alerts] == ["0", "1", "2", "3", "4"]
+
+
+def test_historical_correlation_requires_exact_identifier_or_exact_email_domain():
+    from cyclothone.darkweb.request_worker import _historical_finding_matches_target
+
+    assert _historical_finding_matches_target(
+        {"kind": "domain", "matched_value": "example.com"}, "domain", "example.com"
+    )
+    assert _historical_finding_matches_target(
+        {"kind": "email", "matched_value": "person@example.com"}, "domain", "example.com"
+    )
+    assert not _historical_finding_matches_target(
+        {"kind": "domain", "matched_value": "notexample.com"}, "domain", "example.com"
+    )
+    assert not _historical_finding_matches_target(
+        {"kind": "company_name", "matched_value": "Example"}, "domain", "example.com"
+    )
