@@ -642,7 +642,7 @@ async def create_service_request(body:ServiceRequest,p:DeveloperPrincipal=Depend
             RansomwareLivePuller, RansomwatchPuller, as_domain,
         )
 
-        target_match = re.search(r"^Target:\\s*(.+)$", description, re.MULTILINE | re.IGNORECASE)
+        target_match = re.search(r"^Target:\s*(.+)$", description, re.MULTILINE | re.IGNORECASE)
         target = as_domain(target_match.group(1).strip() if target_match else "")
         if not target:
             await supabase.update("service_requests", {"status": "blocked"}, id=str(row["id"]))
