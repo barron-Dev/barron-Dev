@@ -728,16 +728,30 @@ async def create_service_request(body:ServiceRequest,p:DeveloperPrincipal=Depend
                     candidate_count += len(findings)
                     source_matched = source_persisted = source_alerts = source_errors = 0
                     for finding in findings[:2000]:
-                        if str(getattr(finding, "kind", "")).lower() != "domain":
-                            continue
-                        candidate_domain = as_domain(str(getattr(finding, "matched_value", "")))
+                        candidate_kind = str(getattr(finding, "kind", "")).strip().lower()
+                        raw_value = str(getattr(finding, "matched_value", "")).strip()
+                        candidate_domain = None
+                        context = finding.context
+                        metadata = dict(finding.metadata) if isinstance(finding.metadata, dict) else {}
+
+                        if candidate_kind == "domain":
+                            candidate_domain = as_domain(raw_value)
+                        elif candidate_kind == "email" and "@" in raw_value:
+                            # Correlate a provider-reported address to the monitored domain
+                            # without persisting the raw email as the customer finding.
+                            email_domain = raw_value.rsplit("@", 1)[1].strip().lower().rstrip(".")
+                            if as_domain(email_domain) == target:
+                                candidate_domain = target
+                                context = "An external source reported an identifier associated with the monitored domain; the raw email identifier is omitted."
+                                metadata["correlation_type"] = "email_domain_match"
                         if candidate_domain != target:
                             continue
+
                         result = await matcher.process({
                             "source_id": str(finding.source_id), "kind": "domain",
-                            "matched_value": candidate_domain, "context": finding.context,
+                            "matched_value": target, "context": context,
                             "severity": finding.severity, "source_url": finding.source_url,
-                            "metadata": finding.metadata,
+                            "metadata": metadata,
                         }, scope="watchlist", tenant_id=tenant_id, watchlist_id=watchlist_id)
                         source_matched += int(result.get("matched", 0))
                         source_persisted += int(result.get("persisted", 0))
