@@ -650,11 +650,34 @@ async def create_service_request(body:ServiceRequest,p:DeveloperPrincipal=Depend
 
         tenant_id = str(org["tenant_id"])
         try:
-            watch = await supabase.insert_one("dw_watchlist", {
-                "tenant_id": tenant_id, "kind": "domain", "value": target,
-                "value_hash": hashlib.sha256(target.encode()).hexdigest(),
-                "label": f"Customer request: {target}", "severity": "high",
-            })
+            target_hash = hashlib.sha256(target.encode()).hexdigest()
+            watch = await supabase.select_one(
+                "dw_watchlist", "id,tenant_id,kind,value,value_hash,severity",
+                tenant_id=tenant_id, kind="domain", value_hash=target_hash,
+            )
+            if not watch:
+                try:
+                    watch = await supabase.insert_one("dw_watchlist", {
+                        "tenant_id": tenant_id, "kind": "domain", "value": target,
+                        "value_hash": target_hash,
+                        "label": f"Customer request: {target}", "severity": "high",
+                    })
+                except Exception:
+                    # A concurrent request may have inserted the same tenant watchlist.
+                    watch = await supabase.select_one(
+                        "dw_watchlist", "id,tenant_id,kind,value,value_hash,severity",
+                        tenant_id=tenant_id, kind="domain", value_hash=target_hash,
+                    )
+                    if not watch:
+                        raise
+            if (
+                not watch
+                or str(watch.get("tenant_id")) != tenant_id
+                or str(watch.get("kind", "")).lower() != "domain"
+                or str(watch.get("value_hash", "")).lower() != target_hash
+                or not watch.get("id")
+            ):
+                raise RuntimeError("tenant watchlist identity could not be confirmed")
             watchlist_id = str(watch["id"])
             enabled_rows = await supabase.select("dw_sources", "id,enabled", enabled=True)
             enabled = {str(source["id"]) for source in enabled_rows}
