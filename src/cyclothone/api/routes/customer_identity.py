@@ -638,8 +638,8 @@ async def create_service_request(body:ServiceRequest,p:DeveloperPrincipal=Depend
         import re
         from cyclothone.darkweb.matcher import DarkWebMatcher
         from cyclothone.darkweb.pullers import (
-            GitHubCodeMonitor, HIBPPuller, RansomLookPuller,
-            RansomwareLivePuller, RansomwatchPuller, as_domain,
+            GitHubCodeMonitor, HIBPPuller, PastePublicMonitor, RansomLookPuller,
+            RansomwareLivePuller, RansomwatchPuller, TelegramPublicMonitor, as_domain,
         )
 
         target_match = re.search(r"^Target:\s*(.+)$", description, re.MULTILINE | re.IGNORECASE)
@@ -669,6 +669,14 @@ async def create_service_request(body:ServiceRequest,p:DeveloperPrincipal=Depend
                 source_jobs.append(("ransomlook", RansomLookPuller().pull))
             if "ransomwatch" in enabled:
                 source_jobs.append(("ransomwatch", RansomwatchPuller().pull))
+            if "pastebin_public" in enabled:
+                source_jobs.append(("pastebin_public", PastePublicMonitor().pull))
+            telegram_channels = [value.strip().lstrip("@") for value in os.getenv("CYCLOTHONE_DW_TELEGRAM_CHANNELS", "").split(",") if value.strip()]
+            if "telegram_public" in enabled:
+                if telegram_channels:
+                    source_jobs.append(("telegram_public", TelegramPublicMonitor(telegram_channels).pull))
+                else:
+                    source_results.append({"source": "telegram_public", "status": "skipped_missing_configuration", "candidates": 0, "matched": 0, "persisted": 0, "alerts": 0})
 
             hibp_key = os.getenv("CYCLOTHONE_HIBP_KEY", "").strip()
             github_token = os.getenv("CYCLOTHONE_GITHUB_TOKEN", "").strip()
