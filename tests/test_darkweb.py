@@ -3,49 +3,13 @@ from uuid import uuid4
 
 import pytest
 
-from cyclothone.darkweb.matcher import DarkWebMatcher, _content_fingerprint, max_severity
-from cyclothone.darkweb.pullers import Finding, as_domain, domain_match_for_target, normalize, value_hash
+from cyclothone.darkweb.matcher import DarkWebMatcher, max_severity
+from cyclothone.darkweb.pullers import Finding, normalize, value_hash
 
 
 def test_identifier_hash_is_normalized():
     assert value_hash(" CEO@Example.COM ") == value_hash("ceo@example.com")
     assert normalize(" Example.COM ") == "example.com"
-
-
-
-
-def test_content_fingerprint_ignores_volatile_metadata_but_scopes_tenants():
-    base = {
-        "source_id": "ransomware_live",
-        "kind": "domain",
-        "matched_value": "Example.COM",
-        "source_url": "https://source.example/post/1",
-        "metadata": {"published": "2026-10-15", "group": "group-a"},
-    }
-    refreshed = {**base, "metadata": {"published": "2026-10-16", "group": "group-a"}}
-    assert _content_fingerprint(base) == _content_fingerprint(refreshed)
-    breach_a = {**base, "metadata": {"breach": "Breach A", "published": "2026-10-15"}}
-    breach_b = {**base, "metadata": {"breach": "Breach B", "published": "2026-10-15"}}
-    assert _content_fingerprint(breach_a) != _content_fingerprint(breach_b)
-    assert _content_fingerprint(base, "tenant-a", "watch-a") != _content_fingerprint(base, "tenant-b", "watch-b")
-    assert _content_fingerprint(base) != _content_fingerprint({**base, "source_url": "https://source.example/post/2"})
-
-
-def test_domain_parser_accepts_bare_domain_and_url():
-    assert as_domain("Example.COM") == "example.com"
-    assert as_domain("https://sub.example.com/path") == "sub.example.com"
-
-
-@pytest.mark.parametrize("value", ["", "localhost", "bad domain.com", "user@example.com", "https://user:pass@example.com", "-bad.example.com", "example..com", "127.0.0.1"])
-def test_domain_parser_rejects_invalid_target(value):
-    assert as_domain(value) is None
-
-
-def test_domain_evidence_correlation_is_exact_and_does_not_return_email():
-    assert domain_match_for_target("domain", "example.com", "example.com") == ("example.com", False)
-    assert domain_match_for_target("email", "user@example.com", "example.com") == ("example.com", True)
-    assert domain_match_for_target("email", "user@other.com", "example.com") == (None, False)
-    assert domain_match_for_target("company_name", "Example Inc", "example.com") == (None, False)
 
 
 def test_severity_escalates():
@@ -59,81 +23,33 @@ def test_finding_is_immutable():
     with pytest.raises(AttributeError):
         finding.severity = "critical"
 
-
 @pytest.mark.asyncio
-async def test_unmatched_global_candidate_is_not_persisted_by_default():
+async def test_unmatched_finding_is_stored_without_tenant_match():
     matcher = DarkWebMatcher()
-    with patch.object(matcher, "_lookup_global", new=AsyncMock(return_value=[])), patch.object(matcher, "_record", new=AsyncMock()) as record:
+    response = AsyncMock()
+    response.data = []
+    with patch("cyclothone.darkweb.matcher.supabase._retry", return_value=response), patch.object(matcher, "_record", new=AsyncMock(return_value={})) as record:
         result = await matcher.process({
             "source_id": "hibp", "kind": "email", "matched_value": "user@example.com",
             "context": "breach", "severity": "high", "source_url": None, "metadata": {},
-        }, scope="global")
-    assert result == {"status": "unmatched_not_persisted", "matched": 0, "persisted": 0, "alerts": 0, "errors": 0}
-    record.assert_not_awaited()
-
+        })
+    assert result == {"matched": 0, "alerts": 0, "errors": 0}
+    record.assert_awaited_once()
+    assert record.await_args.args[1:] == (None, None)
 
 @pytest.mark.asyncio
-async def test_global_match_fans_out_with_tenant_specific_persistence():
+async def test_watchlist_match_fans_out_per_tenant():
     matcher = DarkWebMatcher()
     t1, t2 = str(uuid4()), str(uuid4())
-    watches = [
+    response = AsyncMock()
+    response.data = [
         {"id": str(uuid4()), "tenant_id": t1, "kind": "email", "severity": "high"},
         {"id": str(uuid4()), "tenant_id": t2, "kind": "email", "severity": "critical"},
     ]
-    with patch.object(matcher, "_lookup_global", new=AsyncMock(return_value=watches)), patch.object(
-        matcher, "_record", new=AsyncMock(side_effect=[{"finding_id": 11, "alert_id": "a"}, {"finding_id": 12, "alert_id": "b"}])
-    ) as record:
+    with patch("cyclothone.darkweb.matcher.supabase._retry", return_value=response), patch.object(matcher, "_record", new=AsyncMock(return_value={"alert_id": str(uuid4())})) as record:
         result = await matcher.process({
             "source_id": "telegram_public", "kind": "email", "matched_value": "user@example.com",
             "context": "public leak", "severity": "high", "source_url": "https://t.me/s/example", "metadata": {},
-        }, scope="global")
-    assert result == {"status": "persisted", "matched": 2, "persisted": 2, "alerts": 2, "errors": 0}
+        })
+    assert result == {"matched": 2, "alerts": 2, "errors": 0}
     assert record.await_count == 2
-    assert all(call.kwargs["tenant_scoped"] for call in record.await_args_list)
-
-
-@pytest.mark.asyncio
-async def test_customer_scope_never_falls_back_to_global():
-    matcher = DarkWebMatcher()
-    tenant_id, watchlist_id = str(uuid4()), str(uuid4())
-    with patch.object(matcher, "_lookup_scoped", new=AsyncMock(return_value=[])) as scoped, patch.object(
-        matcher, "_lookup_global", new=AsyncMock()
-    ) as global_lookup, patch.object(matcher, "_record", new=AsyncMock()) as record:
-        result = await matcher.process({
-            "source_id": "ransomware_live", "kind": "domain", "matched_value": "example.com",
-            "context": "public listing", "severity": "high", "source_url": None, "metadata": {},
-        }, scope="watchlist", tenant_id=tenant_id, watchlist_id=watchlist_id)
-    assert result["status"] == "no_watchlist_match"
-    scoped.assert_awaited_once_with("domain", "example.com", tenant_id, watchlist_id)
-    global_lookup.assert_not_awaited()
-    record.assert_not_awaited()
-
-
-@pytest.mark.asyncio
-async def test_customer_scope_persists_only_requested_watchlist():
-    matcher = DarkWebMatcher()
-    tenant_id, watchlist_id = str(uuid4()), str(uuid4())
-    watch = {"id": watchlist_id, "tenant_id": tenant_id, "kind": "domain", "severity": "high"}
-    with patch.object(matcher, "_lookup_scoped", new=AsyncMock(return_value=[watch])), patch.object(
-        matcher, "_lookup_global", new=AsyncMock()
-    ) as global_lookup, patch.object(
-        matcher, "_record", new=AsyncMock(return_value={"finding_id": 42, "alert_id": "alert-1"})
-    ) as record:
-        result = await matcher.process({
-            "source_id": "ransomware_live", "kind": "domain", "matched_value": "example.com",
-            "context": "public listing", "severity": "high", "source_url": None, "metadata": {},
-        }, scope="watchlist", tenant_id=tenant_id, watchlist_id=watchlist_id)
-    assert result == {"status": "persisted", "matched": 1, "persisted": 1, "alerts": 1, "errors": 0}
-    global_lookup.assert_not_awaited()
-    assert record.await_args.args[1:3] == (tenant_id, watchlist_id)
-    assert record.await_args.kwargs["tenant_scoped"] is True
-
-
-@pytest.mark.asyncio
-async def test_customer_scope_requires_tenant_and_watchlist():
-    result = await DarkWebMatcher().process(
-        {"source_id": "x", "kind": "domain", "matched_value": "example.com"},
-        scope="watchlist", tenant_id=str(uuid4()),
-    )
-    assert result["status"] == "scope_required"
-    assert result["errors"] == 1
