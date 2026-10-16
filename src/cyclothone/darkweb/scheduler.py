@@ -111,10 +111,10 @@ class DarkWebScheduler:
             result = await self._ingest(findings)
             if result["errors"]:
                 source_status = "degraded"
-            elif not findings:
+            elif result["matched"] == 0:
                 source_status = "checked_no_matches"
             else:
-                source_status = "checked"
+                source_status = "checked_with_matches"
             await self._mark_source(source_id, source_status)
             logger.info(
                 "dark web source=%s status=%s candidates=%d matched=%d persisted=%d alerts=%d errors=%d duration_ms=%d",
