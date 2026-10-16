@@ -11,8 +11,8 @@ export default function CustomerOverview(){
  const [orgs,setOrgs]=useState<CustomerOrganization[]>([]),[requests,setRequests]=useState<CustomerServiceRequest[]>([]),[cases,setCases]=useState<CustomerCase[]>([]),[loading,setLoading]=useState(true),[error,setError]=useState("");
  useEffect(()=>{void(async()=>{try{const[o,r,c]=await Promise.all([getCustomerOrganizations(),getCustomerServiceRequests(),getCustomerCases()]);setOrgs(o.organizations);setRequests(r.service_requests);setCases(c.cases)}catch(e){setError(e instanceof Error?e.message:"Unable to load customer command center")}finally{setLoading(false)}})()},[]);
  const org=orgs[0]??null;
- const active=requests.filter(r=>["submitted","triage","accepted","in_progress","blocked"].includes(r.status));
- const recent=useMemo(()=>requests.slice().sort((a,b)=>String(b.created_at).localeCompare(String(a.created_at))).slice(0,4),[requests]);
+ const active=requests.filter(r=>SERVICES.some(service=>service[0]===r.service_key)&&["submitted","triage","accepted","in_progress","blocked"].includes(r.status));
+ const recent=useMemo(()=>requests.filter(r=>SERVICES.some(service=>service[0]===r.service_key)).slice().sort((a,b)=>String(b.created_at).localeCompare(String(a.created_at))).slice(0,4),[requests]);
  return <main className="cyclo-water min-h-screen overflow-hidden text-[#e8f1f3]">
   <header className="relative z-10 flex flex-wrap items-center justify-between gap-4 border-b border-white/10 bg-[#02090e]/70 px-5 py-4 backdrop-blur-2xl">
    <div className="flex items-center gap-3"><a href="/" className="cyclo-mark text-lg font-bold">◌</a><div><a href="/" className="font-semibold tracking-tight">CYCLOTHONE</a><span className="ml-3 text-[9px] uppercase tracking-[.18em] text-[#789aa4]">Customer</span></div></div>
