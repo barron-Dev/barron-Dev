@@ -10,6 +10,8 @@ import httpx
 
 logger = logging.getLogger(__name__)
 EMAIL_RE = re.compile(r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}")
+DOMAIN_LABEL_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
+USER_AGENT = "cyclothone-dw/1.0"
 
 
 @dataclass(frozen=True, slots=True)
@@ -32,8 +34,56 @@ def value_hash(value: str) -> str:
 
 
 def _redact(text: str) -> str:
-    # Never retain password material from credential-pair matches.
     return EMAIL_RE.sub("[email]", text)[:2000]
+
+
+def as_domain(value: str) -> str | None:
+    """Accept a bare domain or URL hostname; reject credentials, paths, IPs, and malformed labels."""
+    raw = str(value or "").strip()
+    if not raw or len(raw) > 2048 or "@" in raw or any(ch.isspace() for ch in raw):
+        return None
+    candidate = raw
+    if "://" in candidate:
+        try:
+            parsed = urlsplit(candidate)
+            if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password:
+                return None
+            candidate = parsed.hostname
+        except ValueError:
+            return None
+    else:
+        candidate = candidate.split("/", 1)[0].split("?", 1)[0].split("#", 1)[0]
+        if ":" in candidate:
+            return None
+    candidate = candidate.rstrip(".").lower()
+    try:
+        candidate = candidate.encode("idna").decode("ascii")
+    except UnicodeError:
+        return None
+    if not candidate or len(candidate) > 253 or "." not in candidate:
+        return None
+    labels = candidate.split(".")
+    if any(not DOMAIN_LABEL_RE.fullmatch(label) for label in labels):
+        return None
+    if labels[-1].isdigit() or all(label.isdigit() for label in labels):
+        return None
+    return candidate
+
+
+def domain_match_for_target(kind: str, value: str, target: str) -> tuple[str | None, bool]:
+    """Return the watched domain and whether a same-domain email was safely correlated."""
+    normalized_target = as_domain(target)
+    if not normalized_target:
+        return None, False
+    candidate_kind = str(kind or "").strip().lower()
+    candidate_value = str(value or "").strip()
+    if candidate_kind == "domain":
+        return (normalized_target, False) if as_domain(candidate_value) == normalized_target else (None, False)
+    if candidate_kind == "email" and "@" in candidate_value:
+        email_domain = as_domain(candidate_value.rsplit("@", 1)[1])
+        if email_domain == normalized_target:
+            return normalized_target, True
+    return None, False
 
 
 class HIBPPuller:
@@ -41,17 +91,17 @@ class HIBPPuller:
     BASE = "https://haveibeenpwned.com/api/v3"
 
     def __init__(self, api_key: str) -> None:
-        self.api_key = api_key
+        self.api_key = api_key.strip()
 
     async def pull_domain(self, domain: str) -> list[Finding]:
-        domain = normalize(domain)
-        if not domain or len(domain) > 253:
-            return []
+        domain = as_domain(domain) or ""
+        if not domain or not self.api_key:
+            raise ValueError("valid domain and HIBP API key are required")
         try:
             async with httpx.AsyncClient(timeout=20.0) as client:
                 response = await client.get(
                     f"{self.BASE}/breacheddomain/{domain}",
-                    headers={"hibp-api-key": self.api_key, "user-agent": "sentinel-dw/1.0"},
+                    headers={"hibp-api-key": self.api_key, "user-agent": USER_AGENT},
                 )
                 if response.status_code == 404:
                     return []
@@ -59,11 +109,16 @@ class HIBPPuller:
                 data = response.json()
         except Exception as exc:
             raise RuntimeError(f"HIBP pull failed for {domain}") from exc
+        if not isinstance(data, dict):
+            raise RuntimeError("HIBP returned an invalid response shape")
         findings: list[Finding] = []
-        for alias, breaches in (data or {}).items():
+        for alias, breaches in data.items():
+            if not isinstance(alias, str) or not isinstance(breaches, list):
+                continue
             email = normalize(alias if "@" in alias else f"{alias}@{domain}")
-            for breach in breaches or []:
-                findings.append(Finding(self.SOURCE, "email", email, "Identifier appeared in a reported breach.", "high", None, {"breach": str(breach), "domain": domain}))
+            for breach in breaches:
+                if isinstance(breach, str) and breach.strip():
+                    findings.append(Finding(self.SOURCE, "email", email, "Identifier appeared in a reported breach.", "high", None, {"breach": breach[:200], "domain": domain}))
         return findings
 
 
@@ -74,23 +129,96 @@ class RansomwatchPuller:
     async def pull(self) -> list[Finding]:
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
-                response = await client.get(self.FEED)
+                response = await client.get(self.FEED, headers={"user-agent": USER_AGENT})
                 response.raise_for_status()
                 posts = response.json()
         except Exception as exc:
             raise RuntimeError("Ransomwatch pull failed") from exc
+        if not isinstance(posts, list):
+            raise RuntimeError("Ransomwatch returned an invalid response shape")
         out: list[Finding] = []
-        for post in posts[:5000] if isinstance(posts, list) else []:
+        for post in posts[:5000]:
+            if not isinstance(post, dict):
+                continue
             victim = normalize(str(post.get("post_title") or ""))
             raw_url = str(post.get("post_url") or "")
             group = normalize(str(post.get("group_name") or "unknown"))
             if not victim:
                 continue
-            host = normalize(urlsplit(raw_url).hostname or raw_url)
-            metadata = {"group": group, "victim_name": victim, "published": post.get("discovered")}
-            if host:
-                out.append(Finding(self.SOURCE, "domain", host, "Organization listed on a ransomware leak feed.", "critical", raw_url or None, metadata))
-            out.append(Finding(self.SOURCE, "company_name", victim, "Organization name listed on a ransomware leak feed.", "critical", raw_url or None, {**metadata, "domain": host or None}))
+            # post_url identifies the leak-site page, not the victim's domain.
+            # Do not mislabel that host as the victim domain.
+            metadata = {"group": group[:200], "victim_name": victim[:512], "published": post.get("discovered"), "match_basis": "public_ransomware_leak_listing", "provenance": "aggregator_listing"}
+            out.append(Finding(self.SOURCE, "company_name", victim[:512], "Organization name listed on a public ransomware leak feed; victim domain is not supplied by this record.", "high", raw_url or None, metadata))
+        return out
+
+
+class RansomwareLivePuller:
+    SOURCE = "ransomware_live"
+    ENDPOINT = "https://api.ransomware.live/v2/recentvictims"
+
+    async def pull(self) -> list[Finding]:
+        try:
+            async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+                response = await client.get(self.ENDPOINT, headers={"user-agent": USER_AGENT, "accept": "application/json"})
+                response.raise_for_status()
+                payload = response.json()
+        except Exception as exc:
+            raise RuntimeError("Ransomware.live pull failed") from exc
+        if isinstance(payload, dict):
+            payload = payload.get("victims", payload.get("data"))
+        if not isinstance(payload, list):
+            raise RuntimeError("Ransomware.live returned an invalid response shape")
+        out: list[Finding] = []
+        for item in payload[:5000]:
+            if not isinstance(item, dict):
+                continue
+            victim = str(item.get("victim") or item.get("post_title") or item.get("name") or "").strip()
+            group = str(item.get("group_name") or item.get("group") or "unknown").strip()[:200]
+            raw_domain = str(item.get("domain") or item.get("website") or "").strip()
+            domain = as_domain(raw_domain) if raw_domain else None
+            raw_url = str(item.get("url") or item.get("post_url") or "").strip()
+            source_url = raw_url if raw_url.startswith(("https://", "http://")) else None
+            published = item.get("published") or item.get("discovered") or item.get("date")
+            metadata = {"group": group, "victim_name": victim[:512], "published": published, "match_basis": "public_ransomware_leak_listing", "provenance": "aggregator_listing"}
+            if domain:
+                out.append(Finding(self.SOURCE, "domain", domain, "Domain associated with a public ransomware leak listing; independently unverified.", "high", source_url, metadata))
+            if victim:
+                out.append(Finding(self.SOURCE, "company_name", victim[:512], "Organization listed by a public ransomware leak aggregator; independently unverified.", "high", source_url, {**metadata, "domain": domain}))
+        return out
+
+
+class RansomLookPuller:
+    SOURCE = "ransomlook"
+    ENDPOINT = "https://www.ransomlook.io/api/recent/100"
+
+    async def pull(self) -> list[Finding]:
+        try:
+            async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+                response = await client.get(self.ENDPOINT, headers={"user-agent": USER_AGENT, "accept": "application/json"})
+                response.raise_for_status()
+                payload = response.json()
+        except Exception as exc:
+            raise RuntimeError("RansomLook pull failed") from exc
+        if isinstance(payload, dict):
+            payload = payload.get("recent", payload.get("data", payload.get("posts")))
+        if not isinstance(payload, list):
+            raise RuntimeError("RansomLook returned an invalid response shape")
+        out: list[Finding] = []
+        for item in payload[:1000]:
+            if not isinstance(item, dict):
+                continue
+            victim = str(item.get("victim") or item.get("post_title") or item.get("name") or item.get("title") or "").strip()
+            if not victim:
+                continue
+            group = str(item.get("group_name") or item.get("group") or "unknown").strip()[:200]
+            raw_domain = str(item.get("domain") or item.get("website") or "").strip()
+            domain = as_domain(raw_domain) if raw_domain else None
+            raw_url = str(item.get("url") or item.get("post_url") or item.get("link") or "").strip()
+            source_url = raw_url if raw_url.startswith(("https://", "http://")) else None
+            metadata = {"group": group, "victim_name": victim[:512], "published": item.get("published") or item.get("date"), "domain": domain, "match_basis": "public_ransomware_leak_listing", "provenance": "aggregator_listing"}
+            if domain:
+                out.append(Finding(self.SOURCE, "domain", domain, "Domain associated with a public ransomware leak listing; independently unverified.", "high", source_url, metadata))
+            out.append(Finding(self.SOURCE, "company_name", victim[:512], "Organization listed by a public ransomware leak aggregator; independently unverified.", "high", source_url, metadata))
         return out
 
 
@@ -106,14 +234,14 @@ class TelegramPublicMonitor:
         for channel in self.channels:
             try:
                 async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
-                    response = await client.get(f"https://t.me/s/{channel}", headers={"user-agent": "sentinel-dw/1.0"})
+                    response = await client.get(f"https://t.me/s/{channel}", headers={"user-agent": USER_AGENT})
                     response.raise_for_status()
                     html = response.text
                 for email in dict.fromkeys(EMAIL_RE.findall(html)):
-                    out.append(Finding(self.SOURCE, "email", normalize(email), "Monitored identifier appeared in a public Telegram web preview; credential material redacted.", "critical", f"https://t.me/s/{channel}", {"channel": channel}))
-            except Exception as exc:
+                    out.append(Finding(self.SOURCE, "email", normalize(email), "Identifier appeared in a public Telegram web preview; preview is not a complete channel crawl.", "high", f"https://t.me/s/{channel}", {"channel": channel, "coverage": "public_preview", "provenance": "public_web_preview"}))
+            except Exception:
                 failures += 1
-                logger.warning("Telegram channel %s failed", channel, exc_info=True)
+                logger.warning("Telegram public preview failed for channel=%s", channel, exc_info=True)
         if self.channels and failures == len(self.channels):
             raise RuntimeError("all configured Telegram public channels failed")
         return out
@@ -126,12 +254,12 @@ class PastePublicMonitor:
     async def pull(self) -> list[Finding]:
         try:
             async with httpx.AsyncClient(timeout=15.0) as client:
-                response = await client.get(self.FEED, headers={"user-agent": "sentinel-dw/1.0"})
+                response = await client.get(self.FEED, headers={"user-agent": USER_AGENT})
                 response.raise_for_status()
                 text = response.text
         except Exception as exc:
             raise RuntimeError("public paste feed pull failed") from exc
-        return [Finding(self.SOURCE, "email", normalize(email), "Monitored identifier appeared in a public paste feed.", "medium", self.FEED, {}) for email in dict.fromkeys(EMAIL_RE.findall(text))]
+        return [Finding(self.SOURCE, "email", normalize(email), "Identifier appeared in a public paste feed; feed coverage is limited to this endpoint.", "medium", self.FEED, {"coverage": "public_feed", "provenance": "public_feed"}) for email in dict.fromkeys(EMAIL_RE.findall(text))]
 
 
 class GitHubCodeMonitor:
@@ -139,20 +267,28 @@ class GitHubCodeMonitor:
     BASE = "https://api.github.com/search/code"
 
     def __init__(self, token: str) -> None:
-        self.token = token
+        self.token = token.strip()
 
     async def pull_domain(self, domain: str) -> list[Finding]:
-        headers = {"authorization": f"Bearer {self.token}", "accept": "application/vnd.github+json", "user-agent": "sentinel-dw/1.0"}
+        domain = as_domain(domain) or ""
+        if not domain or not self.token:
+            raise ValueError("valid domain and GitHub token are required")
+        headers = {"authorization": f"Bearer {self.token}", "accept": "application/vnd.github+json", "user-agent": USER_AGENT}
         out: list[Finding] = []
         failures = 0
         async with httpx.AsyncClient(timeout=20.0) as client:
             for term in ("password", "api_key", "secret"):
                 try:
-                    response = await client.get(self.BASE, params={"q": f'"{normalize(domain)}" {term}', "per_page": 30}, headers=headers)
+                    response = await client.get(self.BASE, params={"q": f'"{domain}" {term}', "per_page": 30}, headers=headers)
                     response.raise_for_status()
-                    for item in (response.json() or {}).get("items", []) or []:
+                    payload = response.json()
+                    if not isinstance(payload, dict) or not isinstance(payload.get("items", []), list):
+                        raise RuntimeError("GitHub code search returned an invalid response shape")
+                    for item in payload.get("items", []) or []:
+                        if not isinstance(item, dict):
+                            continue
                         repo = str((item.get("repository") or {}).get("full_name") or "")
-                        out.append(Finding(self.SOURCE, "domain", normalize(domain), "Potential secret-related code exposure; secret value is not retained.", "high", item.get("html_url"), {"repository": repo, "query_term": term}))
+                        out.append(Finding(self.SOURCE, "domain", domain, "Potential secret-related code exposure; secret values are not retained.", "high", item.get("html_url"), {"repository": repo, "query_term": term, "match_basis": "code_search_candidate"}))
                 except Exception:
                     failures += 1
                     logger.warning("GitHub code search failed for domain=%s term=%s", domain, term, exc_info=True)

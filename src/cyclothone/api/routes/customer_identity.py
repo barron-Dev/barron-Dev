@@ -5,9 +5,11 @@ from datetime import UTC, datetime, timedelta
 import hashlib
 import secrets
 import os
+import logging
 from cyclothone.developer.auth import DeveloperPrincipal, authenticate_request
 from cyclothone.storage.supabase_client import supabase
 
+logger = logging.getLogger(__name__)
 router=APIRouter(tags=["customer-identity"])
 
 async def principal(authorization: str | None = Header(None)) -> DeveloperPrincipal:
@@ -385,174 +387,6 @@ async def create_organization(body:OrgRequest,p:DeveloperPrincipal=Depends(princ
     )
     if not row:
         raise HTTPException(500,detail="organization_creation_not_confirmed")
-    row=await supabase.select_one(
-        "customer_organizations",
-        "id,tenant_id,organization_type,legal_name,country_code,website_domain,registration_number,verification_status,admission_status,created_at,updated_at",
-        id=str(organization_id),
-        owner_user_id=p.user_id,
-    )
-    if body.service_key == "brand_protection":
-        import re
-        from datetime import datetime, UTC
-        target_match=re.search(r"^Target:\\s*(.+)$", description, re.MULTILINE | re.IGNORECASE)
-        target=(target_match.group(1).strip() if target_match else "")
-        if not target:
-            await supabase.update("service_requests", {"status":"blocked"}, id=str(row["id"]))
-            raise HTTPException(422, detail="brand_target_required")
-        target=target.lower().removeprefix("https://").removeprefix("http://").split("/")[0].split(":")[0]
-        if "." not in target:
-            await supabase.update("service_requests", {"status":"blocked"}, id=str(row["id"]))
-            raise HTTPException(422, detail="invalid_brand_target")
-        try:
-            from cyclothone.brand.typosquat import TyposquatScanner
-            brand=await supabase.insert_one("brands", {
-                "tenant_id":str(org["tenant_id"]),
-                "name":target,
-                "primary_domain":target,
-                "domains":[],
-                "keywords":[],
-                "trademarks":[],
-                "social_handles":[],
-                "app_ids":{},
-                "logo_url":None,
-                "similarity_min":0.75,
-                "created_by":p.user_id,
-            })
-            scan=await TyposquatScanner().scan_brand(brand)
-            threats=await supabase.select("brand_threats","id,kind,identifier,url,similarity,severity,status,first_seen",tenant_id=str(org["tenant_id"]),brand_id=str(brand["id"]))
-            summary={
-                "service":"brand_protection",
-                "target":target,
-                "checked":int(scan.get("checked",0)),
-                "resolved":int(scan.get("resolved",0)),
-                "threats_persisted":len(threats),
-                "threats":threats[:200],
-                "method":"real DNS typosquat discovery using Cyclothone Brand Protection engine",
-            }
-            await supabase.update("service_requests", {"status":"resolved"}, id=str(row["id"]))
-            return {**row, "status":"resolved", "result":summary}
-        except HTTPException:
-            raise
-        except Exception:
-            await supabase.update("service_requests", {"status":"blocked"}, id=str(row["id"]))
-            raise HTTPException(503, detail="brand_protection_unavailable")
-
-    if body.service_key == "dark_web_monitoring":
-        import re
-        target_match = re.search(r"^Target:\s*(.+)$", description, re.MULTILINE | re.IGNORECASE)
-        target = target_match.group(1).strip().lower() if target_match else ""
-        target = target.removeprefix("https://").removeprefix("http://").split("/")[0].split(":")[0]
-        if not target or "." not in target:
-            await supabase.update("service_requests", {"status":"blocked"}, id=str(row["id"]))
-            raise HTTPException(422, detail="dark_web_target_domain_required")
-        try:
-            from cyclothone.darkweb.matcher import DarkWebMatcher
-            from cyclothone.darkweb.pullers import GitHubCodeMonitor, HIBPPuller, RansomwatchPuller
-            tenant_id = str(org["tenant_id"])
-            watch = await supabase.insert_one("dw_watchlist", {
-                "tenant_id": tenant_id,
-                "kind": "domain",
-                "value": target,
-                "value_hash": __import__("hashlib").sha256(target.encode()).hexdigest(),
-                "label": f"Customer request: {target}",
-                "severity": "high",
-            })
-            enabled_rows = await supabase.select("dw_sources", "id,enabled", enabled=True)
-            enabled = {str(x["id"]) for x in enabled_rows}
-            findings = []
-            source_results = []
-            hibp_key = os.getenv("CYCLOTHONE_HIBP_KEY", "").strip() or os.getenv("SENTINEL_HIBP_KEY", "").strip()
-            github_token = os.getenv("CYCLOTHONE_GITHUB_TOKEN", "").strip() or os.getenv("SENTINEL_GITHUB_TOKEN", "").strip()
-            if "ransomwatch" in enabled:
-                findings.extend(await RansomwatchPuller().pull())
-                source_results.append("ransomwatch")
-            if hibp_key and "hibp" in enabled:
-                findings.extend(await HIBPPuller(hibp_key).pull_domain(target))
-                source_results.append("hibp")
-            if github_token and "github_code" in enabled:
-                findings.extend(await GitHubCodeMonitor(github_token).pull_domain(target))
-                source_results.append("github_code")
-            if not source_results:
-                await supabase.update("service_requests", {"status":"blocked"}, id=str(row["id"]))
-                raise HTTPException(503, detail="dark_web_sources_unavailable")
-            matcher = DarkWebMatcher()
-            ingested = 0
-            errors = 0
-            for finding in findings[:2000]:
-                result = await matcher.process({
-                    "source_id": finding.source_id, "kind": finding.kind,
-                    "matched_value": finding.matched_value, "context": finding.context,
-                    "severity": finding.severity, "source_url": finding.source_url,
-                    "metadata": finding.metadata,
-                })
-                ingested += int(result.get("matched", 0))
-                errors += int(result.get("errors", 0))
-            persisted = await supabase.select(
-                "dw_findings",
-                "id,source_id,kind,matched_value,context,source_url,severity,first_seen,watchlist_id,web_layer,collected_at",
-                tenant_id=tenant_id,
-                watchlist_id=str(watch["id"]),
-            )
-            alerts = await supabase.select("dw_alerts", "id,title,summary,severity,status,finding_id,created_at", tenant_id=tenant_id)
-            alerts = [a for a in alerts if any(str(a.get("finding_id")) == str(f.get("id")) for f in persisted)]
-            if errors:
-                await supabase.update("service_requests", {"status":"blocked"}, id=str(row["id"]))
-                raise HTTPException(503, detail="dark_web_ingestion_incomplete")
-            summary = {
-                "service":"dark_web_monitoring", "target":target,
-                "sources":source_results, "source_findings":len(findings),
-                "findings_persisted":len(persisted), "alerts":len(alerts),
-                "watchlist_id":str(watch["id"]), "ingested_matches":ingested,
-                "findings":persisted[:200], "alert_records":alerts[:200],
-                "method":"real configured dark-web monitoring sources with tenant watchlist matching",
-            }
-            await supabase.update("service_requests", {"status":"resolved"}, id=str(row["id"]))
-            return {**row, "status":"resolved", "result":summary}
-        except HTTPException:
-            raise
-        except Exception:
-            await supabase.update("service_requests", {"status":"blocked"}, id=str(row["id"]))
-            raise HTTPException(503, detail="dark_web_monitoring_unavailable")
-
-    if body.service_key == "compliance":
-        import re
-        from datetime import UTC, datetime, timedelta
-        framework_match = re.search(r"^Framework:\\s*([a-z0-9_\\-]+)$", description, re.MULTILINE | re.IGNORECASE)
-        framework = (framework_match.group(1).strip().lower() if framework_match else "soc2")
-        try:
-            from cyclothone.compliance.catalog import FRAMEWORKS
-            from cyclothone.compliance.service import ComplianceService
-            if framework not in FRAMEWORKS:
-                await supabase.update("service_requests", {"status":"blocked"}, id=str(row["id"]))
-                raise HTTPException(422, detail="unsupported_compliance_framework")
-            period_end = datetime.now(UTC)
-            period_start = period_end - timedelta(hours=24)
-            result = await ComplianceService().evaluate(
-                UUID(str(org["tenant_id"])), framework, period_start, period_end, UUID(str(p.user_id))
-            )
-            summary = {
-                "service":"compliance", "framework":framework,
-                "framework_name":FRAMEWORKS[framework]["name"],
-                "period": {"start":period_start.isoformat(), "end":period_end.isoformat()},
-                "run_id":result.get("run_id"),
-                "total_controls":int(result.get("total_controls",0)),
-                "passing":int(result.get("passing",0)),
-                "failing":int(result.get("failing",0)),
-                "partial":int(result.get("partial",0)),
-                "unknown":int(result.get("unknown",0)),
-                "overall_score":result.get("overall_score"),
-                "evidence_count":int(result.get("evidence_count",0)),
-                "controls":result.get("controls",[])[:200],
-                "method":"real tenant-scoped telemetry evaluation with evidence freshness",
-            }
-            await supabase.update("service_requests", {"status":"resolved"}, id=str(row["id"]))
-            return {**row, "status":"resolved", "result":summary}
-        except HTTPException:
-            raise
-        except Exception:
-            await supabase.update("service_requests", {"status":"blocked"}, id=str(row["id"]))
-            raise HTTPException(503, detail="compliance_unavailable")
-
     return row
 
 
@@ -799,5 +633,200 @@ async def create_service_request(body:ServiceRequest,p:DeveloperPrincipal=Depend
         except Exception:
             await supabase.update("service_requests",{"status":"blocked"},id=str(row["id"]))
             raise HTTPException(503,detail="cybersecurity_assessment_unavailable")
+
+    if body.service_key == "dark_web_monitoring":
+        import re
+        from cyclothone.darkweb.matcher import DarkWebMatcher
+        from cyclothone.darkweb.pullers import (
+            GitHubCodeMonitor, HIBPPuller, PastePublicMonitor, RansomLookPuller,
+            RansomwareLivePuller, RansomwatchPuller, TelegramPublicMonitor, as_domain, domain_match_for_target,
+        )
+
+        target_match = re.search(r"^Target:\s*(.+)$", description, re.MULTILINE | re.IGNORECASE)
+        target = as_domain(target_match.group(1).strip() if target_match else "")
+        if not target:
+            await supabase.update("service_requests", {"status": "blocked"}, id=str(row["id"]))
+            raise HTTPException(422, detail="dark_web_target_domain_required")
+
+        tenant_id = str(org["tenant_id"])
+        try:
+            target_hash = hashlib.sha256(target.encode()).hexdigest()
+            watch = await supabase.select_one(
+                "dw_watchlist", "id,tenant_id,kind,value,value_hash,severity",
+                tenant_id=tenant_id, kind="domain", value_hash=target_hash,
+            )
+            if not watch:
+                try:
+                    watch = await supabase.insert_one("dw_watchlist", {
+                        "tenant_id": tenant_id, "kind": "domain", "value": target,
+                        "value_hash": target_hash,
+                        "label": f"Customer request: {target}", "severity": "high",
+                    })
+                except Exception:
+                    # A concurrent request may have inserted the same tenant watchlist.
+                    watch = await supabase.select_one(
+                        "dw_watchlist", "id,tenant_id,kind,value,value_hash,severity",
+                        tenant_id=tenant_id, kind="domain", value_hash=target_hash,
+                    )
+                    if not watch:
+                        raise
+            if (
+                not watch
+                or str(watch.get("tenant_id")) != tenant_id
+                or str(watch.get("kind", "")).lower() != "domain"
+                or str(watch.get("value_hash", "")).lower() != target_hash
+                or not watch.get("id")
+            ):
+                raise RuntimeError("tenant watchlist identity could not be confirmed")
+            watchlist_id = str(watch["id"])
+            source_rows = await supabase.select("dw_sources", "id,enabled,last_status")
+            enabled = {str(source["id"]) for source in source_rows if source.get("enabled")}
+            supported_source_ids = {
+                "ransomware_live", "ransomlook", "ransomwatch", "pastebin_public",
+                "telegram_public", "hibp", "github_code",
+            }
+            registered_source_ids = {str(source.get("id")) for source in source_rows if source.get("id")}
+            source_results = [
+                {
+                    "source": str(source["id"]),
+                    "status": "unavailable_disabled" if not source.get("enabled") else "unavailable_not_integrated",
+                    "candidates": 0, "matched": 0, "persisted": 0, "alerts": 0,
+                }
+                for source in source_rows
+                if not source.get("enabled") or str(source.get("id")) not in supported_source_ids
+            ]
+            source_results.extend(
+                {
+                    "source": source_id, "status": "unavailable_not_registered",
+                    "candidates": 0, "matched": 0, "persisted": 0, "alerts": 0,
+                }
+                for source_id in sorted(supported_source_ids - registered_source_ids)
+            )
+            candidate_count = 0
+            matcher = DarkWebMatcher()
+            source_jobs = []
+
+            if "ransomware_live" in enabled:
+                source_jobs.append(("ransomware_live", RansomwareLivePuller().pull))
+            if "ransomlook" in enabled:
+                source_jobs.append(("ransomlook", RansomLookPuller().pull))
+            if "ransomwatch" in enabled:
+                source_jobs.append(("ransomwatch", RansomwatchPuller().pull))
+            if "pastebin_public" in enabled:
+                source_jobs.append(("pastebin_public", PastePublicMonitor().pull))
+            telegram_channels = [value.strip().lstrip("@") for value in os.getenv("CYCLOTHONE_DW_TELEGRAM_CHANNELS", "").split(",") if value.strip()]
+            if "telegram_public" in enabled:
+                if telegram_channels:
+                    source_jobs.append(("telegram_public", TelegramPublicMonitor(telegram_channels).pull))
+                else:
+                    source_results.append({"source": "telegram_public", "status": "skipped_missing_configuration", "candidates": 0, "matched": 0, "persisted": 0, "alerts": 0})
+
+            hibp_key = os.getenv("CYCLOTHONE_HIBP_KEY", "").strip()
+            github_token = os.getenv("CYCLOTHONE_GITHUB_TOKEN", "").strip()
+            if "hibp" in enabled:
+                if hibp_key:
+                    puller = HIBPPuller(hibp_key)
+                    source_jobs.append(("hibp", lambda p=puller: p.pull_domain(target)))
+                else:
+                    source_results.append({"source": "hibp", "status": "skipped_missing_credentials", "candidates": 0, "matched": 0, "persisted": 0, "alerts": 0})
+            if "github_code" in enabled:
+                if github_token:
+                    monitor = GitHubCodeMonitor(github_token)
+                    source_jobs.append(("github_code", lambda m=monitor: m.pull_domain(target)))
+                else:
+                    source_results.append({"source": "github_code", "status": "skipped_missing_credentials", "candidates": 0, "matched": 0, "persisted": 0, "alerts": 0})
+
+            if not source_jobs:
+                await supabase.update("service_requests", {"status": "blocked"}, id=str(row["id"]))
+                raise HTTPException(503, detail="dark_web_sources_unavailable")
+
+            for source_name, pull in source_jobs:
+                try:
+                    findings = await pull()
+                    if not isinstance(findings, list):
+                        raise RuntimeError("source returned invalid payload")
+                    candidate_count += len(findings)
+                    source_matched = source_persisted = source_alerts = source_errors = 0
+                    for finding in findings[:2000]:
+                        raw_value = str(getattr(finding, "matched_value", "")).strip()
+                        candidate_domain, email_correlated = domain_match_for_target(
+                            str(getattr(finding, "kind", "")), raw_value, target,
+                        )
+                        if candidate_domain != target:
+                            continue
+                        context = finding.context
+                        metadata = dict(finding.metadata) if isinstance(finding.metadata, dict) else {}
+                        if email_correlated:
+                            # Correlate a provider-reported address to the monitored domain
+                            # without persisting the raw email as the customer finding.
+                            context = "An external source reported an identifier associated with the monitored domain; the raw email identifier is omitted."
+                            metadata["correlation_type"] = "email_domain_match"
+
+                        result = await matcher.process({
+                            "source_id": str(finding.source_id), "kind": "domain",
+                            "matched_value": target, "context": context,
+                            "severity": finding.severity, "source_url": finding.source_url,
+                            "metadata": metadata,
+                        }, scope="watchlist", tenant_id=tenant_id, watchlist_id=watchlist_id)
+                        source_matched += int(result.get("matched", 0))
+                        source_persisted += int(result.get("persisted", 0))
+                        source_alerts += int(result.get("alerts", 0))
+                        source_errors += int(result.get("errors", 0))
+                    source_status = "failed" if source_errors else ("checked_with_matches" if source_matched else "checked_no_matches")
+                    source_results.append({
+                        "source": source_name, "status": source_status,
+                        "candidates": len(findings), "candidates_considered": min(len(findings), 2000),
+                        "candidate_cap_applied": len(findings) > 2000,
+                        "matched": source_matched, "persisted": source_persisted,
+                        "alerts": source_alerts, "errors": source_errors,
+                        "persistence_errors": source_errors,
+                    })
+                except Exception as source_exc:
+                    logger.warning("dark web source failed source=%s request_id=%s", source_name, row.get("id"), exc_info=True)
+                    source_results.append({
+                        "source": source_name, "status": "failed", "candidates": 0,
+                        "matched": 0, "persisted": 0, "alerts": 0,
+                        "errors": 1, "persistence_errors": 0,
+                        "error_type": type(source_exc).__name__,
+                    })
+
+            persisted = await supabase.select(
+                "dw_findings",
+                "id,source_id,kind,matched_value,context,source_url,source_metadata,severity,first_seen,tenant_id,watchlist_id",
+                tenant_id=tenant_id, watchlist_id=watchlist_id,
+            )
+            persisted_ids = {str(finding.get("id")) for finding in persisted}
+            all_alerts = await supabase.select(
+                "dw_alerts", "id,title,summary,severity,status,finding_id,created_at", tenant_id=tenant_id,
+            )
+            alerts = [alert for alert in all_alerts if str(alert.get("finding_id")) in persisted_ids]
+            checked = any(source["status"] in {"checked_with_matches", "checked_no_matches"} for source in source_results)
+            persistence_errors = sum(int(source.get("persistence_errors", 0)) for source in source_results)
+            if not checked or persistence_errors:
+                # Provider outages are partial coverage; only no completed checks or failed persistence blocks resolution.
+                await supabase.update("service_requests", {"status": "blocked"}, id=str(row["id"]))
+                raise HTTPException(503, detail="dark_web_ingestion_incomplete")
+
+            summary = {
+                "service": "dark_web_monitoring", "target": target, "sources": source_results,
+                "sources_checked": sum(source["status"] in {"checked_with_matches", "checked_no_matches"} for source in source_results),
+                "sources_failed": sum(source["status"] == "failed" for source in source_results),
+                "sources_skipped": sum(source["status"].startswith("skipped") for source in source_results),
+                "sources_unavailable": sum(source["status"].startswith("unavailable") for source in source_results),
+                "source_candidates": candidate_count,
+                "candidate_cap_per_source": 2000,
+                "findings_persisted": len(persisted),
+                "alerts": len(alerts), "watchlist_id": watchlist_id,
+                "findings": persisted[:200], "alert_records": alerts[:200],
+                "method": "real configured passive sources with exact tenant-and-watchlist matching; candidates are not counted as findings unless persisted",
+            }
+            await supabase.update("service_requests", {"status": "resolved"}, id=str(row["id"]))
+            return {**row, "status": "resolved", "result": summary}
+        except HTTPException:
+            raise
+        except Exception:
+            await supabase.update("service_requests", {"status": "blocked"}, id=str(row["id"]))
+            logger.exception("dark web request failed request_id=%s", row.get("id"))
+            raise HTTPException(503, detail="dark_web_monitoring_unavailable")
 
     return row

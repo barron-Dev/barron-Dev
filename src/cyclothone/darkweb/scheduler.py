@@ -7,7 +7,16 @@ import time
 from datetime import UTC, datetime
 
 from cyclothone.darkweb.matcher import DarkWebMatcher
-from cyclothone.darkweb.pullers import GitHubCodeMonitor, HIBPPuller, PastePublicMonitor, RansomwatchPuller, TelegramPublicMonitor
+from cyclothone.darkweb.pullers import (
+    GitHubCodeMonitor,
+    HIBPPuller,
+    PastePublicMonitor,
+    RansomLookPuller,
+    RansomwareLivePuller,
+    RansomwatchPuller,
+    TelegramPublicMonitor,
+    as_domain,
+)
 from cyclothone.storage.supabase_client import supabase
 
 logger = logging.getLogger(__name__)
@@ -63,20 +72,29 @@ class DarkWebScheduler:
 
     async def _global_tick(self) -> None:
         enabled = await self._enabled_sources()
-        for pull in (RansomwatchPuller(), PastePublicMonitor()):
-            if pull.SOURCE in enabled:
-                await self._run_pull(pull.SOURCE, pull.pull)
-        channels = [x.strip() for x in os.getenv("SENTINEL_DW_TELEGRAM_CHANNELS", "").split(",") if x.strip()]
+        pullers = (RansomwareLivePuller(), RansomLookPuller(), RansomwatchPuller(), PastePublicMonitor())
+        for puller in pullers:
+            if puller.SOURCE in enabled:
+                await self._run_pull(puller.SOURCE, puller.pull)
+        channels = [x.strip() for x in os.getenv("CYCLOTHONE_DW_TELEGRAM_CHANNELS", "").split(",") if x.strip()]
         if channels and "telegram_public" in enabled:
             monitor = TelegramPublicMonitor(channels)
             await self._run_pull(monitor.SOURCE, monitor.pull)
+        elif "telegram_public" in enabled and not channels:
+            await self._mark_source("telegram_public", "skipped_missing_configuration")
 
     async def _domain_tick(self) -> None:
         domains = await self._tenant_domains()
-        hibp_key = os.getenv("SENTINEL_HIBP_KEY", "").strip()
-        github_token = os.getenv("SENTINEL_GITHUB_TOKEN", "").strip()
+        hibp_key = os.getenv("CYCLOTHONE_HIBP_KEY", "").strip()
+        github_token = os.getenv("CYCLOTHONE_GITHUB_TOKEN", "").strip()
         enabled = await self._enabled_sources()
+        if "hibp" in enabled and not hibp_key:
+            await self._mark_source("hibp", "skipped_missing_credentials")
+        if "github_code" in enabled and not github_token:
+            await self._mark_source("github_code", "skipped_missing_credentials")
         for domain in domains:
+            if self._stop.is_set():
+                return
             if hibp_key and "hibp" in enabled:
                 puller = HIBPPuller(hibp_key)
                 await self._run_pull(puller.SOURCE, lambda p=puller, d=domain: p.pull_domain(d))
@@ -88,12 +106,20 @@ class DarkWebScheduler:
         started = time.monotonic()
         try:
             findings = await pull()
+            if not isinstance(findings, list):
+                raise RuntimeError("source returned a non-list payload")
             result = await self._ingest(findings)
-            source_status = "degraded" if result["errors"] else "ok"
+            if result["errors"]:
+                source_status = "degraded"
+            elif result["matched"] == 0:
+                source_status = "checked_no_matches"
+            else:
+                source_status = "checked_with_matches"
             await self._mark_source(source_id, source_status)
             logger.info(
-                "dark web source=%s completed findings=%d matched=%d alerts=%d errors=%d duration_ms=%d",
-                source_id, len(findings), result["matched"], result["alerts"], result["errors"], int((time.monotonic() - started) * 1000),
+                "dark web source=%s status=%s candidates=%d matched=%d persisted=%d alerts=%d errors=%d duration_ms=%d",
+                source_id, source_status, len(findings), result["matched"], result["persisted"],
+                result["alerts"], result["errors"], int((time.monotonic() - started) * 1000),
             )
         except asyncio.CancelledError:
             raise
@@ -102,20 +128,24 @@ class DarkWebScheduler:
             logger.exception("dark web source failed: %s", source_id)
 
     async def _ingest(self, findings: list) -> dict[str, int]:
-        matched = alerts = errors = 0
+        matched = persisted = alerts = errors = 0
         for finding in findings[:2000]:
             if self._stop.is_set():
-                return {"matched": matched, "alerts": alerts, "errors": errors}
+                break
             result = await self.matcher.process({
-                "source_id": finding.source_id, "kind": finding.kind,
-                "matched_value": finding.matched_value, "context": finding.context,
-                "severity": finding.severity, "source_url": finding.source_url,
+                "source_id": finding.source_id,
+                "kind": finding.kind,
+                "matched_value": finding.matched_value,
+                "context": finding.context,
+                "severity": finding.severity,
+                "source_url": finding.source_url,
                 "metadata": finding.metadata,
-            })
+            }, scope="global")
             matched += int(result.get("matched", 0))
+            persisted += int(result.get("persisted", 0))
             alerts += int(result.get("alerts", 0))
             errors += int(result.get("errors", 0))
-        return {"matched": matched, "alerts": alerts, "errors": errors}
+        return {"matched": matched, "persisted": persisted, "alerts": alerts, "errors": errors}
 
     async def _enabled_sources(self) -> set[str]:
         async def _do():
@@ -143,7 +173,8 @@ class DarkWebScheduler:
             return await (await supabase._ensure()).table("dw_watchlist").select("value").eq("kind", "domain").execute()
         try:
             rows = (await supabase._retry(_do, attempts=1)).data or []
-            return sorted({str(row["value"]).strip().lower() for row in rows if row.get("value")})
+            domains = {as_domain(str(row.get("value") or "")) for row in rows}
+            return sorted(domain for domain in domains if domain)
         except Exception:
-            logger.debug("dark web domain watchlist unavailable", exc_info=True)
+            logger.warning("dark web domain watchlist unavailable", exc_info=True)
             return []

@@ -10,21 +10,163 @@ from cyclothone.storage.supabase_client import supabase
 logger = logging.getLogger(__name__)
 SEVERITY = {"medium": 0, "high": 1, "critical": 2}
 LAYERS = {"surface", "deep", "dark"}
+SCOPES = {"global", "watchlist"}
+
+
+def _digest(value: str) -> str:
+    return hashlib.sha256(value.strip().lower().encode()).hexdigest()
+
+
+def _content_fingerprint(
+    finding: dict[str, Any],
+    tenant_id: str | None = None,
+    watchlist_id: str | None = None,
+) -> str:
+    """Stable identity for evidence; volatile provider metadata must not create duplicate findings."""
+    metadata = finding.get("metadata")
+    metadata = metadata if isinstance(metadata, dict) else {}
+    stable_keys = ("breach", "group", "victim_name", "repository", "channel", "query_term", "match_basis", "provenance", "coverage")
+    stable_metadata = {
+        key: str(metadata[key]).strip()
+        for key in stable_keys
+        if metadata.get(key) is not None and str(metadata[key]).strip()
+    }
+    identity = {
+        "source_id": str(finding.get("source_id") or "").strip(),
+        "kind": str(finding.get("kind") or "").strip().lower(),
+        "matched_value": str(finding.get("matched_value") or "").strip().lower(),
+        "source_url": str(finding.get("source_url") or "").strip() or None,
+        "stable_metadata": stable_metadata,
+    }
+    if tenant_id is not None or watchlist_id is not None:
+        if not tenant_id or not watchlist_id:
+            raise ValueError("tenant and watchlist are both required for a scoped fingerprint")
+        identity["tenant_id"] = str(tenant_id)
+        identity["watchlist_id"] = str(watchlist_id)
+    canonical = json.dumps(identity, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode()).hexdigest()
 
 
 class DarkWebMatcher:
-    async def process(self, finding: dict[str, Any]) -> dict[str, Any]:
-        kind = str(finding["kind"])
-        value = str(finding["matched_value"]).strip().lower()
-        layer = str(finding.get("exposure_layer") or (finding.get("metadata") or {}).get("exposure_layer") or "surface").lower()
-        if layer not in LAYERS:
-            logger.warning("unknown darkweb exposure layer=%s", layer)
-            return {"matched": 0, "alerts": 0, "errors": 1}
-        if not value:
-            return {"matched": 0, "alerts": 0, "errors": 0}
-        digest = hashlib.sha256(value.encode()).hexdigest()
+    """Persist findings with explicit global or exact-watchlist matching semantics."""
 
-        async def _lookup():
+    async def process(
+        self,
+        finding: dict[str, Any],
+        *,
+        scope: str = "global",
+        tenant_id: str | None = None,
+        watchlist_id: str | None = None,
+        persist_unmatched_global: bool = False,
+    ) -> dict[str, Any]:
+        if scope not in SCOPES:
+            return self._result("invalid_scope", errors=1)
+        if scope == "watchlist" and (not tenant_id or not watchlist_id):
+            return self._result("scope_required", errors=1)
+        if scope == "global" and (tenant_id is not None or watchlist_id is not None):
+            return self._result("scope_mismatch", errors=1)
+
+        try:
+            source_id = str(finding["source_id"]).strip()
+            kind = str(finding["kind"]).strip().lower()
+            value = str(finding["matched_value"]).strip().lower()
+        except (KeyError, TypeError, ValueError):
+            return self._result("invalid_finding", errors=1)
+        if not source_id or not kind or not value:
+            return self._result("invalid_finding", errors=1)
+
+        metadata = finding.get("metadata") or {}
+        if not isinstance(metadata, dict):
+            return self._result("invalid_finding", errors=1)
+        layer = str(finding.get("exposure_layer") or metadata.get("exposure_layer") or "surface").lower()
+        if layer not in LAYERS:
+            logger.warning("unknown dark web exposure layer=%s", layer)
+            return self._result("invalid_layer", errors=1)
+
+        try:
+            if scope == "watchlist":
+                matches = await self._lookup_scoped(kind, value, str(tenant_id), str(watchlist_id))
+                if not matches:
+                    return self._result("no_watchlist_match")
+            else:
+                matches = await self._lookup_global(kind, value)
+        except Exception:
+            logger.exception("dark web watchlist lookup failed scope=%s kind=%s", scope, kind)
+            return self._result("lookup_failed", errors=1)
+
+        if not matches:
+            if not persist_unmatched_global:
+                return self._result("unmatched_not_persisted")
+            result = await self._record(finding, None, None, layer=layer, tenant_scoped=False)
+            if result.get("error"):
+                return self._result("persistence_failed", errors=1)
+            return self._result("unmatched_candidate_persisted", persisted=1)
+
+        alerts = errors = persisted = 0
+        for watch in matches:
+            severity = max_severity(str(watch.get("severity", "high")), str(finding.get("severity", "medium")))
+            result = await self._record(
+                finding,
+                str(watch["tenant_id"]),
+                str(watch["id"]),
+                severity,
+                layer=layer,
+                tenant_scoped=True,
+            )
+            if result.get("error"):
+                errors += 1
+                continue
+            persisted += int(bool(result.get("finding_id")))
+            alerts += int(bool(result.get("alert_id")))
+        status = "persisted" if errors == 0 else ("partial_persistence_failure" if persisted else "persistence_failed")
+        return self._result(status, matched=len(matches), persisted=persisted, alerts=alerts, errors=errors)
+
+    async def _lookup_scoped(self, kind: str, value: str, tenant_id: str, watchlist_id: str) -> list[dict[str, Any]]:
+        digest = _digest(value)
+
+        async def _do():
+            client = await supabase._ensure()
+            watch_response = await (
+                client.table("dw_watchlist")
+                .select("id,tenant_id,kind,severity,value_hash")
+                .eq("id", watchlist_id)
+                .eq("tenant_id", tenant_id)
+                .limit(1)
+                .execute()
+            )
+            watches = list(watch_response.data or [])
+            if not watches:
+                return {"status": "watchlist_scope_invalid", "rows": []}
+            watch = watches[0]
+            if str(watch.get("kind", "")).lower() != kind:
+                return {"status": "watchlist_kind_mismatch", "rows": []}
+            if str(watch.get("value_hash", "")).lower() == digest:
+                return {"status": "ok", "rows": [watch]}
+            alias_response = await (
+                client.table("dw_watch_aliases")
+                .select("watchlist_id,tenant_id,kind,alias_hash")
+                .eq("watchlist_id", watchlist_id)
+                .eq("tenant_id", tenant_id)
+                .eq("kind", kind)
+                .eq("alias_hash", digest)
+                .limit(1)
+                .execute()
+            )
+            aliases = list(alias_response.data or [])
+            return {"status": "ok", "rows": [watch] if aliases else []}
+
+        response = await supabase._retry(_do, attempts=2)
+        payload = response.data if hasattr(response, "data") else response
+        if not isinstance(payload, dict) or "rows" not in payload:
+            raise RuntimeError("scoped watchlist lookup returned an invalid response")
+        if payload.get("status") in {"watchlist_scope_invalid", "watchlist_kind_mismatch"}:
+            raise ValueError(str(payload["status"]))
+        return list(payload["rows"] or [])
+
+    async def _lookup_global(self, kind: str, value: str) -> list[dict[str, Any]]:
+        digest = _digest(value)
+
+        async def _do():
             client = await supabase._ensure()
             exact = await (
                 client.table("dw_watchlist")
@@ -51,6 +193,7 @@ class DarkWebMatcher:
                     .select("id,tenant_id,kind,severity")
                     .eq("id", watch_id)
                     .eq("tenant_id", str(alias["tenant_id"]))
+                    .eq("kind", kind)
                     .limit(1)
                     .execute()
                 )
@@ -59,31 +202,9 @@ class DarkWebMatcher:
                     seen.add(watch_id)
             return rows
 
-        try:
-            response = await supabase._retry(_lookup, attempts=2)
-            matches = list(response.data or []) if hasattr(response, "data") else list(response or [])
-        except Exception:
-            logger.exception("dark web watchlist lookup failed for kind=%s", kind)
-            return {"matched": 0, "alerts": 0, "errors": 1}
-
-        alerts = 0
-        errors = 0
-        if not matches:
-            result = await self._record(finding, None, None, layer=layer)
-            return {"matched": 0, "alerts": 0, "errors": int(bool(result.get("error")))}
-        for watch in matches:
-            result = await self._record(
-                finding,
-                str(watch["tenant_id"]),
-                str(watch["id"]),
-                max_severity(str(watch.get("severity", "high")), str(finding.get("severity", "medium"))),
-                layer=layer,
-            )
-            if result.get("alert_id"):
-                alerts += 1
-            if result.get("error"):
-                errors += 1
-        return {"matched": len(matches), "alerts": alerts, "errors": errors}
+        response = await supabase._retry(_do, attempts=2)
+        payload = response.data if hasattr(response, "data") else response
+        return list(payload or [])
 
     async def _record(
         self,
@@ -92,11 +213,17 @@ class DarkWebMatcher:
         watchlist_id: str | None,
         severity: str | None = None,
         layer: str = "surface",
+        tenant_scoped: bool = False,
     ) -> dict[str, Any]:
         metadata = dict(finding.get("metadata") or {})
         metadata["exposure_layer"] = layer
-        content_key = f"{finding['source_id']}:{finding['kind']}:{str(finding['matched_value']).strip().lower()}:{json.dumps(metadata, sort_keys=True, separators=(',', ':'))}"
-        content_hash = hashlib.sha256(content_key.encode()).hexdigest()
+        if tenant_scoped and (not tenant_id or not watchlist_id):
+            return {"error": "scope_required"}
+        content_hash = _content_fingerprint(
+            finding,
+            tenant_id if tenant_scoped else None,
+            watchlist_id if tenant_scoped else None,
+        )
 
         async def _do():
             client = await supabase._ensure()
@@ -115,11 +242,18 @@ class DarkWebMatcher:
 
         try:
             response = await supabase._retry(_do, attempts=2)
-            row = (response.data or [{}])[0] if isinstance(response.data, list) else (response.data or {})
+            data = response.data if hasattr(response, "data") else response
+            row = (data or [{}])[0] if isinstance(data, list) else (data or {})
+            if not isinstance(row, dict) or not row.get("finding_id"):
+                return {"error": "rpc_missing_finding_id"}
             return {"finding_id": row.get("finding_id"), "alert_id": row.get("alert_id"), "detection_id": row.get("detection_id")}
         except Exception as exc:
             logger.exception("dark web finding ingestion failed source=%s", finding.get("source_id"))
             return {"error": type(exc).__name__}
+
+    @staticmethod
+    def _result(status: str, *, matched: int = 0, persisted: int = 0, alerts: int = 0, errors: int = 0) -> dict[str, Any]:
+        return {"status": status, "matched": matched, "persisted": persisted, "alerts": alerts, "errors": errors}
 
 
 def max_severity(a: str, b: str) -> str:
