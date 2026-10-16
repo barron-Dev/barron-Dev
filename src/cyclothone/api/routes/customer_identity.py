@@ -679,9 +679,21 @@ async def create_service_request(body:ServiceRequest,p:DeveloperPrincipal=Depend
             ):
                 raise RuntimeError("tenant watchlist identity could not be confirmed")
             watchlist_id = str(watch["id"])
-            enabled_rows = await supabase.select("dw_sources", "id,enabled", enabled=True)
-            enabled = {str(source["id"]) for source in enabled_rows}
-            source_results = []
+            source_rows = await supabase.select("dw_sources", "id,enabled,last_status")
+            enabled = {str(source["id"]) for source in source_rows if source.get("enabled")}
+            supported_source_ids = {
+                "ransomware_live", "ransomlook", "ransomwatch", "pastebin_public",
+                "telegram_public", "hibp", "github_code",
+            }
+            source_results = [
+                {
+                    "source": str(source["id"]),
+                    "status": "unavailable_disabled" if not source.get("enabled") else "unavailable_not_integrated",
+                    "candidates": 0, "matched": 0, "persisted": 0, "alerts": 0,
+                }
+                for source in source_rows
+                if not source.get("enabled") or str(source.get("id")) not in supported_source_ids
+            ]
             candidate_count = 0
             matcher = DarkWebMatcher()
             source_jobs = []
@@ -754,7 +766,9 @@ async def create_service_request(body:ServiceRequest,p:DeveloperPrincipal=Depend
                         source_errors += int(result.get("errors", 0))
                     source_status = "failed" if source_errors else ("checked_with_matches" if source_matched else "checked_no_matches")
                     source_results.append({
-                        "source": source_name, "status": source_status, "candidates": len(findings),
+                        "source": source_name, "status": source_status,
+                        "candidates": len(findings), "candidates_considered": min(len(findings), 2000),
+                        "candidate_cap_applied": len(findings) > 2000,
                         "matched": source_matched, "persisted": source_persisted,
                         "alerts": source_alerts, "errors": source_errors,
                     })
@@ -787,7 +801,10 @@ async def create_service_request(body:ServiceRequest,p:DeveloperPrincipal=Depend
                 "sources_checked": sum(source["status"] in {"checked_with_matches", "checked_no_matches"} for source in source_results),
                 "sources_failed": sum(source["status"] == "failed" for source in source_results),
                 "sources_skipped": sum(source["status"].startswith("skipped") for source in source_results),
-                "source_candidates": candidate_count, "findings_persisted": len(persisted),
+                "sources_unavailable": sum(source["status"].startswith("unavailable") for source in source_results),
+                "source_candidates": candidate_count,
+                "candidate_cap_per_source": 2000,
+                "findings_persisted": len(persisted),
                 "alerts": len(alerts), "watchlist_id": watchlist_id,
                 "findings": persisted[:200], "alert_records": alerts[:200],
                 "method": "real configured passive sources with exact tenant-and-watchlist matching; candidates are not counted as findings unless persisted",
