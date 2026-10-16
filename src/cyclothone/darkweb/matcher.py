@@ -23,11 +23,20 @@ def _content_fingerprint(
     watchlist_id: str | None = None,
 ) -> str:
     """Stable identity for evidence; volatile provider metadata must not create duplicate findings."""
+    metadata = finding.get("metadata")
+    metadata = metadata if isinstance(metadata, dict) else {}
+    stable_keys = ("breach", "group", "victim_name", "repository", "channel", "query_term", "match_basis", "provenance", "coverage")
+    stable_metadata = {
+        key: str(metadata[key]).strip()
+        for key in stable_keys
+        if metadata.get(key) is not None and str(metadata[key]).strip()
+    }
     identity = {
         "source_id": str(finding.get("source_id") or "").strip(),
         "kind": str(finding.get("kind") or "").strip().lower(),
         "matched_value": str(finding.get("matched_value") or "").strip().lower(),
         "source_url": str(finding.get("source_url") or "").strip() or None,
+        "stable_metadata": stable_metadata,
     }
     if tenant_id is not None or watchlist_id is not None:
         if not tenant_id or not watchlist_id:
