@@ -22,7 +22,7 @@ async def test_invalid_signature_fails_closed_before_replay():
     gate = __import__("cyclothone.ai.execution_gate", fromlist=["AgentExecutionGate"]).AgentExecutionGate(Replay())
     env = envelope()
     with pytest.raises(AgentExecutionDenied, match="invalid envelope signature"):
-        await gate.authorize(envelope=env, tenant_id=env.tenant_id, expected_model_id="model-a", expected_provider_id="provider-a", twin=AsyncMock())
+        await gate.authorize(envelope=env, tenant_id=env.tenant_id, expected_model_id="model-a", expected_provider_id="provider-a", expected_mission_id=env.mission_id, expected_mission_version=env.mission_version, expected_mission_hash=env.mission_hash, twin=AsyncMock())
 
 @pytest.mark.asyncio
 async def test_destructive_orchestrator_requires_gate():
