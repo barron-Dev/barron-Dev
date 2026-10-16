@@ -17,6 +17,27 @@ def _digest(value: str) -> str:
     return hashlib.sha256(value.strip().lower().encode()).hexdigest()
 
 
+def _content_fingerprint(
+    finding: dict[str, Any],
+    tenant_id: str | None = None,
+    watchlist_id: str | None = None,
+) -> str:
+    """Stable identity for evidence; volatile provider metadata must not create duplicate findings."""
+    identity = {
+        "source_id": str(finding.get("source_id") or "").strip(),
+        "kind": str(finding.get("kind") or "").strip().lower(),
+        "matched_value": str(finding.get("matched_value") or "").strip().lower(),
+        "source_url": str(finding.get("source_url") or "").strip() or None,
+    }
+    if tenant_id is not None or watchlist_id is not None:
+        if not tenant_id or not watchlist_id:
+            raise ValueError("tenant and watchlist are both required for a scoped fingerprint")
+        identity["tenant_id"] = str(tenant_id)
+        identity["watchlist_id"] = str(watchlist_id)
+    canonical = json.dumps(identity, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode()).hexdigest()
+
+
 class DarkWebMatcher:
     """Persist findings with explicit global or exact-watchlist matching semantics."""
 
@@ -187,16 +208,13 @@ class DarkWebMatcher:
     ) -> dict[str, Any]:
         metadata = dict(finding.get("metadata") or {})
         metadata["exposure_layer"] = layer
-        base_key = (
-            f"{finding['source_id']}:{finding['kind']}:"
-            f"{str(finding['matched_value']).strip().lower()}:"
-            f"{json.dumps(metadata, sort_keys=True, separators=(',', ':'))}"
+        if tenant_scoped and (not tenant_id or not watchlist_id):
+            return {"error": "scope_required"}
+        content_hash = _content_fingerprint(
+            finding,
+            tenant_id if tenant_scoped else None,
+            watchlist_id if tenant_scoped else None,
         )
-        if tenant_scoped:
-            if not tenant_id or not watchlist_id:
-                return {"error": "scope_required"}
-            base_key = f"tenant:{tenant_id}:watch:{watchlist_id}:{base_key}"
-        content_hash = hashlib.sha256(base_key.encode()).hexdigest()
 
         async def _do():
             client = await supabase._ensure()
