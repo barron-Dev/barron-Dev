@@ -24,6 +24,9 @@ def test_content_fingerprint_ignores_volatile_metadata_but_scopes_tenants():
     }
     refreshed = {**base, "metadata": {"published": "2026-10-16", "group": "group-a"}}
     assert _content_fingerprint(base) == _content_fingerprint(refreshed)
+    breach_a = {**base, "metadata": {"breach": "Breach A", "published": "2026-10-15"}}
+    breach_b = {**base, "metadata": {"breach": "Breach B", "published": "2026-10-15"}}
+    assert _content_fingerprint(breach_a) != _content_fingerprint(breach_b)
     assert _content_fingerprint(base, "tenant-a", "watch-a") != _content_fingerprint(base, "tenant-b", "watch-b")
     assert _content_fingerprint(base) != _content_fingerprint({**base, "source_url": "https://source.example/post/2"})
 
