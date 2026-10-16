@@ -771,13 +771,15 @@ async def create_service_request(body:ServiceRequest,p:DeveloperPrincipal=Depend
                         "candidate_cap_applied": len(findings) > 2000,
                         "matched": source_matched, "persisted": source_persisted,
                         "alerts": source_alerts, "errors": source_errors,
+                        "persistence_errors": source_errors,
                     })
                 except Exception as source_exc:
                     logger.warning("dark web source failed source=%s request_id=%s", source_name, row.get("id"), exc_info=True)
                     source_results.append({
                         "source": source_name, "status": "failed", "candidates": 0,
                         "matched": 0, "persisted": 0, "alerts": 0,
-                        "errors": 1, "error_type": type(source_exc).__name__,
+                        "errors": 1, "persistence_errors": 0,
+                        "error_type": type(source_exc).__name__,
                     })
 
             persisted = await supabase.select(
@@ -790,9 +792,10 @@ async def create_service_request(body:ServiceRequest,p:DeveloperPrincipal=Depend
                 "dw_alerts", "id,title,summary,severity,status,finding_id,created_at", tenant_id=tenant_id,
             )
             alerts = [alert for alert in all_alerts if str(alert.get("finding_id")) in persisted_ids]
-            failed = any(source["status"] == "failed" for source in source_results)
             checked = any(source["status"] in {"checked_with_matches", "checked_no_matches"} for source in source_results)
-            if not checked or failed or any(source.get("errors", 0) for source in source_results):
+            persistence_errors = sum(int(source.get("persistence_errors", 0)) for source in source_results)
+            if not checked or persistence_errors:
+                # Provider outages are partial coverage; only no completed checks or failed persistence blocks resolution.
                 await supabase.update("service_requests", {"status": "blocked"}, id=str(row["id"]))
                 raise HTTPException(503, detail="dark_web_ingestion_incomplete")
 
