@@ -682,12 +682,12 @@ async def create_service_request(body:ServiceRequest,p:DeveloperPrincipal=Depend
 
             for source_id, pull, missing_reason in pull_jobs:
                 if source_id not in enabled:
-                    source_results.append({"source": source_id, "status": "disabled", "candidates_returned": 0, "target_candidates": 0, "persisted": 0, "alerts": 0})
+                    source_results.append({"source": source_id, "status": "disabled", "candidates_returned": 0, "target_candidates": 0, "persist_operations": 0, "alerts": 0})
                     continue
                 if pull is None:
                     reason = "skipped_missing_configuration" if missing_reason == "telegram_configuration" else "skipped_missing_credentials"
                     await supabase.update("dw_sources", {"last_pull_at": datetime.now(UTC).isoformat(), "last_status": reason}, id=source_id)
-                    source_results.append({"source": source_id, "status": reason, "candidates_returned": 0, "target_candidates": 0, "persisted": 0, "alerts": 0})
+                    source_results.append({"source": source_id, "status": reason, "candidates_returned": 0, "target_candidates": 0, "persist_operations": 0, "alerts": 0})
                     continue
 
                 try:
@@ -697,7 +697,7 @@ async def create_service_request(body:ServiceRequest,p:DeveloperPrincipal=Depend
                 except Exception as exc:
                     failed_sources += 1
                     await supabase.update("dw_sources", {"last_pull_at": datetime.now(UTC).isoformat(), "last_status": "failed"}, id=source_id)
-                    source_results.append({"source": source_id, "status": "failed", "error": type(exc).__name__, "candidates_returned": 0, "target_candidates": 0, "persisted": 0, "alerts": 0})
+                    source_results.append({"source": source_id, "status": "failed", "error": type(exc).__name__, "candidates_returned": 0, "target_candidates": 0, "persist_operations": 0, "alerts": 0})
                     continue
 
                 checked_sources += 1
@@ -741,7 +741,7 @@ async def create_service_request(body:ServiceRequest,p:DeveloperPrincipal=Depend
                 source_results.append({
                     "source": source_id, "status": source_status,
                     "candidates_returned": len(raw_findings), "target_candidates": len(target_findings),
-                    "persisted": source_persisted, "alerts": source_alerts,
+                    "persist_operations": source_persisted, "alerts": source_alerts,
                 })
 
             if checked_sources == 0:
