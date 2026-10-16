@@ -760,7 +760,7 @@ async def create_service_request(body:ServiceRequest,p:DeveloperPrincipal=Depend
                 tenant_id=tenant_id, watchlist_id=str(watch["id"]),
             )
             alerts = [item for item in all_alerts if str(item.get("finding_id")) in finding_ids]
-            partial = bool(failed_sources or any(item["status"].startswith("skipped_") for item in source_results))
+            partial = bool(failed_sources or any(item["status"] == "disabled" or item["status"].startswith("skipped_") for item in source_results))
             request_status = "blocked" if failed_sources or matcher_errors else "resolved"
             summary = {
                 "service": "dark_web_monitoring", "target": target,
