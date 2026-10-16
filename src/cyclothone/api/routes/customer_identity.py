@@ -639,7 +639,7 @@ async def create_service_request(body:ServiceRequest,p:DeveloperPrincipal=Depend
         from cyclothone.darkweb.matcher import DarkWebMatcher
         from cyclothone.darkweb.pullers import (
             GitHubCodeMonitor, HIBPPuller, PastePublicMonitor, RansomLookPuller,
-            RansomwareLivePuller, RansomwatchPuller, TelegramPublicMonitor, as_domain,
+            RansomwareLivePuller, RansomwatchPuller, TelegramPublicMonitor, as_domain, domain_match_for_target,
         )
 
         target_match = re.search(r"^Target:\s*(.+)$", description, re.MULTILINE | re.IGNORECASE)
@@ -728,24 +728,19 @@ async def create_service_request(body:ServiceRequest,p:DeveloperPrincipal=Depend
                     candidate_count += len(findings)
                     source_matched = source_persisted = source_alerts = source_errors = 0
                     for finding in findings[:2000]:
-                        candidate_kind = str(getattr(finding, "kind", "")).strip().lower()
                         raw_value = str(getattr(finding, "matched_value", "")).strip()
-                        candidate_domain = None
-                        context = finding.context
-                        metadata = dict(finding.metadata) if isinstance(finding.metadata, dict) else {}
-
-                        if candidate_kind == "domain":
-                            candidate_domain = as_domain(raw_value)
-                        elif candidate_kind == "email" and "@" in raw_value:
-                            # Correlate a provider-reported address to the monitored domain
-                            # without persisting the raw email as the customer finding.
-                            email_domain = raw_value.rsplit("@", 1)[1].strip().lower().rstrip(".")
-                            if as_domain(email_domain) == target:
-                                candidate_domain = target
-                                context = "An external source reported an identifier associated with the monitored domain; the raw email identifier is omitted."
-                                metadata["correlation_type"] = "email_domain_match"
+                        candidate_domain, email_correlated = domain_match_for_target(
+                            str(getattr(finding, "kind", "")), raw_value, target,
+                        )
                         if candidate_domain != target:
                             continue
+                        context = finding.context
+                        metadata = dict(finding.metadata) if isinstance(finding.metadata, dict) else {}
+                        if email_correlated:
+                            # Correlate a provider-reported address to the monitored domain
+                            # without persisting the raw email as the customer finding.
+                            context = "An external source reported an identifier associated with the monitored domain; the raw email identifier is omitted."
+                            metadata["correlation_type"] = "email_domain_match"
 
                         result = await matcher.process({
                             "source_id": str(finding.source_id), "kind": "domain",
