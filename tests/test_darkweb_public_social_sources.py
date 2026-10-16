@@ -88,7 +88,7 @@ def test_youtube_matches_exact_domain_and_records_public_video_url(monkeypatch) 
                     {
                         "id": {"videoId": "video456"},
                         "snippet": {
-                            "title": "Not example.com",
+                            "title": "Unrelated site mention",
                             "description": "A mention of notexample.com should not match",
                             "publishedAt": "2026-10-15T12:00:00Z",
                             "channelId": "channel456",
