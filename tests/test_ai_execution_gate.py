@@ -22,7 +22,7 @@ async def test_invalid_signature_fails_closed_before_replay():
     gate = __import__("cyclothone.ai.execution_gate", fromlist=["AgentExecutionGate"]).AgentExecutionGate(Replay())
     env = envelope()
     with pytest.raises(AgentExecutionDenied, match="invalid envelope signature"):
-        await gate.authorize(envelope=env, tenant_id=env.tenant_id, expected_model_id="model-a", expected_provider_id="provider-a", twin=AsyncMock())
+        await gate.authorize(envelope=env, tenant_id=env.tenant_id, expected_model_id="model-a", expected_provider_id="provider-a", expected_mission_id=env.mission_id, expected_mission_version=env.mission_version, expected_mission_hash=env.mission_hash, twin=AsyncMock())
 
 @pytest.mark.asyncio
 async def test_destructive_orchestrator_requires_gate():
@@ -67,6 +67,9 @@ async def test_approval_required_validates_without_consuming_replay(monkeypatch)
         tenant_id=env.tenant_id,
         expected_model_id=env.model_id,
         expected_provider_id=env.provider_id,
+        expected_mission_id=env.mission_id,
+        expected_mission_version=env.mission_version,
+        expected_mission_hash=env.mission_hash,
         twin=twin,
     )
 
@@ -104,6 +107,9 @@ async def test_denied_policy_is_not_treated_as_approval(monkeypatch):
             tenant_id=env.tenant_id,
             expected_model_id=env.model_id,
             expected_provider_id=env.provider_id,
+            expected_mission_id=env.mission_id,
+            expected_mission_version=env.mission_version,
+            expected_mission_hash=env.mission_hash,
             twin=AsyncMock(),
         )
 
@@ -219,7 +225,8 @@ async def test_envelope_issuer_signs_only_bound_agent(monkeypatch):
         raise AssertionError(f"unexpected table: {table}")
 
     monkeypatch.setattr("cyclothone.ai.envelope_issuer.supabase.select_one", select_one)
-    async def sign(digest):
+    async def sign(digest, *, purpose):
+        assert purpose == "AI_ENVELOPE"
         assert len(digest) == 64
         return ComplianceSignature(signature_b64="sig", kid="kid-1")
     monkeypatch.setattr("cyclothone.ai.envelope_issuer.sign_digest", sign)
