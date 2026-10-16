@@ -685,6 +685,7 @@ async def create_service_request(body:ServiceRequest,p:DeveloperPrincipal=Depend
                 "ransomware_live", "ransomlook", "ransomwatch", "pastebin_public",
                 "telegram_public", "hibp", "github_code",
             }
+            registered_source_ids = {str(source.get("id")) for source in source_rows if source.get("id")}
             source_results = [
                 {
                     "source": str(source["id"]),
@@ -694,6 +695,13 @@ async def create_service_request(body:ServiceRequest,p:DeveloperPrincipal=Depend
                 for source in source_rows
                 if not source.get("enabled") or str(source.get("id")) not in supported_source_ids
             ]
+            source_results.extend(
+                {
+                    "source": source_id, "status": "unavailable_not_registered",
+                    "candidates": 0, "matched": 0, "persisted": 0, "alerts": 0,
+                }
+                for source_id in sorted(supported_source_ids - registered_source_ids)
+            )
             candidate_count = 0
             matcher = DarkWebMatcher()
             source_jobs = []
