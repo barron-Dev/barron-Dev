@@ -8,6 +8,7 @@ from functools import partial
 from datetime import UTC, datetime
 
 from cyclothone.darkweb.matcher import DarkWebMatcher
+from cyclothone.darkweb.source_registry import TelegramSourceRegistry
 from cyclothone.darkweb.pullers import (
     BlueskyPublicMonitor,
     HackerNewsPublicMonitor,
@@ -141,6 +142,15 @@ class DarkWebScheduler:
             await self._run_pull("lemmy_public", lambda m=monitor, d=domains: m.pull_domains(d))
         elif "lemmy_public" in enabled:
             await self._mark_source("lemmy_public", "unavailable_missing_watch_targets", pulled=False)
+
+        if (os.getenv("CYCLOTHONE_DW_SOURCE_REGISTRY_ENABLED", "").strip().lower() in {"1", "true", "yes", "on"}):
+            try:
+                result = await TelegramSourceRegistry().check_configured_sources(max_sources=25)
+                logger.info("dark web configured-source registry result=%s", result)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception("dark web configured-source registry validation failed")
 
     async def _domain_tick(self) -> None:
         domains = await self._tenant_domains()
