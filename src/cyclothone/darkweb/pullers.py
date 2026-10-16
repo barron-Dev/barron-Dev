@@ -4,7 +4,9 @@ import asyncio
 import hashlib
 import json
 import logging
+import os
 import re
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from urllib.parse import urlsplit
 
@@ -167,10 +169,71 @@ class RansomwatchPuller:
 class TelegramPublicMonitor:
     SOURCE = "telegram_public"
 
-    def __init__(self, channels: list[str]) -> None:
+    def __init__(
+        self,
+        channels: list[str],
+        *,
+        target_type: str | None = None,
+        target: str | None = None,
+    ) -> None:
         self.channels = list(dict.fromkeys(c.strip().lstrip("@") for c in channels if c.strip()))
         # Per-channel outcomes remain available to the scheduler for honest coverage.
         self.channel_status: dict[str, str] = {}
+        self.target_type = (target_type or "").strip().lower() or None
+        self.target = normalize(target or "") or None
+
+    def _target_finding(self, html: str, channel: str) -> list[Finding]:
+        target_type = self.target_type
+        target = self.target
+        source_url = f"https://t.me/s/{channel}"
+        if not target_type or not target:
+            return [
+                Finding(
+                    self.SOURCE, "email", normalize(email),
+                    "Identifier appeared in a public Telegram web preview; credential material redacted.",
+                    "high", source_url, {"channel": channel, "match_type": "public_email_identifier"},
+                )
+                for email in dict.fromkeys(EMAIL_RE.findall(html))
+            ]
+
+        if target_type == "email":
+            matches = [email for email in dict.fromkeys(EMAIL_RE.findall(html)) if normalize(email) == target]
+            return [
+                Finding(self.SOURCE, "email", target,
+                    "Exact monitored email identifier appeared in a public Telegram web preview; post content is not retained.",
+                    "high", source_url, {"channel": channel, "match_type": "exact_email"})
+                for _ in matches[:1]
+            ]
+
+        if target_type in {"domain", "url"}:
+            # Match a hostname as a token, not as a substring of an unrelated hostname.
+            pattern = re.compile(r"(?<![A-Za-z0-9.-])" + re.escape(target) + r"(?![A-Za-z0-9.-])", re.IGNORECASE)
+            kind = "domain"
+            match_type = "exact_domain_mention"
+        elif target_type == "brand":
+            # Brand matching is phrase-exact and case-insensitive; no fuzzy identity inference.
+            pattern = re.compile(r"(?<!\w)" + re.escape(target) + r"(?!\w)", re.IGNORECASE)
+            kind = "company_name"
+            match_type = "exact_brand_mention"
+        elif target_type == "username":
+            handle = target.lstrip("@")
+            pattern = re.compile(r"(?<![A-Za-z0-9_])@" + re.escape(handle) + r"(?![A-Za-z0-9_])", re.IGNORECASE)
+            kind = "username"
+            target = handle
+            match_type = "exact_username_mention"
+        else:
+            return []
+
+        if not pattern.search(html):
+            return []
+        return [
+            Finding(
+                self.SOURCE, kind, target,
+                "Exact monitored target appeared in a public Telegram web preview; post content is not retained.",
+                "high", source_url,
+                {"channel": channel, "match_type": match_type, "target_type": target_type},
+            )
+        ]
 
     async def pull(self) -> list[Finding]:
         semaphore = asyncio.Semaphore(5)
@@ -185,15 +248,7 @@ class TelegramPublicMonitor:
                         )
                         response.raise_for_status()
                         html = response.text
-                findings = [
-                    Finding(
-                        self.SOURCE, "email", normalize(email),
-                        "Monitored identifier appeared in a public Telegram web preview; credential material redacted.",
-                        "critical", f"https://t.me/s/{channel}", {"channel": channel},
-                    )
-                    for email in dict.fromkeys(EMAIL_RE.findall(html))
-                ]
-                return channel, findings
+                return channel, self._target_finding(html, channel)
             except Exception as exc:
                 logger.warning("Telegram channel failed channel=%s error=%s", channel, type(exc).__name__)
                 return channel, None
@@ -207,7 +262,6 @@ class TelegramPublicMonitor:
         if self.channels and not successful:
             raise RuntimeError("all configured Telegram public channels failed")
         return [finding for batch in successful for finding in batch]
-
 
 def _paste_entries_from_feed(text: str) -> list[tuple[str, str, str]]:
     """Extract validated public Pastebin.ca feed entries; never fetch arbitrary URLs."""
@@ -322,3 +376,277 @@ class GitHubCodeMonitor:
         if failures == 3:
             raise RuntimeError(f"all GitHub code searches failed for {domain}")
         return out
+
+
+class YouTubePublicMonitor:
+    """Search public YouTube video metadata using the official YouTube Data API.
+
+    Requires CYCLOTHONE_YOUTUBE_API_KEY. Only public search metadata is retained;
+    video titles/descriptions are inspected for exact domain matches but not stored.
+    """
+    SOURCE = "youtube_public"
+    ENDPOINT = "https://www.googleapis.com/youtube/v3/search"
+
+    def __init__(self, api_key: str | None = None) -> None:
+        self.api_key = (api_key if api_key is not None else os.getenv("CYCLOTHONE_YOUTUBE_API_KEY", "")).strip()
+
+    async def pull_domains(self, domains: list[str]) -> list[Finding]:
+        if not self.api_key:
+            raise RuntimeError("youtube_api_key_required")
+        semaphore = asyncio.Semaphore(2)
+
+        async with httpx.AsyncClient(timeout=20.0, follow_redirects=False) as client:
+            async def search(domain: str) -> list[Finding]:
+                domain = normalize(domain)
+                if not domain or len(domain) > 253:
+                    return []
+                async with semaphore:
+                    response = await client.get(
+                        self.ENDPOINT,
+                        params={
+                            "key": self.api_key,
+                            "part": "snippet",
+                            "q": domain,
+                            "type": "video",
+                            "maxResults": 25,
+                            "order": "date",
+                            "safeSearch": "moderate",
+                        },
+                        headers={"user-agent": "CyclothonePublicExposureMonitor/1.0"},
+                    )
+                response.raise_for_status()
+                matcher = re.compile(r"(?i)(?<![a-z0-9.-])" + re.escape(domain) + r"(?![a-z0-9.-])")
+                findings: list[Finding] = []
+                for item in (response.json() or {}).get("items", []):
+                    snippet = item.get("snippet") or {}
+                    searchable = " ".join(str(snippet.get(k) or "") for k in ("title", "description"))
+                    if not matcher.search(searchable):
+                        continue
+                    video_id = str((item.get("id") or {}).get("videoId") or "")
+                    if not video_id:
+                        continue
+                    findings.append(Finding(
+                        self.SOURCE,
+                        "domain",
+                        domain,
+                        "Monitored domain mentioned in public YouTube video metadata; title and description are not retained.",
+                        "medium",
+                        f"https://www.youtube.com/watch?v={video_id}",
+                        {
+                            "platform": "youtube",
+                            "published": snippet.get("publishedAt"),
+                            "channel_id": snippet.get("channelId"),
+                            "video_id": video_id,
+                        },
+                    ))
+                return findings
+
+            batches = await asyncio.gather(
+                *(search(domain) for domain in domains[:10]), return_exceptions=True
+            )
+        failures = sum(isinstance(batch, BaseException) for batch in batches)
+        if domains and failures == min(len(domains), 10):
+            raise RuntimeError("all YouTube public searches failed")
+        return [finding for batch in batches if isinstance(batch, list) for finding in batch]
+
+
+class BlueskyPublicMonitor:
+    """Search publicly indexed Bluesky posts; no login or private feeds."""
+    SOURCE = "bluesky_public"
+    ENDPOINT = "https://api.bsky.app/xrpc/app.bsky.feed.searchPosts"
+
+    async def pull_domains(self, domains: list[str]) -> list[Finding]:
+        semaphore = asyncio.Semaphore(4)
+        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+            async def search(domain: str) -> list[Finding]:
+                domain = normalize(domain)
+                if not domain or len(domain) > 253:
+                    return []
+                try:
+                    async with semaphore:
+                        response = await client.get(
+                            self.ENDPOINT,
+                            params={"q": f'"{domain}"', "limit": 50, "sort": "latest"},
+                            headers={"user-agent": "CyclothonePublicExposureMonitor/1.0"},
+                        )
+                    response.raise_for_status()
+                    posts = (response.json() or {}).get("posts", [])
+                except Exception as exc:
+                    logger.warning("Bluesky public search failed error=%s", type(exc).__name__)
+                    raise
+                matcher = re.compile(r"(?i)(?<![a-z0-9.-])" + re.escape(domain) + r"(?![a-z0-9.-])")
+                findings: list[Finding] = []
+                for post in posts if isinstance(posts, list) else []:
+                    record = post.get("record") or {}
+                    text = str(record.get("text") or "")
+                    if not matcher.search(text):
+                        continue
+                    author = post.get("author") or {}
+                    handle = str(author.get("handle") or "")
+                    uri = str(post.get("uri") or "")
+                    rkey = uri.rsplit("/", 1)[-1] if uri else ""
+                    post_url = f"https://bsky.app/profile/{handle}/post/{rkey}" if handle and rkey else "https://bsky.app"
+                    findings.append(Finding(
+                        self.SOURCE, "domain", domain,
+                        "Monitored domain mentioned in a publicly searchable Bluesky post; post text is not retained.",
+                        "medium", post_url,
+                        {"platform": "bluesky", "author_handle": handle, "indexed_at": post.get("indexedAt")},
+                    ))
+                return findings
+            batches = await asyncio.gather(
+                *(search(domain) for domain in domains[:50]),
+                return_exceptions=True,
+            )
+        failures = sum(isinstance(batch, BaseException) for batch in batches)
+        if domains and failures == min(len(domains), 50):
+            raise RuntimeError("all Bluesky public searches failed")
+        return [finding for batch in batches if isinstance(batch, list) for finding in batch]
+
+
+class RedditPublicMonitor:
+    """Search Reddit through its approved OAuth API; never access private communities or DMs."""
+    SOURCE = "reddit_public"
+    TOKEN_ENDPOINT = "https://www.reddit.com/api/v1/access_token"
+    SEARCH_ENDPOINT = "https://oauth.reddit.com/search"
+
+    async def pull_domains(self, domains: list[str]) -> list[Finding]:
+        client_id = (os.getenv("CYCLOTHONE_REDDIT_CLIENT_ID") or "").strip()
+        client_secret = (os.getenv("CYCLOTHONE_REDDIT_CLIENT_SECRET") or "").strip()
+        user_agent = (os.getenv("CYCLOTHONE_REDDIT_USER_AGENT") or "CyclothonePublicExposureMonitor/1.0").strip()
+        if not client_id or not client_secret:
+            raise RuntimeError("reddit_oauth_credentials_required")
+        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+            token_response = await client.post(
+                self.TOKEN_ENDPOINT,
+                auth=(client_id, client_secret),
+                data={"grant_type": "client_credentials"},
+                headers={"user-agent": user_agent},
+            )
+            token_response.raise_for_status()
+            access_token = str((token_response.json() or {}).get("access_token") or "")
+            if not access_token:
+                raise RuntimeError("reddit_oauth_token_missing")
+            semaphore = asyncio.Semaphore(3)
+            async def search(domain: str) -> list[Finding]:
+                domain = normalize(domain)
+                if not domain or len(domain) > 253:
+                    return []
+                async with semaphore:
+                    response = await client.get(
+                        self.SEARCH_ENDPOINT,
+                        params={"q": f'"{domain}"', "sort": "new", "t": "month", "limit": 25, "type": "link"},
+                        headers={"authorization": f"Bearer {access_token}", "user-agent": user_agent},
+                    )
+                response.raise_for_status()
+                matcher = re.compile(r"(?i)(?<![a-z0-9.-])" + re.escape(domain) + r"(?![a-z0-9.-])")
+                findings: list[Finding] = []
+                for child in (response.json() or {}).get("data", {}).get("children", []):
+                    post = child.get("data") or {}
+                    searchable = " ".join(str(post.get(k) or "") for k in ("title", "selftext", "url"))
+                    if not matcher.search(searchable):
+                        continue
+                    permalink = str(post.get("permalink") or "")
+                    post_url = "https://www.reddit.com" + permalink if permalink.startswith("/") else str(post.get("url") or "")
+                    findings.append(Finding(
+                        self.SOURCE, "domain", domain,
+                        "Monitored domain mentioned in a public Reddit search result; post text is not retained.",
+                        "medium", post_url or None,
+                        {"platform": "reddit", "published": post.get("created_utc"), "subreddit": post.get("subreddit")},
+                    ))
+                return findings
+            batches = await asyncio.gather(
+                *(search(domain) for domain in domains[:50]), return_exceptions=True
+            )
+        failures = sum(isinstance(batch, BaseException) for batch in batches)
+        if domains and failures == min(len(domains), 50):
+            raise RuntimeError("all Reddit OAuth searches failed")
+        return [finding for batch in batches if isinstance(batch, list) for finding in batch]
+
+
+class HackerNewsPublicMonitor:
+    """Search public Hacker News stories via the Algolia-backed public API."""
+    SOURCE = "hackernews_public"
+    ENDPOINT = "https://hn.algolia.com/api/v1/search_by_date"
+
+    async def pull_domains(self, domains: list[str]) -> list[Finding]:
+        semaphore = asyncio.Semaphore(4)
+        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+            async def search(domain: str) -> list[Finding]:
+                domain = normalize(domain)
+                if not domain or len(domain) > 253:
+                    return []
+                async with semaphore:
+                    response = await client.get(
+                        self.ENDPOINT,
+                        params={"query": domain, "tags": "story,comment", "hitsPerPage": 50},
+                        headers={"user-agent": "CyclothonePublicExposureMonitor/1.0"},
+                    )
+                response.raise_for_status()
+                matcher = re.compile(r"(?i)(?<![a-z0-9.-])" + re.escape(domain) + r"(?![a-z0-9.-])")
+                findings: list[Finding] = []
+                for hit in (response.json() or {}).get("hits", []):
+                    searchable = " ".join(str(hit.get(k) or "") for k in ("title", "story_text", "comment_text"))
+                    if not matcher.search(searchable):
+                        continue
+                    object_id = str(hit.get("objectID") or "")
+                    url = str(hit.get("url") or "")
+                    if not url and object_id:
+                        url = f"https://news.ycombinator.com/item?id={object_id}"
+                    findings.append(Finding(
+                        self.SOURCE, "domain", domain,
+                        "Monitored domain mentioned in a public Hacker News search result; post text is not retained.",
+                        "medium", url or None,
+                        {"platform": "hackernews", "published": hit.get("created_at"), "object_id": object_id},
+                    ))
+                return findings
+            batches = await asyncio.gather(
+                *(search(domain) for domain in domains[:50]), return_exceptions=True
+            )
+        failures = sum(isinstance(batch, BaseException) for batch in batches)
+        if domains and failures == min(len(domains), 50):
+            raise RuntimeError("all Hacker News public searches failed")
+        return [finding for batch in batches if isinstance(batch, list) for finding in batch]
+
+
+class LemmyPublicMonitor:
+    """Search public Lemmy posts through a public instance API."""
+    SOURCE = "lemmy_public"
+    ENDPOINT = "https://lemmy.ml/api/v3/search"
+
+    async def pull_domains(self, domains: list[str]) -> list[Finding]:
+        semaphore = asyncio.Semaphore(3)
+        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+            async def search(domain: str) -> list[Finding]:
+                domain = normalize(domain)
+                if not domain or len(domain) > 253:
+                    return []
+                async with semaphore:
+                    response = await client.get(
+                        self.ENDPOINT,
+                        params={"q": domain, "type_": "All", "sort": "New", "limit": 50},
+                        headers={"user-agent": "CyclothonePublicExposureMonitor/1.0"},
+                    )
+                response.raise_for_status()
+                matcher = re.compile(r"(?i)(?<![a-z0-9.-])" + re.escape(domain) + r"(?![a-z0-9.-])")
+                findings: list[Finding] = []
+                for item in (response.json() or {}).get("posts", []):
+                    post = item.get("post") or {}
+                    searchable = " ".join(str(post.get(k) or "") for k in ("name", "body", "url"))
+                    if not matcher.search(searchable):
+                        continue
+                    creator = item.get("creator") or {}
+                    findings.append(Finding(
+                        self.SOURCE, "domain", domain,
+                        "Monitored domain mentioned in a public Lemmy search result; post text is not retained.",
+                        "medium", str(post.get("ap_id") or post.get("url") or "") or None,
+                        {"platform": "lemmy", "published": post.get("published"), "author": creator.get("name")},
+                    ))
+                return findings
+            batches = await asyncio.gather(
+                *(search(domain) for domain in domains[:50]), return_exceptions=True
+            )
+        failures = sum(isinstance(batch, BaseException) for batch in batches)
+        if domains and failures == min(len(domains), 50):
+            raise RuntimeError("all Lemmy public searches failed")
+        return [finding for batch in batches if isinstance(batch, list) for finding in batch]
+

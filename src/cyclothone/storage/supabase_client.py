@@ -69,7 +69,7 @@ class SupabaseServiceClient:
 
     async def update(self, table: str, values: dict[str, Any], **filters: Any) -> dict[str, Any] | None:
         async def operation() -> dict[str, Any] | None:
-            response = await (await self._ensure()).table(table).update(values).match(filters).select("*").limit(1).execute()
+            response = await (await self._ensure()).table(table).update(values).match(filters).select("*").execute()
             rows = response.data or []
             return rows[0] if rows else None
         return await self._retry(operation)

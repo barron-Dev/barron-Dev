@@ -4,14 +4,24 @@ import asyncio
 import logging
 import os
 import time
+from functools import partial
 from datetime import UTC, datetime
 
 from cyclothone.darkweb.matcher import DarkWebMatcher
-from cyclothone.darkweb.pullers import GitHubCodeMonitor, HIBPPuller, PastePublicMonitor, TelegramPublicMonitor
+from cyclothone.darkweb.pullers import (
+    BlueskyPublicMonitor,
+    HackerNewsPublicMonitor,
+    LemmyPublicMonitor,
+    PastePublicMonitor,
+    RedditPublicMonitor,
+    TelegramPublicMonitor,
+    YouTubePublicMonitor,
+)
 from cyclothone.darkweb.telegram_config import (
     DEFAULT_PUBLIC_TELEGRAM_CHANNELS,  # noqa: F401 — compatibility export
     configured_telegram_channels,
 )
+from cyclothone.darkweb.tiktok import TikTokCommercialContentMonitor
 from cyclothone.storage.supabase_client import supabase
 
 logger = logging.getLogger(__name__)
@@ -83,29 +93,72 @@ class DarkWebScheduler:
             await self._run_pull(monitor.SOURCE, monitor.pull)
         elif "telegram_public" in enabled:
             await self._mark_source("telegram_public", "unavailable_missing_channel", pulled=False)
+        domains = await self._tenant_domains()
+        tiktok_credentials = bool(
+            (os.getenv("CYCLOTHONE_TIKTOK_CLIENT_KEY") or "").strip()
+            and (os.getenv("CYCLOTHONE_TIKTOK_CLIENT_SECRET") or "").strip()
+        )
+        if "tiktok_commercial" in enabled and not tiktok_credentials:
+            await self._mark_source("tiktok_commercial", "unavailable_missing_api_credentials", pulled=False)
+        elif "tiktok_commercial" in enabled:
+            targets = await self._tenant_tiktok_targets()
+            if targets:
+                monitor = TikTokCommercialContentMonitor()
+                await self._run_pull("tiktok_commercial", partial(monitor.pull_targets, targets))
+            else:
+                await self._mark_source("tiktok_commercial", "unavailable_missing_watch_targets", pulled=False)
+        youtube_api_key = (os.getenv("CYCLOTHONE_YOUTUBE_API_KEY") or "").strip()
+        if domains and "youtube_public" in enabled and youtube_api_key:
+            monitor = YouTubePublicMonitor(youtube_api_key)
+            await self._run_pull("youtube_public", lambda m=monitor, d=domains: m.pull_domains(d))
+        elif "youtube_public" in enabled and not youtube_api_key:
+            await self._mark_source("youtube_public", "unavailable_missing_api_key", pulled=False)
+        elif "youtube_public" in enabled:
+            await self._mark_source("youtube_public", "unavailable_missing_watch_targets", pulled=False)
+        if domains and "bluesky_public" in enabled:
+            monitor = BlueskyPublicMonitor()
+            await self._run_pull("bluesky_public", lambda m=monitor, d=domains: m.pull_domains(d))
+        elif "bluesky_public" in enabled:
+            await self._mark_source("bluesky_public", "unavailable_missing_watch_targets", pulled=False)
+        reddit_credentials = bool(
+            (os.getenv("CYCLOTHONE_REDDIT_CLIENT_ID") or "").strip()
+            and (os.getenv("CYCLOTHONE_REDDIT_CLIENT_SECRET") or "").strip()
+        )
+        if domains and "reddit_public" in enabled and reddit_credentials:
+            monitor = RedditPublicMonitor()
+            await self._run_pull("reddit_public", lambda m=monitor, d=domains: m.pull_domains(d))
+        elif "reddit_public" in enabled and not reddit_credentials:
+            await self._mark_source("reddit_public", "unavailable_missing_api_credentials", pulled=False)
+        elif "reddit_public" in enabled:
+            await self._mark_source("reddit_public", "unavailable_missing_watch_targets", pulled=False)
+        if domains and "hackernews_public" in enabled:
+            monitor = HackerNewsPublicMonitor()
+            await self._run_pull("hackernews_public", lambda m=monitor, d=domains: m.pull_domains(d))
+        elif "hackernews_public" in enabled:
+            await self._mark_source("hackernews_public", "unavailable_missing_watch_targets", pulled=False)
+        if domains and "lemmy_public" in enabled:
+            monitor = LemmyPublicMonitor()
+            await self._run_pull("lemmy_public", lambda m=monitor, d=domains: m.pull_domains(d))
+        elif "lemmy_public" in enabled:
+            await self._mark_source("lemmy_public", "unavailable_missing_watch_targets", pulled=False)
 
     async def _domain_tick(self) -> None:
         domains = await self._tenant_domains()
-        hibp_key = (os.getenv("CYCLOTHONE_HIBP_KEY") or os.getenv("SENTINEL_HIBP_KEY") or "").strip()
-        github_token = (os.getenv("CYCLOTHONE_GITHUB_TOKEN") or os.getenv("SENTINEL_GITHUB_TOKEN") or "").strip()
         enabled = await self._enabled_sources()
-        for domain in domains:
-            if hibp_key and "hibp" in enabled:
-                puller = HIBPPuller(hibp_key)
-                await self._run_pull(puller.SOURCE, lambda p=puller, d=domain: p.pull_domain(d))
-            if github_token and "github_code" in enabled:
-                monitor = GitHubCodeMonitor(github_token)
-                await self._run_pull(monitor.SOURCE, lambda m=monitor, d=domain: m.pull_domain(d))
+        if "github_code" in enabled:
+            # GitHub Code Search currently returns 403 in production. Do not retry it
+            # on every domain; expose the restriction honestly while public sources run.
+            await self._mark_source("github_code", "unavailable_provider_403", pulled=False)
 
     async def _run_pull(self, source_id: str, pull) -> None:
         started = time.monotonic()
         try:
             findings = await pull()
             result = await self._ingest(findings)
-            monitor = getattr(pull, "__self__", None)
+            monitor = getattr(pull, "__self__", None) or getattr(getattr(pull, "func", None), "__self__", None)
             channel_status = getattr(monitor, "channel_status", {})
             failed_channels = [channel for channel, state in channel_status.items() if state != "checked"]
-            source_status = "degraded" if result["errors"] or failed_channels else "ok"
+            source_status = "degraded" if result["errors"] or failed_channels or bool(getattr(monitor, "coverage_partial", False)) else "ok"
             for channel, state in channel_status.items():
                 logger.info("dark web source=%s channel=%s state=%s", source_id, channel, state)
             await self._mark_source(source_id, source_status)
@@ -160,6 +213,25 @@ class DarkWebScheduler:
             await supabase._retry(_do, attempts=1)
         except Exception:
             logger.warning("unable to persist dark web source health: %s", source_id, exc_info=True)
+
+
+    async def _tenant_tiktok_targets(self) -> list[tuple[str, str]]:
+        async def _do():
+            return await (await supabase._ensure()).table("dw_watchlist").select("kind,value").in_(
+                "kind", ["domain", "company_name", "username"]
+            ).execute()
+        try:
+            rows = (await supabase._retry(_do, attempts=1)).data or []
+            unique = {
+                (str(row.get("kind") or "").strip().lower(), str(row.get("value") or "").strip().lower())
+                for row in rows
+                if row.get("kind") and row.get("value")
+            }
+            targets = sorted(unique)
+            return targets[:20]
+        except Exception:
+            logger.debug("TikTok commercial watchlist unavailable", exc_info=True)
+            return []
 
     async def _tenant_domains(self) -> list[str]:
         async def _do():

@@ -11,13 +11,18 @@ import httpx
 
 from cyclothone.darkweb.matcher import DarkWebMatcher
 from cyclothone.darkweb.pullers import (
+    BlueskyPublicMonitor,
     GitHubCodeMonitor,
-    HIBPPuller,
+    HackerNewsPublicMonitor,
+    LemmyPublicMonitor,
     PastePublicMonitor,
+    RedditPublicMonitor,
     RansomwatchPuller,
     TelegramPublicMonitor,
+    YouTubePublicMonitor,
 )
 from cyclothone.darkweb.telegram_config import configured_telegram_channels
+from cyclothone.darkweb.tiktok import TikTokCommercialContentMonitor
 from cyclothone.storage.supabase_client import supabase
 
 logger = logging.getLogger(__name__)
@@ -209,9 +214,21 @@ class DarkWebRequestWorker:
         sources: list[dict] = []
         pulled = []
         findings = []
-        hibp_key = (os.getenv("CYCLOTHONE_HIBP_KEY") or os.getenv("SENTINEL_HIBP_KEY") or "").strip()
         github_token = (os.getenv("CYCLOTHONE_GITHUB_TOKEN") or os.getenv("SENTINEL_GITHUB_TOKEN") or "").strip()
+        youtube_api_key = (os.getenv("CYCLOTHONE_YOUTUBE_API_KEY") or "").strip()
         telegram_channels = configured_telegram_channels(use_defaults=False)
+        reddit_credentials = bool(
+            (os.getenv("CYCLOTHONE_REDDIT_CLIENT_ID") or "").strip()
+            and (os.getenv("CYCLOTHONE_REDDIT_CLIENT_SECRET") or "").strip()
+        )
+        tiktok_client_key = (os.getenv("CYCLOTHONE_TIKTOK_CLIENT_KEY") or "").strip()
+        tiktok_client_secret = (os.getenv("CYCLOTHONE_TIKTOK_CLIENT_SECRET") or "").strip()
+        tiktok_credentials = bool(tiktok_client_key and tiktok_client_secret)
+        tiktok_supported_target = target_type in {"domain", "url", "brand", "username"}
+        tiktok_reason = (
+            "missing_api_credentials" if not tiktok_credentials
+            else ("unsupported_target_type" if not tiktok_supported_target else None)
+        )
         provider_domain = watch_value if target_type in {"domain", "url"} else ""
         provider_email = watch_value if target_type == "email" else ""
         async def run_source(source_id: str, pull, timeout: int, unavailable_reason: str | None = None):
@@ -251,28 +268,40 @@ class DarkWebRequestWorker:
             if target_type in {"domain", "url", "brand"}
             else "unsupported_target_type"
         )
-        hibp_reason = "missing_key" if not hibp_key else ("unsupported_target_type" if not (provider_domain or provider_email) else None)
         github_reason = "missing_key" if not github_token else ("unsupported_target_type" if not provider_domain else None)
-        hibp_puller = HIBPPuller(hibp_key) if hibp_key else None
-        if hibp_puller and provider_domain:
-            hibp_call = lambda: hibp_puller.pull_domain(provider_domain)
-        elif hibp_puller and provider_email:
-            hibp_call = lambda: hibp_puller.pull_account(provider_email)
-        else:
-            hibp_call = None
         public_target_supported = target_type in {"domain", "url", "email"}
+        telegram_target_supported = target_type in {"domain", "url", "email", "brand", "username"}
         paste_reason = None if public_target_supported else "unsupported_target_type"
         telegram_reason = (
-            "unsupported_target_type" if not public_target_supported
+            "unsupported_target_type" if not telegram_target_supported
             else ("missing_channels" if not telegram_channels else None)
         )
-        telegram_monitor = TelegramPublicMonitor(telegram_channels) if telegram_channels else None
+        telegram_monitor = (
+            TelegramPublicMonitor(telegram_channels, target_type=target_type, target=watch_value)
+            if telegram_channels and telegram_target_supported else None
+        )
+        social_reason = None if provider_domain else "unsupported_target_type"
+        reddit_reason = (
+            "missing_api_credentials" if not reddit_credentials
+            else social_reason
+        )
+        youtube_reason = (
+            "missing_api_key" if not youtube_api_key
+            else social_reason
+        )
         provider_specs = [
             ("ransomwatch", RansomwatchPuller().pull if not ransom_reason else None, 35, ransom_reason),
-            ("hibp", hibp_call, 25, hibp_reason),
             ("github_code", (lambda: GitHubCodeMonitor(github_token).pull_domain(provider_domain)) if github_token and provider_domain else None, 65, github_reason),
             ("pastebin_public", PastePublicMonitor().pull if public_target_supported else None, 50, paste_reason),
-            ("telegram_public", telegram_monitor.pull if telegram_monitor and public_target_supported else None, 90, telegram_reason),
+            ("telegram_public", telegram_monitor.pull if telegram_monitor else None, 90, telegram_reason),
+            ("youtube_public", (lambda: YouTubePublicMonitor(youtube_api_key).pull_domains([provider_domain])) if youtube_api_key and provider_domain else None, 45, youtube_reason),
+            # Public social/community sources are checked in the same customer request,
+            # so the result reports each source's real outcome instead of scheduler-only status.
+            ("bluesky_public", (lambda: BlueskyPublicMonitor().pull_domains([provider_domain])) if provider_domain else None, 45, social_reason),
+            ("reddit_public", (lambda: RedditPublicMonitor().pull_domains([provider_domain])) if provider_domain and reddit_credentials else None, 45, reddit_reason),
+            ("hackernews_public", (lambda: HackerNewsPublicMonitor().pull_domains([provider_domain])) if provider_domain else None, 45, social_reason),
+            ("lemmy_public", (lambda: LemmyPublicMonitor().pull_domains([provider_domain])) if provider_domain else None, 45, social_reason),
+            ("tiktok_commercial", (lambda: TikTokCommercialContentMonitor().pull_target(watch_kind, watch_value)) if tiktok_credentials and tiktok_supported_target else None, 60, tiktok_reason),
         ]
         provider_results = await asyncio.gather(*(
             run_source(source_id, pull, timeout, reason)
@@ -381,6 +410,9 @@ class DarkWebRequestWorker:
             if existing_link:
                 case_id = str(existing_link["case_id"])
             else:
+                requester_user_id = str(request.get("requester_user_id") or "").strip()
+                if not requester_user_id:
+                    raise RuntimeError("case_link_requester_missing")
                 case_number = await supabase.rpc("next_case_number", {"p_tenant": tenant_id})
                 case = await supabase.insert_one("crime_cases", {
                     "tenant_id": tenant_id, "case_number": str(case_number),
@@ -395,7 +427,10 @@ class DarkWebRequestWorker:
                 })
                 case_id = str(case["id"])
                 await supabase.insert_one("customer_case_links", {
-                    "organization_id": organization_id, "service_request_id": request_id, "case_id": case_id,
+                    "organization_id": organization_id,
+                    "service_request_id": request_id,
+                    "case_id": case_id,
+                    "created_by": requester_user_id,
                 })
             for alert in relevant_alerts:
                 if not alert.get("case_id"):
