@@ -3,13 +3,29 @@ from uuid import uuid4
 
 import pytest
 
-from cyclothone.darkweb.matcher import DarkWebMatcher, max_severity
+from cyclothone.darkweb.matcher import DarkWebMatcher, _content_fingerprint, max_severity
 from cyclothone.darkweb.pullers import Finding, as_domain, normalize, value_hash
 
 
 def test_identifier_hash_is_normalized():
     assert value_hash(" CEO@Example.COM ") == value_hash("ceo@example.com")
     assert normalize(" Example.COM ") == "example.com"
+
+
+
+
+def test_content_fingerprint_ignores_volatile_metadata_but_scopes_tenants():
+    base = {
+        "source_id": "ransomware_live",
+        "kind": "domain",
+        "matched_value": "Example.COM",
+        "source_url": "https://source.example/post/1",
+        "metadata": {"published": "2026-10-15", "group": "group-a"},
+    }
+    refreshed = {**base, "metadata": {"published": "2026-10-16", "group": "group-a"}}
+    assert _content_fingerprint(base) == _content_fingerprint(refreshed)
+    assert _content_fingerprint(base, "tenant-a", "watch-a") != _content_fingerprint(base, "tenant-b", "watch-b")
+    assert _content_fingerprint(base) != _content_fingerprint({**base, "source_url": "https://source.example/post/2"})
 
 
 def test_domain_parser_accepts_bare_domain_and_url():
