@@ -4,7 +4,7 @@ from uuid import uuid4
 import pytest
 
 from cyclothone.darkweb.matcher import DarkWebMatcher, _content_fingerprint, max_severity
-from cyclothone.darkweb.pullers import Finding, as_domain, normalize, value_hash
+from cyclothone.darkweb.pullers import Finding, as_domain, domain_match_for_target, normalize, value_hash
 
 
 def test_identifier_hash_is_normalized():
@@ -39,6 +39,13 @@ def test_domain_parser_accepts_bare_domain_and_url():
 @pytest.mark.parametrize("value", ["", "localhost", "bad domain.com", "user@example.com", "https://user:pass@example.com", "-bad.example.com", "example..com", "127.0.0.1"])
 def test_domain_parser_rejects_invalid_target(value):
     assert as_domain(value) is None
+
+
+def test_domain_evidence_correlation_is_exact_and_does_not_return_email():
+    assert domain_match_for_target("domain", "example.com", "example.com") == ("example.com", False)
+    assert domain_match_for_target("email", "user@example.com", "example.com") == ("example.com", True)
+    assert domain_match_for_target("email", "user@other.com", "example.com") == (None, False)
+    assert domain_match_for_target("company_name", "Example Inc", "example.com") == (None, False)
 
 
 def test_severity_escalates():
