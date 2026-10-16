@@ -12,7 +12,6 @@ on conflict (id) do update set
     name = excluded.name,
     kind = excluded.kind,
     endpoint = excluded.endpoint,
-    enabled = excluded.enabled,
     poll_interval_seconds = excluded.poll_interval_seconds,
     exposure_layer = excluded.exposure_layer,
     access_mode = excluded.access_mode;
