@@ -24,6 +24,7 @@ Customer results must retain source URL, collection timestamp, match type and ex
 | `lemmy_public` | Public Lemmy instance search API | None | domain, URL |
 | `reddit_public` | Reddit OAuth search API | `CYCLOTHONE_REDDIT_CLIENT_ID`, `CYCLOTHONE_REDDIT_CLIENT_SECRET` | domain, URL |
 | `github_code` | GitHub code search API | `CYCLOTHONE_GITHUB_TOKEN` | domain, URL |
+| `youtube_public` | Official YouTube Data API v3 public video search | `CYCLOTHONE_YOUTUBE_API_KEY` | domain, URL |
 | `ransomwatch` | Archived public corpus | None | historical-only; excluded from live coverage |
 
 HIBP is not part of the intended source set. Do not add an HIBP key.
@@ -32,7 +33,7 @@ HIBP is not part of the intended source set. Do not add an HIBP key.
 
 - [ ] Confirm `CYCLOTHONE_DW_TELEGRAM_CHANNELS` contains public channels approved for monitoring.
 - [ ] Add `CYCLOTHONE_GITHUB_TOKEN` through the secret manager if GitHub code search is authorized for the account.
-- [ ] Register a Reddit application and add `CYCLOTHONE_REDDIT_CLIENT_ID` and `CYCLOTHONE_REDDIT_CLIENT_SECRET` through the secret manager.
+- [ ] Enable YouTube Data API v3 in Google Cloud and add `CYCLOTHONE_YOUTUBE_API_KEY` through the secret manager.
 - [ ] Do not add X/Meta credentials until a supported connector and the required platform permissions are implemented.
 - [ ] After the migration is reviewed and applied and the code is deployed, run a customer-targeted request and inspect per-source outcomes and evidence.
 
