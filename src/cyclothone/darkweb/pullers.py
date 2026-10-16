@@ -70,6 +70,22 @@ def as_domain(value: str) -> str | None:
     return candidate
 
 
+def domain_match_for_target(kind: str, value: str, target: str) -> tuple[str | None, bool]:
+    """Return the watched domain and whether a same-domain email was safely correlated."""
+    normalized_target = as_domain(target)
+    if not normalized_target:
+        return None, False
+    candidate_kind = str(kind or "").strip().lower()
+    candidate_value = str(value or "").strip()
+    if candidate_kind == "domain":
+        return (normalized_target, False) if as_domain(candidate_value) == normalized_target else (None, False)
+    if candidate_kind == "email" and "@" in candidate_value:
+        email_domain = as_domain(candidate_value.rsplit("@", 1)[1])
+        if email_domain == normalized_target:
+            return normalized_target, True
+    return None, False
+
+
 class HIBPPuller:
     SOURCE = "hibp"
     BASE = "https://haveibeenpwned.com/api/v3"
