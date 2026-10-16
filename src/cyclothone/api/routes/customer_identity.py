@@ -728,7 +728,7 @@ async def create_service_request(body:ServiceRequest,p:DeveloperPrincipal=Depend
 
             persisted = await supabase.select(
                 "dw_findings",
-                "id,source_id,kind,matched_value,context,source_url,severity,first_seen,watchlist_id,web_layer,collected_at",
+                "id,source_id,kind,matched_value,context,source_url,source_metadata,severity,first_seen,tenant_id,watchlist_id",
                 tenant_id=tenant_id, watchlist_id=watchlist_id,
             )
             persisted_ids = {str(finding.get("id")) for finding in persisted}
