@@ -14,4 +14,4 @@ on conflict (id) do update set
     endpoint = excluded.endpoint,
     poll_interval_seconds = excluded.poll_interval_seconds,
     exposure_layer = excluded.exposure_layer,
-    access_mode = excluded.access_mode;
+    access_mode = excluded.access_mode; -- preserve an operator-disabled source on re-apply
