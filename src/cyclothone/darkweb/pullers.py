@@ -129,11 +129,10 @@ class RansomwatchPuller:
             group = normalize(str(post.get("group_name") or "unknown"))
             if not victim:
                 continue
-            host = as_domain(raw_url)
+            # post_url identifies the leak-site page, not the victim's domain.
+            # Do not mislabel that host as the victim domain.
             metadata = {"group": group[:200], "victim_name": victim[:512], "published": post.get("discovered"), "match_basis": "public_ransomware_leak_listing", "provenance": "aggregator_listing"}
-            if host:
-                out.append(Finding(self.SOURCE, "domain", host, "Domain extracted from a public ransomware leak listing; independently unverified.", "high", raw_url or None, metadata))
-            out.append(Finding(self.SOURCE, "company_name", victim[:512], "Organization name listed on a public ransomware leak feed; independently unverified.", "high", raw_url or None, {**metadata, "domain": host}))
+            out.append(Finding(self.SOURCE, "company_name", victim[:512], "Organization name listed on a public ransomware leak feed; victim domain is not supplied by this record.", "high", raw_url or None, metadata))
         return out
 
 
