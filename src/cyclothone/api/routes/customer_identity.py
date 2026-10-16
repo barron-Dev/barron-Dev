@@ -5,9 +5,11 @@ from datetime import UTC, datetime, timedelta
 import hashlib
 import secrets
 import os
+import logging
 from cyclothone.developer.auth import DeveloperPrincipal, authenticate_request
 from cyclothone.storage.supabase_client import supabase
 
+logger = logging.getLogger(__name__)
 router=APIRouter(tags=["customer-identity"])
 
 async def principal(authorization: str | None = Header(None)) -> DeveloperPrincipal:
