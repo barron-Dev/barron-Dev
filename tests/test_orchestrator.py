@@ -40,10 +40,40 @@ def test_action_classification():
 
 @pytest.mark.asyncio
 async def test_high_impact_queued_for_approval():
+    from datetime import UTC, datetime, timedelta
+    from cyclothone.ai.execution_gate import AgentEnvelope
+    from cyclothone.ai.envelope_issuer import EnvelopeIssueRequest
+
+    tenant = uuid4()
+    agent = uuid4()
+    mission = {"mission_id":"mission-a","mission_version":1,"mission_hash":"d" * 64}
+    request = EnvelopeIssueRequest(
+        tenant_id=tenant, agent_id=agent, model_id="model-a", provider_id="provider-a",
+        tool_name="isolate_host", action="isolate_host", args={}, target="device-1",
+        mission_id=mission["mission_id"], mission_version=mission["mission_version"],
+        mission_hash=mission["mission_hash"],
+    )
+    envelope = AgentEnvelope(
+        "env-1", tenant, agent, "model-a", "provider-a", "isolate_host", "isolate_host", {},
+        "device-1", datetime.now(UTC), datetime.now(UTC) + timedelta(minutes=1),
+        "kid", "sig", "1", "a" * 64, mission["mission_id"], mission["mission_version"], mission["mission_hash"],
+    )
     dispatcher = AsyncMock()
-    orch = ResponseOrchestrator(dispatcher, FakeStore())
-    result = await orch.run_chain(tenant_id=uuid4(), case_id=uuid4(), device_id=uuid4(), plan=[ActionPlan("isolate_host", {}, True)], issued_by="test")
+    issuer = AsyncMock()
+    issuer.issue = AsyncMock(return_value=envelope)
+    gate = AsyncMock()
+    orch = ResponseOrchestrator(dispatcher, FakeStore(), execution_gate=gate, envelope_issuer=issuer)
+    result = await orch.run_chain(
+        tenant_id=tenant, case_id=uuid4(), device_id=uuid4(),
+        plan=[ActionPlan(
+            "isolate_host", {}, True, envelope_request=request, model_id="model-a",
+            provider_id="provider-a", target="device-1", mission_id=mission["mission_id"],
+            mission_version=mission["mission_version"], mission_hash=mission["mission_hash"], run_id=uuid4(),
+        )],
+        issued_by="test",
+    )
     assert result.queued == ["1"]
+    gate.validate.assert_awaited_once()
     dispatcher.issue.assert_not_called()
 
 
