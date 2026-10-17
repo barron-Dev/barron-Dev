@@ -77,6 +77,8 @@ async def test_paste_request_checks_submitted_domain_only_after_fetching_raw_con
         monitor = PastePublicMonitor()
         findings = await monitor.pull("domain", "example.org")
 
+    assert monitor.feed_checked is True
+    assert monitor.feed_entries_count == 1
     assert monitor.items_checked == 1
     assert len(findings) == 1
     assert findings[0].kind == "domain"
@@ -84,3 +86,19 @@ async def test_paste_request_checks_submitted_domain_only_after_fetching_raw_con
     assert "observed_text_sha256" in findings[0].metadata
     assert "example.org and unrelated" not in str(findings[0].metadata)
     assert any(url.startswith("https://pastebin.ca/raw/") for url in _Client.requested)
+
+
+@pytest.mark.asyncio
+async def test_empty_reachable_paste_feed_is_distinguished_from_unreachable_feed():
+    _Client.responses = {
+        "https://pastebin.ca/api/v1/feed": _Response(json.dumps({"items": []})),
+    }
+    _Client.requested = []
+    with patch("cyclothone.darkweb.pullers.httpx.AsyncClient", _Client):
+        monitor = PastePublicMonitor()
+        findings = await monitor.pull("domain", "example.org")
+
+    assert monitor.feed_checked is True
+    assert monitor.feed_entries_count == 0
+    assert monitor.items_checked == 0
+    assert findings == []
