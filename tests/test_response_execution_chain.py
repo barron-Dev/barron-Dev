@@ -147,13 +147,9 @@ async def test_approval_dispatch_failure_returns_to_pending(monkeypatch):
     async def no_op(*args, **kwargs):
         return None
     orchestrator._fail_committed_execution = no_op
-    monkeypatch = pytest.MonkeyPatch()
     monkeypatch.setattr("cyclothone.response.orchestrator.create_response_execution_approval", no_op)
-    try:
-        with pytest.raises(RuntimeError):
-            await orchestrator.approve(action_id, UUID("44444444-4444-4444-4444-444444444444"))
-    finally:
-        monkeypatch.undo()
+    with pytest.raises(RuntimeError):
+        await orchestrator.approve(action_id, UUID("44444444-4444-4444-4444-444444444444"))
     assert store.rows[str(action_id)]["status"] == "pending_approval"
 
 
