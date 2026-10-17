@@ -839,7 +839,16 @@ async def create_service_request(body:ServiceRequest,p:DeveloperPrincipal=Depend
                 "service_request_id":str(row["id"]),
                 "case_id":str(case["id"]),
             })
-            await supabase.update("service_requests",{"status":"resolved"},id=str(row["id"]))
+            await supabase.update("service_requests",{
+                "status":"resolved",
+                "result":summary,
+                "completed_at":datetime.now(UTC).isoformat(),
+            },id=str(row["id"]))
+            try:
+                from cyclothone.security_state.materializer import materialize_claims_for_request
+                await materialize_claims_for_request(str(row["id"]), sb=await supabase._ensure())
+            except Exception:
+                logger.exception("security claim materialization failed for request %s", row["id"])
             return {**row,"status":"resolved","case_id":case["id"],"result":summary}
         except HTTPException:
             raise
