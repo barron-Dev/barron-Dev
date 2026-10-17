@@ -23,6 +23,8 @@ def _sources(result: dict[str, Any]) -> list[dict[str, Any]]:
     return []
 
 def _attempted(source: dict[str, Any]) -> bool:
+    if source.get("attempted") is False:
+        return False
     if source.get("attempted") is True:
         return True
     return str(source.get("status", "")).lower() in {
@@ -66,7 +68,7 @@ async def materialize_claims_for_request(request_id: str, *, sb: Any) -> list[di
     findings = _findings(result)
     unavailable = sum(str(s.get("status", "")).lower() in {
         "unavailable", "failed", "rate_limited", "timeout", "error"
-    } for s in attempted)
+    } for s in sources)
     severities = [str(x.get("severity", "")).lower() for x in findings]
     severity = ("critical" if "critical" in severities else "high" if "high" in severities
                 else "medium" if "medium" in severities else "low" if "low" in severities
@@ -78,7 +80,9 @@ async def materialize_claims_for_request(request_id: str, *, sb: Any) -> list[di
         "request_id": str(row["id"]),
         "source_outcomes": [{"name": str(s.get("name", "unknown"))[:100],
                              "status": str(s.get("status", "unknown"))[:40],
-                             "attempted": True} for s in attempted[:200]],
+                             "attempted": bool(s.get("attempted", _attempted(s))),
+                             "records_returned": max(0, int(s.get("records_returned", 0) or 0)),
+                             **({"error_code": str(s["error_code"])[:60]} if s.get("error_code") else {})} for s in sources[:200]],
         "sources_checked": len(attempted),
         "sources_unavailable": unavailable,
         "finding_count": len(findings),
