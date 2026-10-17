@@ -166,15 +166,17 @@ class DarkWebRequestWorker:
                 # request; the sweeper blocks it after three attempts.
                 logger.exception("dark-web request processing failed id=%s; lease will expire for retry", row.get("id"))
 
-    async def _onion_seed_urls(self) -> list[str]:
+    async def _onion_seed_urls(self) -> tuple[list[str], dict[str, str], dict[str, str]]:
         """Merge explicit seeds with previously checked/failed discovered onion sources."""
         seeds = configured_onion_seeds()
+        origins = {seed: "configured" for seed in seeds}
+        discovered_from: dict[str, str] = {}
         try:
             async def _do():
                 client = await supabase._ensure()
                 return await (
                     client.table("dw_onion_seeds")
-                    .select("url,status,last_checked")
+                    .select("url,status,seed_origin,discovered_from,last_checked")
                     .in_("status", ["checked", "failed"])
                     .order("last_checked", desc=True)
                     .limit(50)
@@ -183,15 +185,16 @@ class DarkWebRequestWorker:
             rows = (await supabase._retry(_do, attempts=1)).data or []
             for row in rows:
                 url = str(row.get("url") or "").strip()
-                if url and url not in seeds:
+                if url and url not in origins and len(seeds) < 50:
                     seeds.append(url)
-                if len(seeds) >= 50:
-                    break
+                    origins[url] = "discovered" if row.get("seed_origin") == "discovered" else "configured"
+                    if row.get("discovered_from"):
+                        discovered_from[url] = str(row["discovered_from"])
         except Exception:
             # An unapplied source-registry migration must not be hidden as a
             # successful discovery; explicit environment seeds can still be used.
             logger.warning("native onion seed registry unavailable", exc_info=True)
-        return seeds[:50]
+        return seeds[:50], origins, discovered_from
 
     async def _persist_onion_seed_state(self, crawler: NativeOnionCrawler) -> None:
         """Persist source discovery and per-seed reachability, never page contents."""
@@ -324,12 +327,16 @@ class DarkWebRequestWorker:
             else ("missing_channels" if not telegram_channels else None)
         )
         telegram_monitor = TelegramPublicMonitor(telegram_channels) if telegram_channels else None
-        onion_seeds = await self._onion_seed_urls()
+        onion_seeds, onion_seed_origins, onion_seed_discovered_from = await self._onion_seed_urls()
         onion_reason = (
             "missing_onion_seeds" if not onion_seeds
             else ("unsupported_target_type" if target_type not in {"domain", "url", "email", "brand", "username", "ip", "other"} else None)
         )
-        onion_crawler = NativeOnionCrawler(seeds=onion_seeds)
+        onion_crawler = NativeOnionCrawler(
+            seeds=onion_seeds,
+            seed_origins=onion_seed_origins,
+            discovered_from=onion_seed_discovered_from,
+        )
         provider_specs = [
             ("native_onion", (lambda: onion_crawler.pull(watch_kind, watch_value)) if not onion_reason else None, 150, onion_reason),
             ("ransomwatch", RansomwatchPuller().pull if not ransom_reason else None, 35, ransom_reason),
