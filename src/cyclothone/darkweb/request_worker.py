@@ -3,22 +3,22 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
-import os
 from datetime import UTC, datetime
 from urllib.parse import urlsplit
 
 import httpx
 
 from cyclothone.darkweb.matcher import DarkWebMatcher
+from cyclothone.darkweb.native_onion import NativeOnionCrawler, configured_onion_seeds
 from cyclothone.darkweb.pullers import (
-    GitHubCodeMonitor,
-    HIBPPuller,
+    BlueskyPublicMonitor,
     PastePublicMonitor,
     RansomwatchPuller,
     TelegramPublicMonitor,
 )
 from cyclothone.darkweb.telegram_config import configured_telegram_channels
 from cyclothone.storage.supabase_client import supabase
+from cyclothone.darkweb.source_catalog import get_source, is_excluded_source
 
 logger = logging.getLogger(__name__)
 ALLOWED_TYPES = {"domain", "url", "email", "brand", "username", "ip", "other"}
@@ -62,14 +62,16 @@ def normalize_target(value: str, target_type: str) -> str:
 
 
 def _coverage_state(sources: list[dict]) -> str:
-    """Describe configured provider checks, including partial per-provider coverage."""
-    checked = any(source.get("state") == "checked" for source in sources)
-    if not checked:
+    """Summarize implemented live sources without treating archived/planned entries as checks."""
+    live_sources = [source for source in sources if source.get("availability", "implemented") == "implemented"]
+    if not any(source.get("state") == "checked" for source in live_sources):
         return "none"
     if all(
         source.get("state") == "checked" and source.get("coverage") != "partial"
-        for source in sources
+        for source in live_sources
     ):
+        # Keep the existing API enum stable for clients; denominator now
+        # includes only implemented live sources as documented above.
         return "all_configured_sources_checked"
     return "partial"
 
@@ -84,17 +86,19 @@ def _require_recorded_finding(response: object) -> dict:
 
 
 def _finding_matches_target(finding: object, watch_kind: str, watch_value: str) -> bool:
-    """Match a provider finding to the monitored identifier without fuzzy guesses.
-
-    HIBP's domain endpoint returns breached email identifiers, not a synthetic
-    domain finding. Treat an email as relevant to a domain watch only when its
-    normalized domain component is an exact match.
-    """
-    kind = str(getattr(finding, "kind", "")).strip().lower()
-    value = str(getattr(finding, "matched_value", "")).strip().lower()
+    """Match a provider finding or persisted row without fuzzy guesses."""
+    if isinstance(finding, dict):
+        kind = str(finding.get("kind") or "").strip().lower()
+        raw_value = finding.get("matched_value")
+    else:
+        kind = str(getattr(finding, "kind", "")).strip().lower()
+        raw_value = getattr(finding, "matched_value", "")
+    value = str(raw_value or "").strip().lower()
     expected = watch_value.strip().lower()
     if kind == watch_kind and value == expected:
         return True
+    # A domain monitor should also surface historical exact email-address
+    # matches at that domain, but must never promote a subdomain/suffix guess.
     if watch_kind == "domain" and kind == "email":
         local, separator, domain = value.rpartition("@")
         return bool(local and separator and domain.rstrip(".") == expected)
@@ -168,6 +172,62 @@ class DarkWebRequestWorker:
                 # request; the sweeper blocks it after three attempts.
                 logger.exception("dark-web request processing failed id=%s; lease will expire for retry", row.get("id"))
 
+    async def _onion_seed_urls(self) -> tuple[list[str], dict[str, str], dict[str, str]]:
+        """Merge explicit seeds with previously checked/failed discovered onion sources."""
+        seeds = configured_onion_seeds()
+        origins = {seed: "configured" for seed in seeds}
+        discovered_from: dict[str, str] = {}
+        try:
+            async def _do():
+                client = await supabase._ensure()
+                return await (
+                    client.table("dw_onion_seeds")
+                    .select("url,status,seed_origin,discovered_from,last_checked")
+                    .in_("status", ["checked", "failed"])
+                    .order("last_checked", desc=True)
+                    .limit(50)
+                    .execute()
+                )
+            rows = (await supabase._retry(_do, attempts=1)).data or []
+            for row in rows:
+                url = str(row.get("url") or "").strip()
+                if url and url not in origins and len(seeds) < 50:
+                    seeds.append(url)
+                    origins[url] = "discovered" if row.get("seed_origin") == "discovered" else "configured"
+                    if row.get("discovered_from"):
+                        discovered_from[url] = str(row["discovered_from"])
+        except Exception:
+            # An unapplied source-registry migration must not be hidden as a
+            # successful discovery; explicit environment seeds can still be used.
+            logger.warning("native onion seed registry unavailable", exc_info=True)
+        return seeds[:50], origins, discovered_from
+
+    async def _persist_onion_seed_state(self, crawler: NativeOnionCrawler) -> None:
+        """Persist source discovery and per-seed reachability, never page contents."""
+        rows = []
+        for url, state in crawler.seed_status.items():
+            parsed = urlsplit(url)
+            hostname = (parsed.hostname or "").lower()
+            row = {
+                "url": url,
+                "hostname": hostname,
+                "seed_origin": crawler.seed_origin.get(url, "configured"),
+                "discovered_from": crawler.discovered_from.get(url),
+                "status": state if state in {"checked", "failed", "disabled"} else "candidate",
+                "last_status": state,
+                "last_checked": datetime.now(UTC).isoformat() if state in {"checked", "failed"} else None,
+            }
+            digest = crawler.seed_content_hash.get(url)
+            if digest:
+                row["last_response_sha256"] = digest
+            rows.append(row)
+        if not rows:
+            return
+        async def _do():
+            client = await supabase._ensure()
+            return await client.table("dw_onion_seeds").upsert(rows, on_conflict="url").execute()
+        await supabase._retry(_do, attempts=2)
+
     async def _process(self, request: dict) -> None:
         request_id = str(request["id"])
         target_type = str(request.get("target_type") or "domain")
@@ -202,20 +262,36 @@ class DarkWebRequestWorker:
             "id,source_id,content_hash,kind,matched_value,context,source_url,severity,first_seen,collected_at,tenant_id,watchlist_id",
             tenant_id=tenant_id,
         )
-        exact = [f for f in historical if str(f.get("kind", "")).lower() == watch_kind
-                 and str(f.get("matched_value", "")).strip().lower() == watch_value]
+        exact = [f for f in historical if _finding_matches_target(f, watch_kind, watch_value)]
+        historical_candidates = [
+            {
+                "id": item.get("id"), "source": item.get("source_id"),
+                "collected_at": item.get("collected_at") or item.get("first_seen"),
+                "content_hash": item.get("content_hash"), "source_url": item.get("source_url"),
+                "severity": item.get("severity"),
+                "label": "historical match — review; not checked during this request",
+            }
+            for item in exact
+        ]
         enabled_rows = await supabase.select("dw_sources", "id,enabled,last_status,last_pull_at", enabled=True)
         enabled = {str(x["id"]) for x in enabled_rows}
         sources: list[dict] = []
         pulled = []
         findings = []
-        hibp_key = (os.getenv("CYCLOTHONE_HIBP_KEY") or os.getenv("SENTINEL_HIBP_KEY") or "").strip()
-        github_token = (os.getenv("CYCLOTHONE_GITHUB_TOKEN") or os.getenv("SENTINEL_GITHUB_TOKEN") or "").strip()
         telegram_channels = configured_telegram_channels(use_defaults=False)
-        provider_domain = watch_value if target_type in {"domain", "url"} else ""
-        provider_email = watch_value if target_type == "email" else ""
         async def run_source(source_id: str, pull, timeout: int, unavailable_reason: str | None = None):
-            if source_id not in enabled:
+            # Enforce the canonical source catalog at execution time. A provider
+            # cannot run or be reported as coverage if it is excluded, unknown,
+            # planned, or historical-only, even if an old DB registry row exists.
+            definition = get_source(source_id)
+            if definition is None or is_excluded_source(source_id):
+                return {"source": source_id, "state": "unavailable", "reason": "excluded_by_policy"}, []
+            if definition.availability != "implemented":
+                return {"source": source_id, "state": "unavailable", "reason": definition.availability}, []
+            # Native onion execution is code/config driven; the source registry
+            # migration may not yet exist in production. Reviewed seeds, not a
+            # dw_sources row, determine whether that native check can run.
+            if source_id not in enabled and source_id != "native_onion":
                 return {"source": source_id, "state": "unavailable", "reason": "disabled"}, []
             if unavailable_reason:
                 return {"source": source_id, "state": "unavailable", "reason": unavailable_reason}, []
@@ -223,26 +299,116 @@ class DarkWebRequestWorker:
                 return {"source": source_id, "state": "unavailable", "reason": "unsupported_target_type"}, []
             try:
                 findings = await asyncio.wait_for(pull(), timeout=timeout)
-                monitor = getattr(pull, "__self__", None)
+                monitor = source_monitors.get(source_id) or getattr(pull, "__self__", None)
+                if source_id == "native_onion":
+                    monitor = onion_crawler
+                    try:
+                        await self._persist_onion_seed_state(onion_crawler)
+                        monitor.seed_state_persistence = "persisted"
+                    except Exception:
+                        # Preserve request-level results while exposing that the
+                        # optional discovered-seed registry could not be updated.
+                        monitor.seed_state_persistence = "unavailable"
+                        logger.warning("onion seed registry persistence unavailable request_id=%s", request_id, exc_info=True)
+                if source_id == "pastebin_public" and not getattr(monitor, "feed_checked", False):
+                    return {
+                        "source": source_id, "state": "unavailable",
+                        "reason": "public_feed_not_confirmed", "items_checked": 0,
+                    }, []
+                if source_id == "pastebin_public" and getattr(monitor, "items_checked", 0) == 0:
+                    return {
+                        "source": source_id, "state": "checked", "coverage": "partial",
+                        "reason": "feed_checked_no_documents_fetched",
+                        "feed_entries": getattr(monitor, "feed_entries_count", 0),
+                        "items_checked": 0,
+                    }, []
                 channel_status = getattr(monitor, "channel_status", {})
                 failed_channels = [
                     channel for channel, state in channel_status.items()
                     if state != "checked"
                 ]
                 if channel_status:
+                    successful_channels = [channel for channel, state in channel_status.items() if state == "checked"]
+                    if not successful_channels:
+                        return {
+                            "source": source_id, "state": "failed",
+                            "reason": "all_configured_channels_failed",
+                            "channels": [{"channel": channel, "state": state} for channel, state in sorted(channel_status.items())],
+                        }, []
                     return {
                         "source": source_id,
                         "state": "checked",
                         "coverage": "partial" if failed_channels else "all_configured_channels_checked",
+                        "checked_channels": len(successful_channels),
+                        "failed_channels": len(failed_channels),
                         "channels": [
                             {"channel": channel, "state": state}
                             for channel, state in sorted(channel_status.items())
                         ],
                     }, findings
+                seed_status = getattr(monitor, "seed_status", {})
+                pages_checked = getattr(monitor, "pages_checked", None)
+                pages_failed = getattr(monitor, "pages_failed", None)
+                if pages_checked is not None:
+                    successful_seeds = [seed for seed, state in seed_status.items() if state == "checked"]
+                    failed_seeds = [seed for seed, state in seed_status.items() if state != "checked"]
+                    if not successful_seeds and (failed_seeds or pages_failed):
+                        return {
+                            "source": source_id, "state": "failed",
+                            "reason": "all_onion_seeds_unreachable",
+                            "configured_seeds": getattr(monitor, "configured_seed_count", len(seed_status)),
+                            "discovered_seeds": len(getattr(monitor, "discovered_seeds", [])),
+                            "seeds": [{"seed": seed, "state": state, "origin": monitor.seed_origin.get(seed, "configured")} for seed, state in sorted(seed_status.items())],
+                            "pages_checked": pages_checked, "pages_failed": pages_failed,
+                        }, []
+                    return {
+                        "source": source_id,
+                        "state": "checked",
+                        "coverage": "partial" if failed_seeds or pages_failed else "all_reachable_pages_checked",
+                        "configured_seeds": getattr(monitor, "configured_seed_count", len(seed_status)),
+                        "discovered_seeds": len(getattr(monitor, "discovered_seeds", [])),
+                        "seeds": [{"seed": seed, "state": state, "origin": monitor.seed_origin.get(seed, "configured")} for seed, state in sorted(seed_status.items())],
+                        "pages_checked": pages_checked,
+                        "pages_failed": pages_failed,
+                        "seed_state_persistence": getattr(monitor, "seed_state_persistence", "not_attempted"),
+                        "matches": getattr(monitor, "matches", 0),
+                    }, findings
+                if source_id == "pastebin_public":
+                    return {
+                        "source": source_id, "state": "checked",
+                        "coverage": "all_returned_documents_fetched",
+                        "feed_entries": getattr(monitor, "feed_entries_count", 0),
+                        "items_checked": getattr(monitor, "items_checked", 0),
+                    }, findings
+                if source_id == "bluesky_public":
+                    return {
+                        "source": source_id, "state": "checked",
+                        "coverage": "public_search_results_inspected",
+                        "posts_checked": getattr(monitor, "posts_checked", 0),
+                        "matches": len(findings),
+                    }, findings
                 return {"source": source_id, "state": "checked"}, findings
             except Exception:
                 logger.warning("dark-web provider request failed source=%s request_id=%s", source_id, request_id, exc_info=True)
-                return {"source": source_id, "state": "failed", "reason": "source_request_failed"}, []
+                monitor = source_monitors.get(source_id) or getattr(pull, "__self__", None)
+                status = {"source": source_id, "state": "failed", "reason": "source_request_failed"}
+                channel_status = getattr(monitor, "channel_status", {})
+                if channel_status:
+                    status["channels"] = [
+                        {"channel": channel, "state": state}
+                        for channel, state in sorted(channel_status.items())
+                    ]
+                    status["checked_channels"] = sum(state == "checked" for state in channel_status.values())
+                    status["failed_channels"] = sum(state != "checked" for state in channel_status.values())
+                seed_status = getattr(monitor, "seed_status", {})
+                if seed_status:
+                    status["seeds"] = [
+                        {"seed": seed, "state": state, "origin": monitor.seed_origin.get(seed, "configured")}
+                        for seed, state in sorted(seed_status.items())
+                    ]
+                    status["pages_checked"] = getattr(monitor, "pages_checked", 0)
+                    status["pages_failed"] = getattr(monitor, "pages_failed", 0)
+                return status, []
 
         # The upstream Ransomwatch corpus is archived. Keep it out of live
         # coverage and current alerts until a maintained source is verified.
@@ -251,15 +417,6 @@ class DarkWebRequestWorker:
             if target_type in {"domain", "url", "brand"}
             else "unsupported_target_type"
         )
-        hibp_reason = "missing_key" if not hibp_key else ("unsupported_target_type" if not (provider_domain or provider_email) else None)
-        github_reason = "missing_key" if not github_token else ("unsupported_target_type" if not provider_domain else None)
-        hibp_puller = HIBPPuller(hibp_key) if hibp_key else None
-        if hibp_puller and provider_domain:
-            hibp_call = lambda: hibp_puller.pull_domain(provider_domain)
-        elif hibp_puller and provider_email:
-            hibp_call = lambda: hibp_puller.pull_account(provider_email)
-        else:
-            hibp_call = None
         public_target_supported = target_type in {"domain", "url", "email"}
         paste_reason = None if public_target_supported else "unsupported_target_type"
         telegram_reason = (
@@ -267,18 +424,49 @@ class DarkWebRequestWorker:
             else ("missing_channels" if not telegram_channels else None)
         )
         telegram_monitor = TelegramPublicMonitor(telegram_channels) if telegram_channels else None
+        paste_monitor = PastePublicMonitor()
+        bluesky_monitor = BlueskyPublicMonitor()
+        onion_seeds, onion_seed_origins, onion_seed_discovered_from = await self._onion_seed_urls()
+        onion_reason = (
+            "missing_onion_seeds" if not onion_seeds
+            else ("unsupported_target_type" if target_type not in {"domain", "url", "email", "brand", "username", "ip", "other"} else None)
+        )
+        onion_crawler = NativeOnionCrawler(
+            seeds=onion_seeds,
+            seed_origins=onion_seed_origins,
+            discovered_from=onion_seed_discovered_from,
+        )
+        source_monitors = {
+            "telegram_public": telegram_monitor,
+            "pastebin_public": paste_monitor,
+            "bluesky_public": bluesky_monitor,
+        }
         provider_specs = [
+            ("native_onion", (lambda: onion_crawler.pull(watch_kind, watch_value)) if not onion_reason else None, 150, onion_reason),
             ("ransomwatch", RansomwatchPuller().pull if not ransom_reason else None, 35, ransom_reason),
-            ("hibp", hibp_call, 25, hibp_reason),
-            ("github_code", (lambda: GitHubCodeMonitor(github_token).pull_domain(provider_domain)) if github_token and provider_domain else None, 65, github_reason),
-            ("pastebin_public", PastePublicMonitor().pull if public_target_supported else None, 50, paste_reason),
-            ("telegram_public", telegram_monitor.pull if telegram_monitor and public_target_supported else None, 90, telegram_reason),
+            ("pastebin_public", (lambda: paste_monitor.pull(target_type, watch_value)) if public_target_supported else None, 50, paste_reason),
+            ("telegram_public", (lambda: telegram_monitor.pull(target_type, watch_value)) if telegram_monitor and public_target_supported else None, 90, telegram_reason),
+            ("bluesky_public", (lambda: bluesky_monitor.pull(target_type, watch_value))
+             if target_type in {"domain", "url", "email", "brand", "username", "ip"} else None,
+             20, None if target_type in {"domain", "url", "email", "brand", "username", "ip"} else "unsupported_target_type"),
+            ("github_code", None, 20, None),
         ]
         provider_results = await asyncio.gather(*(
             run_source(source_id, pull, timeout, reason)
             for source_id, pull, timeout, reason in provider_specs
         ))
-        sources = [status for status, _ in provider_results]
+        sources = []
+        for status, _ in provider_results:
+            definition = get_source(str(status.get("source") or ""))
+            if definition is not None:
+                status = {
+                    **status,
+                    "layer": definition.layer,
+                    "category": definition.category,
+                    "access_mode": definition.access_mode,
+                    "availability": definition.availability,
+                }
+            sources.append(status)
         pulled = [finding for _, batch in provider_results for finding in batch]
 
         # A completed search requires at least one provider call to succeed.
@@ -294,7 +482,9 @@ class DarkWebRequestWorker:
                 "sources_checked": [],
                 "sources_unavailable": [source for source in sources if source["state"] != "checked"],
                 "findings": [],
-                "evidence": [],
+                "historical_candidates": historical_candidates[:200],
+                "historical_candidate_count": len(historical_candidates),
+                "evidence": historical_candidates[:200],
                 "alerts": [],
                 "completed_at": datetime.now(UTC).isoformat(),
             }
@@ -308,12 +498,7 @@ class DarkWebRequestWorker:
         # promoted to a confirmed match.
         evidence = []
         persistence_failures = 0
-        for item in exact:
-            evidence.append({
-                "source": item.get("source_id"), "collected_at": item.get("collected_at") or item.get("first_seen"),
-                "content_hash": item.get("content_hash"), "source_url": item.get("source_url"),
-                "label": "possible match — review",
-            })
+        evidence.extend(historical_candidates[:200])
         for finding in pulled[:2000]:
             if not _finding_matches_target(finding, watch_kind, watch_value):
                 continue
@@ -343,7 +528,7 @@ class DarkWebRequestWorker:
         # Re-read tenant-scoped findings for this watchlist and keep result evidence bounded.
         persisted = await supabase.select(
             "dw_findings",
-            "id,source_id,content_hash,matched_value,context,source_url,severity,first_seen,collected_at,watchlist_id",
+            "id,source_id,content_hash,matched_value,context,source_url,severity,first_seen,collected_at,watchlist_id,web_layer,access_mode",
             tenant_id=tenant_id, watchlist_id=watch_id,
         )
         # The watchlist may already have findings from the continuous scheduler.
@@ -405,11 +590,33 @@ class DarkWebRequestWorker:
         # Coverage describes this configured provider set only; it never claims
         # visibility into the entire dark web or unconfigured services.
         coverage = _coverage_state(sources)
+        dark_sources = [x for x in sources if x.get("layer") == "dark"]
+        surface_sources = [x for x in sources if x.get("layer") == "surface"]
+        dark_findings = [f for f in persisted if str(f.get("web_layer") or "").lower() == "dark"
+                         or str(f.get("source_id") or "") in {"native_onion", "ransomwatch"}]
+        surface_findings = [f for f in persisted if f not in dark_findings]
+        native_status = next((x for x in dark_sources if x.get("source") == "native_onion"), None)
         result = {
             "service": "dark_web_monitoring", "target": watch_value, "target_type": target_type,
             "coverage": coverage, "sources_checked": checked_sources,
             "sources_unavailable": unavailable_sources,
-            "findings": persisted[:200], "evidence": evidence[:200], "alerts": relevant_alerts[:200],
+            "dark_web": {
+                "coverage": native_status.get("coverage", "unavailable") if native_status and native_status.get("state") == "checked" else "unavailable",
+                "source": native_status or {"source": "native_onion", "state": "unavailable", "reason": "not_checked"},
+                "findings": dark_findings[:200],
+            },
+            "surface_web": {"sources": surface_sources, "findings": surface_findings[:200]},
+            "source_summary": {
+                "checked_count": len(checked_sources),
+                "unavailable_count": len(unavailable_sources),
+                "checked_source_ids": [x.get("source") for x in checked_sources],
+                "unavailable_source_ids": [x.get("source") for x in unavailable_sources],
+                "layers": {"dark_web": dark_sources, "surface_web": surface_sources},
+            },
+            "findings": persisted[:200],
+            "historical_candidates": historical_candidates[:200],
+            "historical_candidate_count": len(historical_candidates),
+            "evidence": evidence[:200], "alerts": relevant_alerts[:200],
             "case_id": case_id, "recommendations": (
                 ["Review each possible match against the source evidence.", "Rotate exposed credentials and investigate affected accounts."]
                 if persisted else ["No exact matches were confirmed in the sources checked.",
