@@ -388,13 +388,8 @@ async def create_organization(body:OrgRequest,p:DeveloperPrincipal=Depends(princ
     )
     if not row:
         raise HTTPException(500,detail="organization_creation_not_confirmed")
-    row=await supabase.select_one(
-        "customer_organizations",
-        "id,tenant_id,organization_type,legal_name,country_code,website_domain,registration_number,verification_status,admission_status,created_at,updated_at",
-        id=str(organization_id),
-        owner_user_id=p.user_id,
-    )
-    return {"organization": row}
+
+    return row
 
 
 class VerificationRequest(BaseModel):
@@ -556,7 +551,7 @@ async def create_service_request(body:ServiceRequest,p:DeveloperPrincipal=Depend
         raise HTTPException(403,detail="user_identity_required")
 
     description=body.description.strip()
-    target_match=re.search(r"^Target:\\s*(.+)$", description, re.MULTILINE | re.IGNORECASE)
+    target_match=re.search(r"^Target:\s*(.+)$", description, re.MULTILINE | re.IGNORECASE)
     request_target=(target_match.group(1).strip() if target_match else "") or None
     if request_target:
         if request_target.lower().startswith(("http://","https://")):
