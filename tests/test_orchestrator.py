@@ -90,7 +90,7 @@ async def test_dry_run_never_dispatches():
 async def test_blast_radius_fails_closed():
     dispatcher = AsyncMock()
     orch = ResponseOrchestrator(dispatcher, FakeStore(allowed=False))
-    result = await orch.run_chain(tenant_id=uuid4(), case_id=uuid4(), device_id=uuid4(), plan=[ActionPlan("isolate_host", {}, True)], issued_by="test", blast_rule_id=uuid4(), blast_limit=1)
+    result = await orch.run_chain(tenant_id=uuid4(), case_id=uuid4(), device_id=uuid4(), plan=[ActionPlan("isolate_host", {}, True)], issued_by="test", blast_rule_id=uuid4(), blast_limit=1, dry_run=True)
     assert result.rejected == ["1"]
     assert result.reasons["1"] == "blast radius exceeded"
     dispatcher.issue.assert_not_called()
