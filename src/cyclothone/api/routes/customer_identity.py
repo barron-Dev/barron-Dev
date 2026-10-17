@@ -5,10 +5,13 @@ from datetime import UTC, datetime, timedelta
 import hashlib
 import secrets
 import os
+import re
+import logging
 from cyclothone.developer.auth import DeveloperPrincipal, authenticate_request
 from cyclothone.storage.supabase_client import supabase
 
 router=APIRouter(tags=["customer-identity"])
+logger=logging.getLogger(__name__)
 
 async def principal(authorization: str | None = Header(None)) -> DeveloperPrincipal:
     """Authenticate developer credentials or a Supabase customer session."""
@@ -429,7 +432,16 @@ async def create_organization(body:OrgRequest,p:DeveloperPrincipal=Depends(princ
                 "threats":threats[:200],
                 "method":"real DNS typosquat discovery using Cyclothone Brand Protection engine",
             }
-            await supabase.update("service_requests", {"status":"resolved"}, id=str(row["id"]))
+            await supabase.update("service_requests", {
+                "status":"resolved",
+                "result":summary,
+                "completed_at":datetime.now(UTC).isoformat(),
+            }, id=str(row["id"]))
+            try:
+                from cyclothone.security_state.materializer import materialize_claims_for_request
+                await materialize_claims_for_request(str(row["id"]), sb=await supabase._ensure())
+            except Exception:
+                logger.exception("security claim materialization failed for request %s", row["id"])
             return {**row, "status":"resolved", "result":summary}
         except HTTPException:
             raise
@@ -506,7 +518,16 @@ async def create_organization(body:OrgRequest,p:DeveloperPrincipal=Depends(princ
                 "findings":persisted[:200], "alert_records":alerts[:200],
                 "method":"real configured dark-web monitoring sources with tenant watchlist matching",
             }
-            await supabase.update("service_requests", {"status":"resolved"}, id=str(row["id"]))
+            await supabase.update("service_requests", {
+                "status":"resolved",
+                "result":summary,
+                "completed_at":datetime.now(UTC).isoformat(),
+            }, id=str(row["id"]))
+            try:
+                from cyclothone.security_state.materializer import materialize_claims_for_request
+                await materialize_claims_for_request(str(row["id"]), sb=await supabase._ensure())
+            except Exception:
+                logger.exception("security claim materialization failed for request %s", row["id"])
             return {**row, "status":"resolved", "result":summary}
         except HTTPException:
             raise
@@ -545,7 +566,16 @@ async def create_organization(body:OrgRequest,p:DeveloperPrincipal=Depends(princ
                 "controls":result.get("controls",[])[:200],
                 "method":"real tenant-scoped telemetry evaluation with evidence freshness",
             }
-            await supabase.update("service_requests", {"status":"resolved"}, id=str(row["id"]))
+            await supabase.update("service_requests", {
+                "status":"resolved",
+                "result":summary,
+                "completed_at":datetime.now(UTC).isoformat(),
+            }, id=str(row["id"]))
+            try:
+                from cyclothone.security_state.materializer import materialize_claims_for_request
+                await materialize_claims_for_request(str(row["id"]), sb=await supabase._ensure())
+            except Exception:
+                logger.exception("security claim materialization failed for request %s", row["id"])
             return {**row, "status":"resolved", "result":summary}
         except HTTPException:
             raise
@@ -715,12 +745,29 @@ async def create_service_request(body:ServiceRequest,p:DeveloperPrincipal=Depend
         raise HTTPException(403,detail="user_identity_required")
 
     description=body.description.strip()
+    target_match=re.search(r"^Target:\\s*(.+)$", description, re.MULTILINE | re.IGNORECASE)
+    request_target=(target_match.group(1).strip() if target_match else "") or None
+    if request_target:
+        if request_target.lower().startswith(("http://","https://")):
+            request_target_type="url"
+        elif "@" in request_target:
+            request_target_type="email"
+        elif re.fullmatch(r"(?:\\d{1,3}\\.){3}\\d{1,3}", request_target):
+            request_target_type="public_ip"
+        elif "." in request_target:
+            request_target_type="domain"
+        else:
+            request_target_type="other"
+    else:
+        request_target_type="other"
     row=await supabase.insert_one("service_requests",{
         "organization_id":organization_id,
         "requester_user_id":p.user_id,
         "service_key":body.service_key,
         "urgency":body.urgency,
         "description":description,
+        "target":request_target,
+        "target_type":request_target_type,
         "status":"submitted",
     })
 
