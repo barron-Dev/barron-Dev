@@ -87,8 +87,8 @@ export default function RequestService(){ const [orgs,setOrgs]=useState<Customer
     </section>
 
     {result&&<div className="border-t border-[#c2f35a]/20 py-6">
-      <div className="text-[9px] uppercase tracking-[.18em] text-[#c2f35a]">Request accepted</div>
-      <div className="mt-2 text-lg">The workflow has been recorded.</div>
+      <div className={"text-[9px] uppercase tracking-[.18em] "+(result.status==="blocked"?"text-[#ffbd69]":"text-[#c2f35a]")}>{result.status==="blocked"?"Workflow blocked":"Request accepted"}</div>
+      <div className="mt-2 text-lg">{result.status==="blocked"?"No configured source completed. Source outcomes were saved below.":"The workflow has been recorded."}</div>
       {stage&&<div className="mt-2 text-xs text-[#8ca6ad]">Live stage: <span className="text-[#c2f35a]">{stage}</span></div>}
       <Progress value={progress}/>
       {result?.result?.service==="dark_web_monitoring"&&<div className="mt-6 rounded-[1.5rem] border border-white/10 bg-[#06181e]/70 p-5">
