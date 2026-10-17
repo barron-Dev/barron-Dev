@@ -288,10 +288,19 @@ class DarkWebRequestWorker:
                     if state != "checked"
                 ]
                 if channel_status:
+                    successful_channels = [channel for channel, state in channel_status.items() if state == "checked"]
+                    if not successful_channels:
+                        return {
+                            "source": source_id, "state": "failed",
+                            "reason": "all_configured_channels_failed",
+                            "channels": [{"channel": channel, "state": state} for channel, state in sorted(channel_status.items())],
+                        }, []
                     return {
                         "source": source_id,
                         "state": "checked",
                         "coverage": "partial" if failed_channels else "all_configured_channels_checked",
+                        "checked_channels": len(successful_channels),
+                        "failed_channels": len(failed_channels),
                         "channels": [
                             {"channel": channel, "state": state}
                             for channel, state in sorted(channel_status.items())
@@ -301,7 +310,17 @@ class DarkWebRequestWorker:
                 pages_checked = getattr(monitor, "pages_checked", None)
                 pages_failed = getattr(monitor, "pages_failed", None)
                 if pages_checked is not None:
+                    successful_seeds = [seed for seed, state in seed_status.items() if state == "checked"]
                     failed_seeds = [seed for seed, state in seed_status.items() if state != "checked"]
+                    if not successful_seeds and (failed_seeds or pages_failed):
+                        return {
+                            "source": source_id, "state": "failed",
+                            "reason": "all_onion_seeds_unreachable",
+                            "configured_seeds": getattr(monitor, "configured_seed_count", len(seed_status)),
+                            "discovered_seeds": len(getattr(monitor, "discovered_seeds", [])),
+                            "seeds": [{"seed": seed, "state": state, "origin": monitor.seed_origin.get(seed, "configured")} for seed, state in sorted(seed_status.items())],
+                            "pages_checked": pages_checked, "pages_failed": pages_failed,
+                        }, []
                     return {
                         "source": source_id,
                         "state": "checked",
@@ -345,8 +364,8 @@ class DarkWebRequestWorker:
         provider_specs = [
             ("native_onion", (lambda: onion_crawler.pull(watch_kind, watch_value)) if not onion_reason else None, 150, onion_reason),
             ("ransomwatch", RansomwatchPuller().pull if not ransom_reason else None, 35, ransom_reason),
-            ("pastebin_public", PastePublicMonitor().pull if public_target_supported else None, 50, paste_reason),
-            ("telegram_public", telegram_monitor.pull if telegram_monitor and public_target_supported else None, 90, telegram_reason),
+            ("pastebin_public", (lambda: PastePublicMonitor().pull(target_type, watch_value)) if public_target_supported else None, 50, paste_reason),
+            ("telegram_public", (lambda: telegram_monitor.pull(target_type, watch_value)) if telegram_monitor and public_target_supported else None, 90, telegram_reason),
             ("bluesky_public", (lambda: BlueskyPublicMonitor().pull(target_type, watch_value))
              if target_type in {"domain", "url", "email", "brand", "username", "ip"} else None,
              20, None if target_type in {"domain", "url", "email", "brand", "username", "ip"} else "unsupported_target_type"),
