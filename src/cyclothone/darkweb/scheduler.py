@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 import time
+from urllib.parse import urlsplit
 from datetime import UTC, datetime
 
 from cyclothone.darkweb.matcher import DarkWebMatcher
-from cyclothone.darkweb.pullers import GitHubCodeMonitor, HIBPPuller, PastePublicMonitor, TelegramPublicMonitor
+from cyclothone.darkweb.native_onion import NativeOnionCrawler, configured_onion_seeds
+from cyclothone.darkweb.pullers import PastePublicMonitor, TelegramPublicMonitor
 from cyclothone.darkweb.telegram_config import (
     DEFAULT_PUBLIC_TELEGRAM_CHANNELS,  # noqa: F401 — compatibility export
     configured_telegram_channels,
@@ -84,25 +85,62 @@ class DarkWebScheduler:
         elif "telegram_public" in enabled:
             await self._mark_source("telegram_public", "unavailable_missing_channel", pulled=False)
 
+    async def _onion_seed_urls(self) -> tuple[list[str], dict[str, str], dict[str, str]]:
+        seeds = configured_onion_seeds()
+        origins = {seed: "configured" for seed in seeds}
+        discovered_from: dict[str, str] = {}
+        try:
+            async def _do():
+                client = await supabase._ensure()
+                return await (
+                    client.table("dw_onion_seeds")
+                    .select("url,status,seed_origin,discovered_from,last_checked")
+                    .in_("status", ["checked", "failed"])
+                    .order("last_checked", desc=True)
+                    .limit(50)
+                    .execute()
+                )
+            rows = (await supabase._retry(_do, attempts=1)).data or []
+            for row in rows:
+                url = str(row.get("url") or "").strip()
+                if url and url not in origins and len(seeds) < 50:
+                    seeds.append(url)
+                    origins[url] = "discovered" if row.get("seed_origin") == "discovered" else "configured"
+                    if row.get("discovered_from"):
+                        discovered_from[url] = str(row["discovered_from"])
+        except Exception:
+            logger.warning("native onion seed registry unavailable", exc_info=True)
+        return seeds[:50], origins, discovered_from
+
     async def _domain_tick(self) -> None:
         domains = await self._tenant_domains()
-        hibp_key = (os.getenv("CYCLOTHONE_HIBP_KEY") or os.getenv("SENTINEL_HIBP_KEY") or "").strip()
-        github_token = (os.getenv("CYCLOTHONE_GITHUB_TOKEN") or os.getenv("SENTINEL_GITHUB_TOKEN") or "").strip()
         enabled = await self._enabled_sources()
+        seeds, seed_origins, seed_discovered_from = await self._onion_seed_urls()
+        if "native_onion" not in enabled:
+            return
+        if not seeds:
+            await self._mark_source("native_onion", "unavailable_missing_onion_seeds", pulled=False)
+            return
         for domain in domains:
-            if hibp_key and "hibp" in enabled:
-                puller = HIBPPuller(hibp_key)
-                await self._run_pull(puller.SOURCE, lambda p=puller, d=domain: p.pull_domain(d))
-            if github_token and "github_code" in enabled:
-                monitor = GitHubCodeMonitor(github_token)
-                await self._run_pull(monitor.SOURCE, lambda m=monitor, d=domain: m.pull_domain(d))
+            crawler = NativeOnionCrawler(
+                seeds=seeds,
+                seed_origins=seed_origins,
+                discovered_from=seed_discovered_from,
+            )
+            await self._run_pull(
+                crawler.SOURCE,
+                lambda c=crawler, d=domain: c.pull("domain", d),
+                monitor=crawler,
+            )
 
-    async def _run_pull(self, source_id: str, pull) -> None:
+    async def _run_pull(self, source_id: str, pull, *, monitor=None) -> None:
         started = time.monotonic()
         try:
             findings = await pull()
+            monitor = monitor or getattr(pull, "__self__", None)
+            if source_id == "native_onion" and monitor is not None:
+                await self._persist_onion_seed_state(monitor)
             result = await self._ingest(findings)
-            monitor = getattr(pull, "__self__", None)
             channel_status = getattr(monitor, "channel_status", {})
             failed_channels = [channel for channel, state in channel_status.items() if state != "checked"]
             source_status = "degraded" if result["errors"] or failed_channels else "ok"
@@ -136,6 +174,32 @@ class DarkWebScheduler:
             alerts += int(result.get("alerts", 0))
             errors += int(result.get("errors", 0))
         return {"matched": matched, "alerts": alerts, "errors": errors}
+
+    async def _persist_onion_seed_state(self, crawler: NativeOnionCrawler) -> None:
+        rows = []
+        for url, state in crawler.seed_status.items():
+            parsed = urlsplit(url)
+            row = {
+                "url": url,
+                "hostname": (parsed.hostname or "").lower(),
+                "seed_origin": crawler.seed_origin.get(url, "configured"),
+                "discovered_from": crawler.discovered_from.get(url),
+                "status": state if state in {"checked", "failed", "disabled"} else "candidate",
+                "last_status": state,
+                "last_checked": datetime.now(UTC).isoformat() if state in {"checked", "failed"} else None,
+            }
+            digest = crawler.seed_content_hash.get(url)
+            if digest:
+                row["last_response_sha256"] = digest
+            rows.append(row)
+        if not rows:
+            return
+
+        async def _do():
+            client = await supabase._ensure()
+            return await client.table("dw_onion_seeds").upsert(rows, on_conflict="url").execute()
+
+        await supabase._retry(_do, attempts=2)
 
     async def _enabled_sources(self) -> set[str]:
         async def _do():
