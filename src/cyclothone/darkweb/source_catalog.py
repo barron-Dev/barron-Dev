@@ -30,8 +30,7 @@ SOURCE_CATALOG: dict[str, SourceDefinition] = {
     "telegram_public": SourceDefinition("telegram_public", "social_media", "surface", "public_web", "implemented", False, "Public Telegram web previews only; never private groups and never dark-web coverage."),
     "pastebin_public": SourceDefinition("pastebin_public", "paste_site", "surface", "public_web", "implemented", False, "Public paste content reachable through the configured public collector."),
     "bluesky_public": SourceDefinition("bluesky_public", "social_media", "surface", "public_api", "implemented", False, "Public Bluesky records through the configured public collector."),
-    "github_code": SourceDefinition("github_code", "code_repository", "surface", "public_api", "planned", True, "Optional public code-search connector; must be enabled and checked at runtime before being reported."),
-    "hibp": SourceDefinition("hibp", "breach_corpus", "surface", "vendor_api", "implemented", True, "Optional Have I Been Pwned breach-corpus lookup; requires a valid HIBP API credential and a confirmed successful request."),
+    "github_code": SourceDefinition("github_code", "code_repository", "surface", "public_api", "planned", True, "Optional public code-search connector; not counted unless an actual supported collector succeeds."),
     "ransomwatch": SourceDefinition("ransomwatch", "ransomware_leak_feed", "dark", "public_feed", "historical_only", False, "Archived/historical data only; never counts as a live check or current dark-web reachability."),
 }
 
