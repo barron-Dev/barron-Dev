@@ -308,10 +308,17 @@ class DarkWebRequestWorker:
                         # optional discovered-seed registry could not be updated.
                         monitor.seed_state_persistence = "unavailable"
                         logger.warning("onion seed registry persistence unavailable request_id=%s", request_id, exc_info=True)
-                if source_id == "pastebin_public" and getattr(monitor, "items_checked", 0) == 0:
+                if source_id == "pastebin_public" and not getattr(monitor, "feed_checked", False):
                     return {
                         "source": source_id, "state": "unavailable",
-                        "reason": "no_public_items_fetched", "items_checked": 0,
+                        "reason": "public_feed_not_confirmed", "items_checked": 0,
+                    }, []
+                if source_id == "pastebin_public" and getattr(monitor, "items_checked", 0) == 0:
+                    return {
+                        "source": source_id, "state": "checked", "coverage": "partial",
+                        "reason": "feed_checked_no_documents_fetched",
+                        "feed_entries": getattr(monitor, "feed_entries_count", 0),
+                        "items_checked": 0,
                     }, []
                 channel_status = getattr(monitor, "channel_status", {})
                 failed_channels = [
@@ -363,6 +370,20 @@ class DarkWebRequestWorker:
                         "pages_failed": pages_failed,
                         "seed_state_persistence": getattr(monitor, "seed_state_persistence", "not_attempted"),
                         "matches": getattr(monitor, "matches", 0),
+                    }, findings
+                if source_id == "pastebin_public":
+                    return {
+                        "source": source_id, "state": "checked",
+                        "coverage": "all_returned_documents_fetched",
+                        "feed_entries": getattr(monitor, "feed_entries_count", 0),
+                        "items_checked": getattr(monitor, "items_checked", 0),
+                    }, findings
+                if source_id == "bluesky_public":
+                    return {
+                        "source": source_id, "state": "checked",
+                        "coverage": "public_search_results_inspected",
+                        "posts_checked": getattr(monitor, "posts_checked", 0),
+                        "matches": len(findings),
                     }, findings
                 return {"source": source_id, "state": "checked"}, findings
             except Exception:
