@@ -255,6 +255,16 @@ class DarkWebRequestWorker:
         )
         exact = [f for f in historical if str(f.get("kind", "")).lower() == watch_kind
                  and str(f.get("matched_value", "")).strip().lower() == watch_value]
+        historical_candidates = [
+            {
+                "id": item.get("id"), "source": item.get("source_id"),
+                "collected_at": item.get("collected_at") or item.get("first_seen"),
+                "content_hash": item.get("content_hash"), "source_url": item.get("source_url"),
+                "severity": item.get("severity"),
+                "label": "historical match — review; not checked during this request",
+            }
+            for item in exact
+        ]
         enabled_rows = await supabase.select("dw_sources", "id,enabled,last_status,last_pull_at", enabled=True)
         enabled = {str(x["id"]) for x in enabled_rows}
         sources: list[dict] = []
@@ -432,7 +442,9 @@ class DarkWebRequestWorker:
                 "sources_checked": [],
                 "sources_unavailable": [source for source in sources if source["state"] != "checked"],
                 "findings": [],
-                "evidence": [],
+                "historical_candidates": historical_candidates[:200],
+                "historical_candidate_count": len(historical_candidates),
+                "evidence": historical_candidates[:200],
                 "alerts": [],
                 "completed_at": datetime.now(UTC).isoformat(),
             }
@@ -446,12 +458,7 @@ class DarkWebRequestWorker:
         # promoted to a confirmed match.
         evidence = []
         persistence_failures = 0
-        for item in exact:
-            evidence.append({
-                "source": item.get("source_id"), "collected_at": item.get("collected_at") or item.get("first_seen"),
-                "content_hash": item.get("content_hash"), "source_url": item.get("source_url"),
-                "label": "possible match — review",
-            })
+        evidence.extend(historical_candidates[:200])
         for finding in pulled[:2000]:
             if not _finding_matches_target(finding, watch_kind, watch_value):
                 continue
@@ -566,7 +573,10 @@ class DarkWebRequestWorker:
                 "unavailable_source_ids": [x.get("source") for x in unavailable_sources],
                 "layers": {"dark_web": dark_sources, "surface_web": surface_sources},
             },
-            "findings": persisted[:200], "evidence": evidence[:200], "alerts": relevant_alerts[:200],
+            "findings": persisted[:200],
+            "historical_candidates": historical_candidates[:200],
+            "historical_candidate_count": len(historical_candidates),
+            "evidence": evidence[:200], "alerts": relevant_alerts[:200],
             "case_id": case_id, "recommendations": (
                 ["Review each possible match against the source evidence.", "Rotate exposed credentials and investigate affected accounts."]
                 if persisted else ["No exact matches were confirmed in the sources checked.",
