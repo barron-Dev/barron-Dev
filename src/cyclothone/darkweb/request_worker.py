@@ -62,15 +62,15 @@ def normalize_target(value: str, target_type: str) -> str:
 
 
 def _coverage_state(sources: list[dict]) -> str:
-    """Describe configured provider checks, including partial per-provider coverage."""
-    checked = any(source.get("state") == "checked" for source in sources)
-    if not checked:
+    """Summarize implemented live sources without treating archived/planned entries as checks."""
+    live_sources = [source for source in sources if source.get("availability", "implemented") == "implemented"]
+    if not any(source.get("state") == "checked" for source in live_sources):
         return "none"
     if all(
         source.get("state") == "checked" and source.get("coverage") != "partial"
-        for source in sources
+        for source in live_sources
     ):
-        return "all_configured_sources_checked"
+        return "all_configured_live_sources_checked"
     return "partial"
 
 
