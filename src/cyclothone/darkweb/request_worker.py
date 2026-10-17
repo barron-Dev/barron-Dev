@@ -453,7 +453,18 @@ class DarkWebRequestWorker:
             run_source(source_id, pull, timeout, reason)
             for source_id, pull, timeout, reason in provider_specs
         ))
-        sources = [status for status, _ in provider_results]
+        sources = []
+        for status, _ in provider_results:
+            definition = get_source(str(status.get("source") or ""))
+            if definition is not None:
+                status = {
+                    **status,
+                    "layer": definition.layer,
+                    "category": definition.category,
+                    "access_mode": definition.access_mode,
+                    "availability": definition.availability,
+                }
+            sources.append(status)
         pulled = [finding for _, batch in provider_results for finding in batch]
 
         # A completed search requires at least one provider call to succeed.
@@ -577,8 +588,8 @@ class DarkWebRequestWorker:
         # Coverage describes this configured provider set only; it never claims
         # visibility into the entire dark web or unconfigured services.
         coverage = _coverage_state(sources)
-        dark_sources = [x for x in sources if x.get("source") in {"native_onion", "ransomwatch"}]
-        surface_sources = [x for x in sources if x.get("source") in {"pastebin_public", "telegram_public", "github_code", "bluesky_public"}]
+        dark_sources = [x for x in sources if x.get("layer") == "dark"]
+        surface_sources = [x for x in sources if x.get("layer") == "surface"]
         dark_findings = [f for f in persisted if str(f.get("web_layer") or "").lower() == "dark"
                          or str(f.get("source_id") or "") in {"native_onion", "ransomwatch"}]
         surface_findings = [f for f in persisted if f not in dark_findings]
