@@ -110,8 +110,10 @@ class TelegramPublicMonitor:
         # Per-channel outcomes remain available to the scheduler for honest coverage.
         self.channel_status: dict[str, str] = {}
 
-    async def pull(self) -> list[Finding]:
+    async def pull(self, target_type: str | None = None, target: str | None = None) -> list[Finding]:
         semaphore = asyncio.Semaphore(5)
+        target = normalize(target) if target else None
+        target_kind = {"email": "email", "domain": "domain", "url": "domain"}.get(target_type or "")
 
         async def pull_channel(channel: str) -> tuple[str, list[Finding] | None]:
             try:
@@ -123,14 +125,25 @@ class TelegramPublicMonitor:
                         )
                         response.raise_for_status()
                         html = response.text
-                findings = [
-                    Finding(
-                        self.SOURCE, "email", normalize(email),
-                        "Monitored identifier appeared in a public Telegram web preview; credential material redacted.",
-                        "critical", f"https://t.me/s/{channel}", {"channel": channel},
-                    )
-                    for email in dict.fromkeys(EMAIL_RE.findall(html))
-                ]
+                if target and target_kind:
+                    haystack = html.casefold()
+                    matched = target.casefold() in haystack
+                    if target_kind == "domain":
+                        matched = bool(re.search(r"(?<![a-z0-9.-])" + re.escape(target.casefold()) + r"(?![a-z0-9.-])", haystack))
+                    findings = ([Finding(
+                        self.SOURCE, target_kind, target,
+                        "Requested identifier observed in a public Telegram web preview; page content is not retained.",
+                        "high", f"https://t.me/s/{channel}", {"channel": channel, "observed_text_sha256": hashlib.sha256(html.encode()).hexdigest()},
+                    )] if matched else [])
+                else:
+                    findings = [
+                        Finding(
+                            self.SOURCE, "email", normalize(email),
+                            "Email identifier appeared in a public Telegram web preview; page content is not retained.",
+                            "medium", f"https://t.me/s/{channel}", {"channel": channel},
+                        )
+                        for email in dict.fromkeys(EMAIL_RE.findall(html))
+                    ]
                 return channel, findings
             except Exception as exc:
                 logger.warning("Telegram channel failed channel=%s error=%s", channel, type(exc).__name__)
@@ -185,7 +198,9 @@ class PastePublicMonitor:
     # public feed is the supported Pastebin.ca JSON API.
     FEED = "https://pastebin.ca/api/v1/feed?limit=20"
 
-    async def pull(self) -> list[Finding]:
+    async def pull(self, target_type: str | None = None, target: str | None = None) -> list[Finding]:
+        target = normalize(target) if target else None
+        target_kind = {"email": "email", "domain": "domain", "url": "domain"}.get(target_type or "")
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
                 response = await client.get(self.FEED, headers={"user-agent": "cyclothone-darkweb/1.0"})
@@ -220,16 +235,25 @@ class PastePublicMonitor:
                 continue
             paste_id, public_url, content = result
             successful += 1
-            for email in dict.fromkeys(EMAIL_RE.findall(content)):
-                findings.append(Finding(
-                    self.SOURCE,
-                    "email",
-                    normalize(email),
-                    "Identifier appeared in public paste content; paste contents are not retained.",
-                    "medium",
-                    public_url,
-                    {"paste_id": paste_id},
-                ))
+            if target and target_kind:
+                haystack = content.casefold()
+                matched = target.casefold() in haystack
+                if target_kind == "domain":
+                    matched = bool(re.search(r"(?<![a-z0-9.-])" + re.escape(target.casefold()) + r"(?![a-z0-9.-])", haystack))
+                if matched:
+                    findings.append(Finding(
+                        self.SOURCE, target_kind, target,
+                        "Requested identifier observed in public paste content; paste contents are not retained.",
+                        "medium", public_url,
+                        {"paste_id": paste_id, "observed_text_sha256": hashlib.sha256(content.encode()).hexdigest()},
+                    ))
+            else:
+                for email in dict.fromkeys(EMAIL_RE.findall(content)):
+                    findings.append(Finding(
+                        self.SOURCE, "email", normalize(email),
+                        "Email identifier appeared in public paste content; paste contents are not retained.",
+                        "medium", public_url, {"paste_id": paste_id},
+                    ))
         if entries and successful == 0:
             raise RuntimeError("all public paste item fetches failed")
         return findings
