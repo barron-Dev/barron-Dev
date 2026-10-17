@@ -304,7 +304,12 @@ export type CustomerServiceRequest = {
   service_key: string;
   urgency: string;
   description: string;
+  target?: string | null;
+  target_type?: string | null;
   status: string;
+  processing_state?: string | null;
+  result?: Record<string, unknown> | null;
+  completed_at?: string | null;
   created_at: string;
   updated_at: string;
 };
