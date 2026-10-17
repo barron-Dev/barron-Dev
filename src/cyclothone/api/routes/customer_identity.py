@@ -483,6 +483,8 @@ async def create_organization(body:OrgRequest,p:DeveloperPrincipal=Depends(princ
                 except Exception as exc:
                     logger.warning("DWM source ransomwatch failed: %s", type(exc).__name__)
                     source_results.append({"name":"ransomwatch","status":"failed","attempted":True,"records_returned":0,"error_code":"source_pull_failed"})
+            else:
+                source_results.append({"name":"ransomwatch","status":"unavailable","attempted":False,"records_returned":0,"error_code":"source_disabled"})
             if "hibp" in enabled:
                 if not hibp_key:
                     source_results.append({"name":"hibp","status":"unavailable","attempted":False,"records_returned":0,"error_code":"credential_missing"})
@@ -494,6 +496,8 @@ async def create_organization(body:OrgRequest,p:DeveloperPrincipal=Depends(princ
                     except Exception as exc:
                         logger.warning("DWM source hibp failed: %s", type(exc).__name__)
                         source_results.append({"name":"hibp","status":"failed","attempted":True,"records_returned":0,"error_code":"source_pull_failed"})
+            else:
+                source_results.append({"name":"hibp","status":"unavailable","attempted":False,"records_returned":0,"error_code":"source_disabled"})
             if "github_code" in enabled:
                 if not github_token:
                     source_results.append({"name":"github_code","status":"unavailable","attempted":False,"records_returned":0,"error_code":"credential_missing"})
@@ -505,9 +509,22 @@ async def create_organization(body:OrgRequest,p:DeveloperPrincipal=Depends(princ
                     except Exception as exc:
                         logger.warning("DWM source github_code failed: %s", type(exc).__name__)
                         source_results.append({"name":"github_code","status":"failed","attempted":True,"records_returned":0,"error_code":"source_pull_failed"})
+            if "github_code" not in enabled:
+                source_results.append({"name":"github_code","status":"unavailable","attempted":False,"records_returned":0,"error_code":"source_disabled"})
             if not any(item.get("attempted") and item.get("status") == "succeeded" for item in source_results):
-                await supabase.update("service_requests", {"status":"blocked"}, id=str(row["id"]))
-                raise HTTPException(503, detail="dark_web_sources_unavailable")
+                summary = {
+                    "service":"dark_web_monitoring", "target":target, "sources":source_results,
+                    "source_findings":len(findings), "findings_persisted":0, "alerts":0,
+                    "findings":[], "alert_records":[],
+                    "method":"real configured dark-web monitoring sources with tenant watchlist matching",
+                    "coverage_status":"blocked",
+                }
+                completed_at = datetime.now(UTC).isoformat()
+                await supabase.update("service_requests", {
+                    "status":"blocked", "processing_state":"failed", "failure_code":"dark_web_sources_unavailable",
+                    "result":summary, "completed_at":completed_at,
+                }, id=str(row["id"]))
+                return {**row, "status":"blocked", "result":summary, "failure_code":"dark_web_sources_unavailable"}
             matcher = DarkWebMatcher()
             ingested = 0
             errors = 0
