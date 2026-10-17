@@ -26,37 +26,52 @@ class DarkWebMatcher:
 
         async def _lookup():
             client = await supabase._ensure()
-            exact = await (
-                client.table("dw_watchlist")
-                .select("id,tenant_id,kind,severity")
-                .eq("kind", kind)
-                .eq("value_hash", digest)
-                .execute()
-            )
-            rows = list(exact.data or [])
-            seen = {str(row["id"]) for row in rows}
-            aliases = await (
-                client.table("dw_watch_aliases")
-                .select("watchlist_id,tenant_id,kind")
-                .eq("kind", kind)
-                .eq("alias_hash", digest)
-                .execute()
-            )
-            for alias in aliases.data or []:
-                watch_id = str(alias["watchlist_id"])
-                if watch_id in seen:
-                    continue
-                watch = await (
+            # A domain watch must also match an email finding from that exact
+            # domain (for example, HIBP's breached-domain endpoint). Keep exact
+            # email matching and exact domain matching; never use suffix/fuzzy
+            # matching that could cross tenant boundaries or match lookalikes.
+            candidates = [(kind, digest)]
+            if kind == "email":
+                _, separator, email_domain = value.rpartition("@")
+                if separator and email_domain:
+                    candidates.append(("domain", hashlib.sha256(email_domain.rstrip(".").encode()).hexdigest()))
+            rows = []
+            seen: set[str] = set()
+            for candidate_kind, candidate_hash in candidates:
+                exact = await (
                     client.table("dw_watchlist")
                     .select("id,tenant_id,kind,severity")
-                    .eq("id", watch_id)
-                    .eq("tenant_id", str(alias["tenant_id"]))
-                    .limit(1)
+                    .eq("kind", candidate_kind)
+                    .eq("value_hash", candidate_hash)
                     .execute()
                 )
-                if watch.data:
-                    rows.append(watch.data[0])
-                    seen.add(watch_id)
+                for row in exact.data or []:
+                    watch_id = str(row["id"])
+                    if watch_id not in seen:
+                        rows.append(row)
+                        seen.add(watch_id)
+                aliases = await (
+                    client.table("dw_watch_aliases")
+                    .select("watchlist_id,tenant_id,kind")
+                    .eq("kind", candidate_kind)
+                    .eq("alias_hash", candidate_hash)
+                    .execute()
+                )
+                for alias in aliases.data or []:
+                    watch_id = str(alias["watchlist_id"])
+                    if watch_id in seen:
+                        continue
+                    watch = await (
+                        client.table("dw_watchlist")
+                        .select("id,tenant_id,kind,severity")
+                        .eq("id", watch_id)
+                        .eq("tenant_id", str(alias["tenant_id"]))
+                        .limit(1)
+                        .execute()
+                    )
+                    if watch.data:
+                        rows.append(watch.data[0])
+                        seen.add(watch_id)
             return rows
 
         try:

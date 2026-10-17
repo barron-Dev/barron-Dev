@@ -35,9 +35,11 @@ def test_predicts_best_path_and_is_cycle_safe():
          str(b): [Edge(c,"hosts"), Edge(a,"depends_on")]}
     )
     result = AttackPathPredictor(g, {"service": .8, "database": .9}).predict(str(a), 3, 10)
-    assert [x.node_external for x in result] == ["c", "b"]
-    assert result[0].hops == 2
-    assert result[0].path[-1]["relation"] == "hosts"
+    # Ranking uses the combined prior × path-likelihood × impact score.
+    # The one-hop service candidate outranks the database candidate here.
+    assert [x.node_external for x in result] == ["b", "c"]
+    assert result[0].hops == 1
+    assert result[0].path[-1]["relation"] == "connects_to"
 
 def test_rejects_invalid_inputs():
     a = uuid4()

@@ -47,7 +47,7 @@ class Dispatcher:
 
 
 @pytest.mark.asyncio
-async def test_medium_action_dispatches_and_high_action_waits_for_approval():
+async def test_unbound_medium_and_high_actions_fail_closed():
     store = Store()
     dispatcher = Dispatcher()
     result = await ResponseOrchestrator(dispatcher, store).run_chain(
@@ -60,28 +60,29 @@ async def test_medium_action_dispatches_and_high_action_waits_for_approval():
         ],
         issued_by="test",
     )
-    assert len(result.dispatched) == 1
-    assert len(result.queued) == 1
-    assert len(dispatcher.calls) == 1
-    assert store.rows[result.queued[0]]["status"] == "pending_approval"
+    assert result.dispatched == []
+    assert result.queued == []
+    assert len(result.rejected) == 2
+    assert dispatcher.calls == []
+    assert all("canonical AI run binding is required" in reason for reason in result.reasons.values())
 
 
 @pytest.mark.asyncio
-async def test_rejected_approval_never_dispatches():
+async def test_unbound_high_action_cannot_enter_approval_queue():
     store = Store()
     dispatcher = Dispatcher()
     result = await ResponseOrchestrator(dispatcher, store).run_chain(
         tenant_id=TENANT, case_id=CASE, device_id=DEVICE,
         plan=[ActionPlan("isolate_host", {})], issued_by="test",
     )
-    action_id = UUID(result.queued[0])
-    await ResponseOrchestrator(dispatcher, store).reject(action_id, UUID("44444444-4444-4444-4444-444444444444"), "denied")
-    assert store.rows[str(action_id)]["status"] == "rejected"
+    assert result.queued == []
+    assert len(result.rejected) == 1
+    assert "canonical AI run binding is required" in next(iter(result.reasons.values()))
     assert dispatcher.calls == []
 
 
 @pytest.mark.asyncio
-async def test_approval_dispatch_failure_returns_to_pending():
+async def test_unbound_high_action_cannot_reach_dispatcher():
     store = Store()
 
     class FailingDispatcher(Dispatcher):
@@ -92,10 +93,10 @@ async def test_approval_dispatch_failure_returns_to_pending():
         tenant_id=TENANT, case_id=CASE, device_id=DEVICE,
         plan=[ActionPlan("isolate_host", {})], issued_by="test",
     )
-    action_id = UUID(result.queued[0])
-    with pytest.raises(RuntimeError):
-        await ResponseOrchestrator(FailingDispatcher(), store).approve(action_id, UUID("44444444-4444-4444-4444-444444444444"))
-    assert store.rows[str(action_id)]["status"] == "pending_approval"
+    assert result.queued == []
+    assert len(result.rejected) == 1
+    assert "canonical AI run binding is required" in next(iter(result.reasons.values()))
+    assert store.rows[result.rejected[0]]["status"] == "failed"
 
 
 @pytest.mark.asyncio

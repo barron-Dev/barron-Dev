@@ -151,6 +151,9 @@ class AgentExecutionGate:
         expected_provider_id: str,
         twin: DigitalTwinService,
         consume_replay: bool = True,
+        expected_mission_id: str | None = None,
+        expected_mission_version: int | None = None,
+        expected_mission_hash: str | None = None,
     ) -> dict[str, Any]:
         """Validate and optionally consume replay state for immediate execution."""
         result = await self.validate(
@@ -159,6 +162,9 @@ class AgentExecutionGate:
             expected_model_id=expected_model_id,
             expected_provider_id=expected_provider_id,
             twin=twin,
+            expected_mission_id=expected_mission_id,
+            expected_mission_version=expected_mission_version,
+            expected_mission_hash=expected_mission_hash,
         )
         if consume_replay:
             await self.consume(envelope=envelope, tenant_id=tenant_id)

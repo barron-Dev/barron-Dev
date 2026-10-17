@@ -26,16 +26,47 @@ const REQUEST_SUGGESTIONS=[
  "Check the HTTP response and content type",
  "Give me a concise risk summary and next steps"
 ];
+const DARK_WEB_SUGGESTIONS=REQUEST_SUGGESTIONS.filter(x=>x!=="Check the HTTP response and content type");
 
 function Progress({value}:{value:number|null}){if(value===null)return null;return <div className="mt-5"><div className="mb-2 flex justify-between text-[9px] uppercase tracking-[.15em] text-[#67848d]"><span>Live workflow progress</span><span className="text-[#c2f35a]">{value}%</span></div><div className="cyclo-battery"><span style={{width:Math.max(0,Math.min(100,value))+"%"}}/></div></div>}
 
-export default function RequestService(){ const [orgs,setOrgs]=useState<CustomerOrganization[]>([]),[org,setOrg]=useState(""),[service,setService]=useState("cybersecurity_assessment"),[urgency,setUrgency]=useState("normal"),[target,setTarget]=useState(""),[description,setDescription]=useState(""),[verification,setVerification]=useState<any[]>([]),[error,setError]=useState<string|null>(null),[result,setResult]=useState<any>(null),[loading,setLoading]=useState(true);
+export default function RequestService(){ const [orgs,setOrgs]=useState<CustomerOrganization[]>([]),[org,setOrg]=useState(""),[service,setService]=useState("cybersecurity_assessment"),[urgency,setUrgency]=useState("normal"),[target,setTarget]=useState(""),[targetType,setTargetType]=useState("domain"),[description,setDescription]=useState(""),[verification,setVerification]=useState<any[]>([]),[error,setError]=useState<string|null>(null),[result,setResult]=useState<any>(null),[loading,setLoading]=useState(true);
  async function load(){setLoading(true);setError(null);try{const r=await getCustomerOrganizations();setOrgs(r.organizations);setOrg(r.organizations[0]?.id||"")}catch(e){setError(e instanceof Error?e.message:"Unable to load account")}finally{setLoading(false)}}
- useEffect(()=>{const requested=new URLSearchParams(window.location.search).get("service");if(requested&&SERVICES.some(x=>x[0]===requested))setService(requested);void load()},[]);
- async function submit(e:FormEvent){e.preventDefault();setError(null);setResult(null);try{const r=await apiFetch<any>("/api/v1/customer/service-requests",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({...(org?{organization_id:org}:{}),service_key:service,urgency,description:[`Target: ${target.trim()}`,`Service objective: ${description.trim()}`].join("\n")})});setResult(r);setTarget("");setDescription("")}catch(e){setError(e instanceof Error?e.message:"Service request failed")}}
+ useEffect(()=>{const requested=new URLSearchParams(window.location.search).get("service");if(requested&&SERVICES.some(x=>x[0]===requested))setService(requested);void load()},[]);useEffect(()=>{
+  const id=result?.request_id;
+  if(!id||result?.service!=="dark_web_monitoring"||["succeeded","failed","blocked"].includes(result?.processing_state))return;
+  let cancelled=false;
+  let timer:ReturnType<typeof setTimeout>|undefined;
+  let delay=1500;
+  const poll=async()=>{
+    if(cancelled)return;
+    try{
+      const state=await apiFetch<any>("/api/v1/customer/service-requests/"+encodeURIComponent(id)+"/result");
+      if(cancelled)return;
+      setResult((current:any)=>current?.request_id===id?{...current,...state,service:"dark_web_monitoring"}:current);
+      if(["succeeded","failed","blocked"].includes(state?.processing_state))return;
+    }catch(e){
+      // A transient poll failure must not strand a still-running server-side request.
+      if(!cancelled)setError(e instanceof Error?e.message:"Unable to read workflow result");
+    }
+    if(!cancelled){timer=setTimeout(poll,delay);delay=Math.min(Math.round(delay*1.7),15000)}
+  };
+  timer=setTimeout(poll,delay);
+  return()=>{cancelled=true;if(timer)clearTimeout(timer)};
+},[result?.request_id,result?.processing_state,result?.service]);
+ async function submit(e:FormEvent){e.preventDefault();setError(null);setResult(null);try{const r=await apiFetch<any>("/api/v1/customer/service-requests",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({...(org?{organization_id:org}:{}),service_key:service,urgency,target:target.trim(),target_type:service==="dark_web_monitoring"?targetType:"url",description:[`Target: ${target.trim()}`,`Service objective: ${description.trim()}`].join("\n")})});setResult({...r,service});setTarget("");setDescription("")}catch(e){setError(e instanceof Error?e.message:"Service request failed")}}
  const current=orgs.find(x=>x.id===org); const guidance=SERVICE_GUIDANCE[service]||DEFAULT_GUIDANCE; const serviceName=SERVICES.find(x=>x[0]===service)?.[1]||service;
  const progress=typeof result?.progress_percent==="number"?result.progress_percent:typeof result?.progress==="number"?result.progress:null;
  const stage=typeof result?.stage==="string"?result.stage:null;
+ const dwData=(result?.result&&typeof result.result==="object"&&Object.keys(result.result).length?result.result:result)||{};
+ const dwFindings=Array.isArray(dwData.findings)?dwData.findings:Array.isArray(result?.findings)?result.findings:[];
+ const dwEvidence=Array.isArray(dwData.evidence)?dwData.evidence:Array.isArray(result?.evidence)?result.evidence:[];
+ const dwChecked=Array.isArray(dwData.sources_checked)?dwData.sources_checked:Array.isArray(result?.sources_checked)?result.sources_checked:[];
+ const dwUnavailable=Array.isArray(dwData.sources_unavailable)?dwData.sources_unavailable:Array.isArray(result?.sources_unavailable)?result.sources_unavailable:[];
+ const dwSources=[...dwChecked,...dwUnavailable];
+ const dwCritical=dwFindings.filter((x:any)=>String(x.severity||"").toLowerCase()==="critical").length;
+ const dwHigh=dwFindings.filter((x:any)=>String(x.severity||"").toLowerCase()==="high").length;
+ const dwSourceCounts=Object.entries(dwFindings.reduce((acc:Record<string,number>,x:any)=>{const key=String(x.source_id||x.source||"unknown");acc[key]=(acc[key]||0)+1;return acc;},{} as Record<string,number>));
  return <main className="cyclo-water min-h-screen overflow-hidden text-[#e8f1f3]">
   <header className="relative z-10 flex items-center justify-between border-b border-white/10 bg-[#02090e]/70 px-5 py-4 backdrop-blur-2xl"><div className="flex items-center gap-3"><a href="/customer/services" className="cyclo-mark text-lg font-bold">◌</a><a href="/customer/services" className="font-semibold tracking-tight">CYCLOTHONE</a></div><a href="/customer/services" className="cyclo-pill px-3 py-2 text-[10px] text-[#9ab0b6]">Back to services</a></header>
   <div className="relative z-10 mx-auto max-w-4xl px-5 py-10 md:py-14">
@@ -65,13 +96,13 @@ export default function RequestService(){ const [orgs,setOrgs]=useState<Customer
       <label className="block text-xs font-medium">2. Target
         <input required minLength={2} maxLength={2000} value={target} onChange={e=>setTarget(e.target.value)} className="mt-3 w-full border-b border-white/15 bg-transparent py-3 text-base outline-none focus:border-[#c2f35a]/50" placeholder={guidance.placeholder}/>
       </label>
-      <p className="mt-2 text-[11px] leading-5 text-[#78939a]">{service==="dark_web_monitoring"?"Enter the domain you want monitored for real exposure signals.":"Enter the website or system you want checked."}</p>
+      {service==="dark_web_monitoring"&&<select aria-label="Target type" value={targetType} onChange={e=>setTargetType(e.target.value)} className="mt-4 w-full border-b border-white/15 bg-transparent py-3 text-sm outline-none focus:border-[#c2f35a]/50"><option value="domain">Domain</option><option value="brand">Brand</option><option value="email">Email address</option><option value="username">Username</option><option value="ip">Public IP address</option><option value="url">URL</option><option value="other">Other approved target</option></select>}<p className="mt-2 text-[11px] leading-5 text-[#78939a]">{service==="dark_web_monitoring"?"Source coverage is checked at runtime. Results list which sources were checked and which were unavailable.":"Enter the website or system you want checked."}</p>
     </section>
 
     <section className="border-b border-white/10 py-7">
       <label className="block text-xs font-medium">3. What do you need?
         <textarea required minLength={10} maxLength={10000} value={description} onChange={e=>setDescription(e.target.value)} rows={5} className="mt-3 w-full resize-y border-b border-white/15 bg-transparent py-3 text-sm leading-6 outline-none focus:border-[#c2f35a]/50" placeholder="Choose a suggestion or tell Cyclothone what you want to find out."/>
-      <div className="mt-4 flex flex-wrap gap-2">{REQUEST_SUGGESTIONS.map(s=><button type="button" key={s} onClick={()=>setDescription(s)} className="rounded-full border border-white/10 bg-white/[0.035] px-3 py-2 text-[10px] text-[#a9bdc2] transition hover:border-[#c2f35a]/35 hover:bg-white/[0.07] hover:text-[#e8f1f3]">{s}</button>)}</div>
+      <div className="mt-4 flex flex-wrap gap-2">{(service==="dark_web_monitoring"?DARK_WEB_SUGGESTIONS:REQUEST_SUGGESTIONS).map(s=><button type="button" key={s} onClick={()=>setDescription(s)} className="rounded-full border border-white/10 bg-white/[0.035] px-3 py-2 text-[10px] text-[#a9bdc2] transition hover:border-[#c2f35a]/35 hover:bg-white/[0.07] hover:text-[#e8f1f3]">{s}</button>)}</div>
       </label>
     </section>
 
@@ -86,7 +117,39 @@ export default function RequestService(){ const [orgs,setOrgs]=useState<Customer
       </button>
     </section>
 
-    {result&&<div className="border-t border-[#c2f35a]/20 py-6">
+    {result&&result.service==="dark_web_monitoring"&&<div className="border-t border-[#c2f35a]/20 py-6">
+      <div className="text-[9px] uppercase tracking-[.18em] text-[#c2f35a]">Dark Web request · {result.request_id||"request recorded"}</div>
+      <div className="mt-2 text-lg">{({queued:"Queued for execution",running:"Checking configured sources",succeeded:"Monitoring result ready",failed:"Execution failed",blocked:"Execution blocked"} as Record<string,string>)[result.processing_state||""]||"Request accepted"}</div>
+      <div className="mt-2 text-xs text-[#8ca6ad]">Target: {result.target||"—"} · State: {result.processing_state||"queued"} · Status: {result.status||"submitted"}</div>
+      {result.processing_state==="succeeded"&&<div className="mt-6 space-y-5">
+        <section className="overflow-hidden rounded-[1.5rem] border border-[#31535b]/70 bg-[#04141a]/90">
+          <div className="flex flex-wrap items-start justify-between gap-4 border-b border-white/10 p-5">
+            <div><div className="text-[9px] uppercase tracking-[.2em] text-[#69a7b5]">Cyclothone exposure fingerprint</div><h2 className="mt-2 text-xl font-semibold">{dwFindings.length?dwFindings.length+" persisted exposure signal"+(dwFindings.length===1?"":"s"):"No exact matches confirmed"}</h2><p className="mt-2 max-w-xl text-xs leading-5 text-[#8ca6ad]">{dwFindings.length?"Signals below are linked to tenant-scoped persisted findings. Review source attribution before treating a signal as confirmed compromise.":"This is a zero-match result for the sources that actually completed—not proof that the target has no exposure anywhere."}</p></div>
+            <span className={"rounded-full border px-3 py-1.5 text-[10px] uppercase tracking-[.12em] "+(dwFindings.some((x:any)=>String(x.severity).toLowerCase()==="critical")?"border-[#ff637d]/40 bg-[#45131d]/40 text-[#ff9baa]":dwFindings.length?"border-[#d7a94e]/40 bg-[#332611]/40 text-[#f1ce85]":"border-[#4a8c9b]/40 bg-[#0a2830]/50 text-[#9ad5df]")}>{dwFindings.some((x:any)=>String(x.severity).toLowerCase()==="critical")?"Critical signal":dwFindings.length?"Review required":"No match observed"}</span>
+          </div>
+          <div className="grid grid-cols-2 divide-x divide-y divide-white/10 md:grid-cols-4 md:divide-y-0">
+            {[["Sources checked",dwChecked.length],["Sources unavailable",dwUnavailable.length],["Critical findings",dwCritical],["High findings",dwHigh]].map(([label,value]:any)=><div key={label} className="p-4"><div className="text-[9px] uppercase tracking-[.13em] text-[#648994]">{label}</div><div className="mt-2 font-mono text-2xl">{value}</div></div>)}
+          </div>
+          <div className="border-t border-white/10 px-5 py-3 text-[10px] leading-5 text-[#8ca6ad]">Configured-source coverage: <span className="text-[#c6dce1]">{dwData.coverage==="all_configured_sources_checked"?"All configured sources checked":dwData.coverage==="none"?"No source successfully checked":"Partial / limited"}</span>. This describes only the providers configured in Cyclothone, not the entire dark web.</div>
+          {dwUnavailable.length>0&&<div className="border-t border-[#d7a94e]/20 bg-[#281e0c]/35 px-5 py-3 text-xs leading-5 text-[#e7c783]">Coverage is partial: {dwUnavailable.length} configured source check{dwUnavailable.length===1?" was":"s were"} unavailable or failed. A clean result must not be inferred for those sources.</div>}
+        </section>
+        <section className="rounded-[1.5rem] border border-white/10 bg-[#061018]/80 p-5">
+          <div className="flex flex-wrap items-end justify-between gap-3"><div><div className="text-[9px] uppercase tracking-[.18em] text-[#69a7b5]">Coverage ledger</div><h3 className="mt-2 text-base font-medium">What actually ran</h3></div><div className="text-[10px] text-[#78939a]">{dwChecked.length} checked · {dwUnavailable.length} unavailable/failed</div></div>
+          {dwSources.length?<div className="mt-4 grid gap-2 md:grid-cols-2">{dwSources.map((s:any,i:number)=>{const checked=s.state==="checked";const failed=s.state==="failed";return <div key={String(s.source||s)+i} className="flex items-start gap-3 rounded-xl border border-white/[.07] bg-white/[.02] p-3"><span className={"mt-1 h-2 w-2 shrink-0 rounded-full "+(checked?"bg-[#91d6b0]":failed?"bg-[#ff7c8d]":"bg-[#e2bb69]")}/><div className="min-w-0 flex-1"><div className="text-xs font-medium">{s.source||s}</div><div className={"mt-1 text-[10px] "+(checked?"text-[#91d6b0]":failed?"text-[#ff9baa]":"text-[#e2bb69]")}>{checked?"Checked":failed?"Failed":"Unavailable"}{s.reason?" · "+String(s.reason).replaceAll("_"," "):""}</div></div></div>})}</div>:<p className="mt-3 text-xs text-[#e2bb69]">The execution returned no source coverage records. Treat coverage as unknown.</p>}
+        </section>
+        {dwFindings.length>0&&<section className="rounded-[1.5rem] border border-white/10 bg-[#061018]/80 p-5">
+          <div className="text-[9px] uppercase tracking-[.18em] text-[#69a7b5]">Signal fingerprint</div><h3 className="mt-2 text-base font-medium">Where the persisted signals came from</h3>
+          <div className="mt-4 flex flex-wrap gap-2">{dwSourceCounts.map(([source,count]:any)=><div key={source} className="rounded-xl border border-white/10 bg-white/[.025] px-3 py-2"><div className="text-[10px] text-[#78939a]">{source}</div><div className="mt-1 font-mono text-lg">{count}<span className="ml-1 text-[10px] text-[#78939a]">finding{count===1?"":"s"}</span></div></div>)}</div>
+        </section>}
+        <section className="rounded-[1.5rem] border border-white/10 bg-[#061018]/80 p-5">
+          <div className="flex flex-wrap items-end justify-between gap-3"><div><div className="text-[9px] uppercase tracking-[.18em] text-[#69a7b5]">Evidence ledger</div><h3 className="mt-2 text-base font-medium">Findings and source records</h3></div><div className="text-[10px] text-[#78939a]">{dwEvidence.length} evidence record{dwEvidence.length===1?"":"s"}</div></div>
+          {dwFindings.length?<div className="mt-4 space-y-3">{dwFindings.map((f:any,i:number)=><article key={String(f.id||f.content_hash||i)} className="rounded-xl border border-white/[.08] bg-white/[.02] p-4"><div className="flex flex-wrap items-start justify-between gap-3"><div className="min-w-0"><div className="break-words text-sm font-medium">{f.matched_value||f.title||"Exposure signal"}</div><div className="mt-1 text-[10px] text-[#78939a]">{f.source_id||f.source||"Source not recorded"} · Observed {f.collected_at||f.first_seen||"time not recorded"}</div></div><span className={"rounded-full border px-2 py-1 text-[9px] uppercase "+(String(f.severity).toLowerCase()==="critical"?"border-[#ff637d]/35 text-[#ff9baa]":String(f.severity).toLowerCase()==="high"?"border-[#d7a94e]/35 text-[#e7c783]":"border-white/10 text-[#a9bdc2]")}>{f.severity||"review"}</span></div>{f.context&&<p className="mt-3 whitespace-pre-wrap break-words text-xs leading-5 text-[#a9bdc2]">{f.context}</p>}{f.source_url&&<a href={f.source_url} target="_blank" rel="noreferrer noopener" className="mt-3 inline-block break-all text-[10px] text-[#83c9d6] underline underline-offset-2">Open source evidence ↗</a>}{f.content_hash&&<div className="mt-3 border-t border-white/[.06] pt-3"><div className="text-[9px] uppercase tracking-[.12em] text-[#648994]">Evidence fingerprint · SHA-256</div><div className="mt-1 break-all font-mono text-[10px] text-[#78939a]">{f.content_hash}</div></div>}</article>)}</div>:<div className="mt-4 rounded-xl border border-[#4a8c9b]/20 bg-[#08212a]/40 p-4 text-xs leading-6 text-[#a9bdc2]">No exact target matches were persisted by the sources that completed. Sources listed as unavailable or failed were not cleared by this result.</div>}
+        </section>
+        {(dwData.recommendations||result.recommendations||[]).length>0&&<section className="rounded-[1.5rem] border border-[#31535b]/50 bg-[#04141a]/70 p-5"><div className="text-[9px] uppercase tracking-[.18em] text-[#69a7b5]">Next actions</div><div className="mt-3 space-y-3">{(dwData.recommendations||result.recommendations||[]).map((x:string,i:number)=><div key={i} className="flex gap-3 text-xs leading-5 text-[#b7cbd0]"><span className="font-mono text-[#69a7b5]">0{i+1}</span><span>{x}</span></div>)}</div>{(dwData.case_id||result.case_id)&&<a className="mt-5 inline-flex rounded-full border border-[#c2f35a]/40 px-4 py-2 text-xs text-[#d9f995] underline-offset-2 hover:bg-white/[.04]" href={"/customer/cases/"+encodeURIComponent(dwData.case_id||result.case_id)}>Open investigation case →</a>}</section>}
+      </div>}
+      {["failed","blocked"].includes(result.processing_state)&&<div className="mt-4 text-sm text-[#ff8ba0]">Execution did not complete. Error code: {result.failure_code||"execution_failed"}</div>}
+    </div>}
+    {result&&result.service!=="dark_web_monitoring"&&<div className="border-t border-[#c2f35a]/20 py-6">
       <div className="text-[9px] uppercase tracking-[.18em] text-[#c2f35a]">Request accepted</div>
       <div className="mt-2 text-lg">The workflow has been recorded.</div>
       {stage&&<div className="mt-2 text-xs text-[#8ca6ad]">Live stage: <span className="text-[#c2f35a]">{stage}</span></div>}

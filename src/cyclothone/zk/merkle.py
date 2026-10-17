@@ -1,5 +1,6 @@
 from __future__ import annotations
 import hashlib
+import secrets
 from dataclasses import dataclass
 @dataclass(frozen=True)
 class MerkleProof:

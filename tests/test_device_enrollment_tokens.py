@@ -15,6 +15,7 @@ from cyclothone.developer.auth import DeveloperPrincipal
 @pytest.mark.asyncio
 async def test_enrollment_token_is_hashed_and_never_sent_to_rpc():
     principal = DeveloperPrincipal(
+        user_id=str(uuid4()),
         tenant_id=str(uuid4()),
         app_id=str(uuid4()),
         scopes=frozenset({"console:write"}),
