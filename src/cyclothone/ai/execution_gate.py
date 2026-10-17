@@ -109,7 +109,7 @@ class AgentExecutionGate:
                 envelope.canonical(), sort_keys=True, separators=(",", ":"), ensure_ascii=True
             ).encode("utf-8")
         ).hexdigest()
-        if not await verify_digest_signature(digest, envelope.signature_b64, envelope.signer_kid):
+        if not await verify_digest_signature(digest, envelope.signature_b64, envelope.signer_kid, purpose="AI_ENVELOPE"):
             raise AgentExecutionDenied("invalid envelope signature")
         policy = await self.policy.check(tenant_id, envelope.agent_id, envelope.tool_name, envelope.args)
         if not policy.get("allowed") and not policy.get("requires_approval"):
