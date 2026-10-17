@@ -200,6 +200,8 @@ class PastePublicMonitor:
 
     def __init__(self) -> None:
         self.items_checked = 0
+        self.feed_checked = False
+        self.feed_entries_count = 0
 
     async def pull(self, target_type: str | None = None, target: str | None = None) -> list[Finding]:
         target = normalize(target) if target else None
@@ -208,7 +210,9 @@ class PastePublicMonitor:
             async with httpx.AsyncClient(timeout=10.0) as client:
                 response = await client.get(self.FEED, headers={"user-agent": "cyclothone-darkweb/1.0"})
                 response.raise_for_status()
+                self.feed_checked = True
                 entries = _paste_entries_from_feed(response.text)
+                self.feed_entries_count = len(entries)
                 self.items_checked = 0
                 if not entries:
                     return []
