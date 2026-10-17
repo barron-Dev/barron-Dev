@@ -101,7 +101,7 @@ export default function RequestService(){ const [orgs,setOrgs]=useState<Customer
           <div><span className="text-[#67848d]">Alerts linked</span><div className="mt-1 text-sm">{result.result.alerts??0}</div></div>
         </div>
         <div className="mt-5"><div className="text-[9px] uppercase tracking-[.15em] text-[#67848d]">Source outcomes recorded</div>
-          <div className="mt-2 flex flex-wrap gap-2">{(Array.isArray(result.result.sources)?result.result.sources:[]).map((source:string)=><span key={source} className="rounded-full border border-[#c2f35a]/20 px-3 py-1 text-[10px] text-[#c2f35a]">{source}</span>)}</div>
+          <div className="mt-2 flex flex-wrap gap-2">{(Array.isArray(result.result.sources)?result.result.sources:[]).map((source:any)=><span key={typeof source==="string"?source:source.name} className={"rounded-full border px-3 py-1 text-[10px] "+((typeof source==="string"||source.status==="succeeded")?"border-[#c2f35a]/20 text-[#c2f35a]":"border-[#ffbd69]/25 text-[#ffbd69]")}>{typeof source==="string"?source:`${source.name}: ${source.status}${source.attempted===false?" (not attempted)":""}`}</span>)}</div>
         </div>
         <div className="mt-5 space-y-2">{(Array.isArray(result.result.findings)?result.result.findings:[]).slice(0,20).map((finding:any,i:number)=><div key={finding.id||i} className="rounded-xl border border-white/8 px-3 py-3 text-xs"><span className="uppercase text-[#c2f35a]">{finding.severity||"unknown"}</span><span className="ml-3">{finding.title||finding.kind||finding.matched_value||"Persisted finding"}</span></div>)}</div>
         <div className="mt-4 text-[10px] text-[#67848d]">Counts come from this request's persisted result. They are not the global source catalogue size.</div>
