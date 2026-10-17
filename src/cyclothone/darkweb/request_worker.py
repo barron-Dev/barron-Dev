@@ -218,6 +218,8 @@ class DarkWebRequestWorker:
             try:
                 findings = await asyncio.wait_for(pull(), timeout=timeout)
                 monitor = getattr(pull, "__self__", None)
+                if source_id == "native_onion":
+                    monitor = onion_crawler
                 channel_status = getattr(monitor, "channel_status", {})
                 failed_channels = [
                     channel for channel, state in channel_status.items()
