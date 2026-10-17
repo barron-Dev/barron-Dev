@@ -9,32 +9,36 @@ from cyclothone.darkweb.scheduler import (
 from cyclothone.darkweb.request_worker import _coverage_state
 
 
-def test_coverage_is_none_when_no_provider_was_checked():
+def test_coverage_is_none_when_no_implemented_live_provider_was_checked():
     assert _coverage_state([
-        {"source": "hibp", "state": "unavailable", "reason": "missing_key"},
-        {"source": "github_code", "state": "failed", "reason": "timeout"},
+        {"source": "native_onion", "availability": "implemented", "state": "unavailable", "reason": "tor_unreachable"},
+        {"source": "github_code", "availability": "planned", "state": "failed", "reason": "not_implemented"},
+        {"source": "ransomwatch", "availability": "historical_only", "state": "checked"},
     ]) == "none"
 
 
-def test_coverage_is_partial_when_any_provider_is_unavailable_or_failed():
+def test_coverage_is_partial_when_any_implemented_live_provider_is_unavailable_or_failed():
     assert _coverage_state([
-        {"source": "ransomwatch", "state": "checked"},
-        {"source": "hibp", "state": "unavailable", "reason": "missing_key"},
+        {"source": "pastebin_public", "availability": "implemented", "state": "checked"},
+        {"source": "native_onion", "availability": "implemented", "state": "unavailable", "reason": "tor_unreachable"},
+        {"source": "github_code", "availability": "planned", "state": "unavailable"},
     ]) == "partial"
 
 
-def test_coverage_only_says_all_configured_sources_checked_when_every_check_succeeded():
+def test_coverage_only_says_all_live_sources_checked_when_every_live_check_succeeded():
     assert _coverage_state([
-        {"source": "ransomwatch", "state": "checked"},
-        {"source": "hibp", "state": "checked"},
-    ]) == "all_configured_sources_checked"
+        {"source": "pastebin_public", "availability": "implemented", "state": "checked"},
+        {"source": "telegram_public", "availability": "implemented", "state": "checked"},
+        {"source": "ransomwatch", "availability": "historical_only", "state": "unavailable"},
+        {"source": "github_code", "availability": "planned", "state": "unavailable"},
+    ]) == "all_configured_live_sources_checked"
 
 
 def test_archived_ransomwatch_is_not_counted_as_fresh_coverage():
     assert _coverage_state([
-        {"source": "ransomwatch", "state": "unavailable", "reason": "historical_only_archived_feed"},
-        {"source": "pastebin_public", "state": "checked"},
-    ]) == "partial"
+        {"source": "ransomwatch", "availability": "historical_only", "state": "unavailable", "reason": "historical_only_archived_feed"},
+        {"source": "pastebin_public", "availability": "implemented", "state": "checked"},
+    ]) == "all_configured_live_sources_checked"
 
 
 def test_telegram_defaults_use_only_the_supplied_public_handles(monkeypatch):
