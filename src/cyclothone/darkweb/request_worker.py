@@ -83,12 +83,7 @@ def _require_recorded_finding(response: object) -> dict:
 
 
 def _finding_matches_target(finding: object, watch_kind: str, watch_value: str) -> bool:
-    """Match a provider finding to the monitored identifier without fuzzy guesses.
-
-    HIBP's domain endpoint returns breached email identifiers, not a synthetic
-    domain finding. Treat an email as relevant to a domain watch only when its
-    normalized domain component is an exact match.
-    """
+    """Match a provider finding to the monitored identifier without fuzzy guesses."""
     kind = str(getattr(finding, "kind", "")).strip().lower()
     value = str(getattr(finding, "matched_value", "")).strip().lower()
     expected = watch_value.strip().lower()
