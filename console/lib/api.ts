@@ -406,3 +406,29 @@ export async function apiDownload(path: string): Promise<Blob> {
   }
   return response.blob();
 }
+
+
+export type CustomerSecurityClaim = {
+  id: string; organization_id: string; target_key: string; claim_type: string;
+  status: string; coverage_status: string; severity: string; title: string; statement: string;
+  sources_checked: number; sources_unavailable: number; finding_count: number; high_finding_count: number;
+  origin_service_key: string | null; origin_request_id: string | null; version: number;
+  observed_at: string; updated_at: string; evidence?: Record<string, unknown>;
+};
+
+export function getCustomerSecurityState() {
+  return apiFetch<{ claims: CustomerSecurityClaim[]; count: number }>("/api/v1/customer/security-state");
+}
+
+export function getCustomerSecurityClaim(claimId: string) {
+  return apiFetch<{ claim: CustomerSecurityClaim; history: unknown[] }>(
+    "/api/v1/customer/security-state/claims/" + encodeURIComponent(claimId)
+  );
+}
+
+export function recheckCustomerSecurityClaim(claimId: string) {
+  return apiFetch<{ from_claim_id: string; service_request: unknown }>(
+    "/api/v1/customer/security-state/recheck",
+    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ claim_id: claimId }) }
+  );
+}
