@@ -277,7 +277,10 @@ class BlueskyPublicMonitor:
             uri = str(item.get("uri") or "")
             rkey = uri.rsplit("/", 1)[-1] if uri else ""
             post_url = f"https://bsky.app/profile/{handle}/post/{rkey}" if handle and rkey else None
-            kind = "email" if target_type == "email" else ("username" if target_type == "username" else "domain")
+            kind = {
+                "email": "email", "username": "username", "brand": "company_name",
+                "ip": "ip", "other": "other", "domain": "domain", "url": "domain",
+            }[target_type]
             out.append(Finding(
                 self.SOURCE, kind, target,
                 "Exact identifier text observed in a public Bluesky post; post text is not retained.",
