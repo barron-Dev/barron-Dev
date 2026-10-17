@@ -34,6 +34,8 @@ async def get_security_claim(claim_id: str, p: DeveloperPrincipal = Depends(prin
     if not p.user_id:
         raise HTTPException(403, detail="user_identity_required")
     org_ids = await _authorized_org_ids(p.user_id)
+    if not org_ids:
+        raise HTTPException(404, detail="claim_not_found")
     client = await supabase._ensure()
     response = await (client.table("security_claims").select("*")
         .eq("id", claim_id).in_("organization_id", org_ids).maybe_single().execute())
@@ -53,6 +55,8 @@ async def recheck_security_claim(body: RecheckRequest, p: DeveloperPrincipal = D
     if not p.user_id:
         raise HTTPException(403, detail="user_identity_required")
     org_ids = await _authorized_org_ids(p.user_id)
+    if not org_ids:
+        raise HTTPException(404, detail="claim_not_found")
     client = await supabase._ensure()
     response = await (client.table("security_claims").select(
         "id,organization_id,target_key,claim_type,status"
