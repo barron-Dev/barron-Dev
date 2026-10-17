@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
-import os
 from datetime import UTC, datetime
 from urllib.parse import urlsplit
 
@@ -12,8 +11,6 @@ import httpx
 from cyclothone.darkweb.matcher import DarkWebMatcher
 from cyclothone.darkweb.native_onion import NativeOnionCrawler, configured_onion_seeds
 from cyclothone.darkweb.pullers import (
-    GitHubCodeMonitor,
-    HIBPPuller,
     PastePublicMonitor,
     RansomwatchPuller,
     TelegramPublicMonitor,
@@ -210,11 +207,7 @@ class DarkWebRequestWorker:
         sources: list[dict] = []
         pulled = []
         findings = []
-        hibp_key = (os.getenv("CYCLOTHONE_HIBP_KEY") or os.getenv("SENTINEL_HIBP_KEY") or "").strip()
-        github_token = (os.getenv("CYCLOTHONE_GITHUB_TOKEN") or os.getenv("SENTINEL_GITHUB_TOKEN") or "").strip()
         telegram_channels = configured_telegram_channels(use_defaults=False)
-        provider_domain = watch_value if target_type in {"domain", "url"} else ""
-        provider_email = watch_value if target_type == "email" else ""
         async def run_source(source_id: str, pull, timeout: int, unavailable_reason: str | None = None):
             if source_id not in enabled:
                 return {"source": source_id, "state": "unavailable", "reason": "disabled"}, []
@@ -267,15 +260,6 @@ class DarkWebRequestWorker:
             if target_type in {"domain", "url", "brand"}
             else "unsupported_target_type"
         )
-        hibp_reason = "missing_key" if not hibp_key else ("unsupported_target_type" if not (provider_domain or provider_email) else None)
-        github_reason = "missing_key" if not github_token else ("unsupported_target_type" if not provider_domain else None)
-        hibp_puller = HIBPPuller(hibp_key) if hibp_key else None
-        if hibp_puller and provider_domain:
-            hibp_call = lambda: hibp_puller.pull_domain(provider_domain)
-        elif hibp_puller and provider_email:
-            hibp_call = lambda: hibp_puller.pull_account(provider_email)
-        else:
-            hibp_call = None
         public_target_supported = target_type in {"domain", "url", "email"}
         paste_reason = None if public_target_supported else "unsupported_target_type"
         telegram_reason = (
@@ -292,8 +276,6 @@ class DarkWebRequestWorker:
         provider_specs = [
             ("native_onion", (lambda: onion_crawler.pull(watch_kind, watch_value)) if not onion_reason else None, 150, onion_reason),
             ("ransomwatch", RansomwatchPuller().pull if not ransom_reason else None, 35, ransom_reason),
-            ("hibp", hibp_call, 25, hibp_reason),
-            ("github_code", (lambda: GitHubCodeMonitor(github_token).pull_domain(provider_domain)) if github_token and provider_domain else None, 65, github_reason),
             ("pastebin_public", PastePublicMonitor().pull if public_target_supported else None, 50, paste_reason),
             ("telegram_public", telegram_monitor.pull if telegram_monitor and public_target_supported else None, 90, telegram_reason),
         ]
@@ -430,7 +412,6 @@ class DarkWebRequestWorker:
         coverage = _coverage_state(sources)
         dark_sources = [x for x in sources if x.get("source") in {"native_onion", "ransomwatch"}]
         surface_sources = [x for x in sources if x.get("source") in {"pastebin_public", "telegram_public", "github_code"}]
-        breach_sources = [x for x in sources if x.get("source") == "hibp"]
         dark_findings = [f for f in persisted if str(f.get("web_layer") or "").lower() == "dark"
                          or str(f.get("source_id") or "") in {"native_onion", "ransomwatch"}]
         surface_findings = [f for f in persisted if f not in dark_findings]
@@ -445,7 +426,6 @@ class DarkWebRequestWorker:
                 "findings": dark_findings[:200],
             },
             "surface_web": {"sources": surface_sources, "findings": surface_findings[:200]},
-            "breach_intelligence": {"sources": breach_sources},
             "findings": persisted[:200], "evidence": evidence[:200], "alerts": relevant_alerts[:200],
             "case_id": case_id, "recommendations": (
                 ["Review each possible match against the source evidence.", "Rotate exposed credentials and investigate affected accounts."]
