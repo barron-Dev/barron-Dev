@@ -270,7 +270,10 @@ class DarkWebRequestWorker:
                 return {"source": source_id, "state": "unavailable", "reason": "excluded_by_policy"}, []
             if definition.availability != "implemented":
                 return {"source": source_id, "state": "unavailable", "reason": definition.availability}, []
-            if source_id not in enabled:
+            # Native onion execution is code/config driven; the source registry
+            # migration may not yet exist in production. Reviewed seeds, not a
+            # dw_sources row, determine whether that native check can run.
+            if source_id not in enabled and source_id != "native_onion":
                 return {"source": source_id, "state": "unavailable", "reason": "disabled"}, []
             if unavailable_reason:
                 return {"source": source_id, "state": "unavailable", "reason": unavailable_reason}, []
@@ -281,12 +284,19 @@ class DarkWebRequestWorker:
                 monitor = source_monitors.get(source_id) or getattr(pull, "__self__", None)
                 if source_id == "native_onion":
                     monitor = onion_crawler
+                    try:
+                        await self._persist_onion_seed_state(onion_crawler)
+                        monitor.seed_state_persistence = "persisted"
+                    except Exception:
+                        # Preserve request-level results while exposing that the
+                        # optional discovered-seed registry could not be updated.
+                        monitor.seed_state_persistence = "unavailable"
+                        logger.warning("onion seed registry persistence unavailable request_id=%s", request_id, exc_info=True)
                 if source_id == "pastebin_public" and getattr(monitor, "items_checked", 0) == 0:
                     return {
                         "source": source_id, "state": "unavailable",
                         "reason": "no_public_items_fetched", "items_checked": 0,
                     }, []
-                    await self._persist_onion_seed_state(onion_crawler)
                 channel_status = getattr(monitor, "channel_status", {})
                 failed_channels = [
                     channel for channel, state in channel_status.items()
@@ -335,6 +345,7 @@ class DarkWebRequestWorker:
                         "seeds": [{"seed": seed, "state": state, "origin": monitor.seed_origin.get(seed, "configured")} for seed, state in sorted(seed_status.items())],
                         "pages_checked": pages_checked,
                         "pages_failed": pages_failed,
+                        "seed_state_persistence": getattr(monitor, "seed_state_persistence", "not_attempted"),
                         "matches": getattr(monitor, "matches", 0),
                     }, findings
                 return {"source": source_id, "state": "checked"}, findings
