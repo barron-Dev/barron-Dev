@@ -759,7 +759,7 @@ async def create_service_request(body:ServiceRequest,p:DeveloperPrincipal=Depend
     if body.service_key == "compliance":
         import re
         from datetime import UTC, datetime, timedelta
-        framework_match = re.search(r"^Framework:\\s*([a-z0-9_\\-]+)$", description, re.MULTILINE | re.IGNORECASE)
+        framework_match = re.search(r"^Framework:\s*([a-z0-9_-]+)$", description, re.MULTILINE | re.IGNORECASE)
         framework = (framework_match.group(1).strip().lower() if framework_match else "soc2")
         try:
             from cyclothone.compliance.catalog import FRAMEWORKS
