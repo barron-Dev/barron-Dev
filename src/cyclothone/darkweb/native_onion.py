@@ -111,7 +111,12 @@ class NativeOnionCrawler:
     def __init__(self, seeds: list[str] | None = None, proxy: str | None = None) -> None:
         self.seeds = list(dict.fromkeys(seeds if seeds is not None else configured_onion_seeds()))
         self.proxy = (proxy or os.getenv("CYCLOTHONE_DW_ONION_PROXY") or "socks5://127.0.0.1:9050").strip()
+        self.configured_seed_count = len(self.seeds)
         self.seed_status: dict[str, str] = {}
+        self.seed_origin: dict[str, str] = {seed: "configured" for seed in self.seeds}
+        self.discovered_from: dict[str, str] = {}
+        self.discovered_seeds: list[dict[str, str]] = []
+        self.seed_content_hash: dict[str, str] = {}
         self.pages_checked = 0
         self.pages_failed = 0
         self.matches = 0
@@ -134,7 +139,16 @@ class NativeOnionCrawler:
                 follow_redirects=False,
                 headers={"user-agent": "Cyclothone-Native-DarkWeb/1.0", "accept": "text/html,text/plain;q=0.9"},
             ) as client:
-                for seed in self.seeds:
+                roots = list(self.seeds)
+                scheduled_hosts = {
+                    (parsed.hostname or "").lower()
+                    for value in roots
+                    if (parsed := _safe_onion_url(value)) is not None
+                }
+                root_index = 0
+                while root_index < len(roots):
+                    seed = roots[root_index]
+                    root_index += 1
                     if total_pages >= MAX_TOTAL_PAGES:
                         self.seed_status[seed] = "not_checked_budget"
                         continue
@@ -176,6 +190,7 @@ class NativeOnionCrawler:
                             parser.feed(text)
                             page_text = " ".join(parser.text_parts)
                             body_hash = hashlib.sha256(body).hexdigest()
+                            self.seed_content_hash.setdefault(seed, body_hash)
                             total_pages += 1
                             seed_pages += 1
                             self.pages_checked += 1
@@ -203,11 +218,20 @@ class NativeOnionCrawler:
                                 for href in parser.links:
                                     absolute = urljoin(url, href)
                                     parsed = _safe_onion_url(absolute)
-                                    if not parsed or (parsed.hostname or "").lower() != host:
+                                    if not parsed:
                                         continue
+                                    link_host = (parsed.hostname or "").lower()
                                     clean = urlunsplit((parsed.scheme, parsed.netloc, parsed.path or "/", "", ""))
-                                    if clean not in visited and len(queue) < MAX_PAGES_PER_SEED:
-                                        queue.append((clean, depth + 1))
+                                    if link_host == host:
+                                        if clean not in visited and len(queue) < MAX_PAGES_PER_SEED:
+                                            queue.append((clean, depth + 1))
+                                    elif link_host not in scheduled_hosts and len(roots) < MAX_SEEDS:
+                                        # Discover only public onion links; never follow clearnet hosts.
+                                        scheduled_hosts.add(link_host)
+                                        roots.append(clean)
+                                        self.seed_origin[clean] = "discovered"
+                                        self.discovered_from[clean] = url
+                                        self.discovered_seeds.append({"url": clean, "discovered_from": url})
                         except asyncio.CancelledError:
                             raise
                         except Exception as exc:
