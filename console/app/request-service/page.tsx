@@ -94,9 +94,10 @@ export default function RequestService(){ const [orgs,setOrgs]=useState<Customer
       {result?.result?.service==="dark_web_monitoring"&&<div className="mt-6 rounded-[1.5rem] border border-white/10 bg-[#06181e]/70 p-5">
         <div className="text-[9px] uppercase tracking-[.18em] text-[#4f8494]">Persisted Dark Web Monitoring result</div>
         <div className="mt-2 text-base">{result.result.target}</div>
-        <div className="mt-4 grid grid-cols-2 gap-3 text-xs md:grid-cols-4">
-          <div><span className="text-[#67848d]">Sources completed</span><div className="mt-1 text-sm">{Array.isArray(result.result.sources)?result.result.sources.length:0}</div></div>
-          <div><span className="text-[#67848d]">Source findings</span><div className="mt-1 text-sm">{result.result.source_findings??0}</div></div>
+        <div className="mt-4 grid grid-cols-2 gap-3 text-xs md:grid-cols-5">
+          <div><span className="text-[#67848d]">Sources succeeded</span><div className="mt-1 text-sm">{Array.isArray(result.result.sources)?result.result.sources.filter((s:any)=>typeof s==="string"||s?.status==="succeeded").length:0}</div></div>
+          <div><span className="text-[#67848d]">Unavailable / failed</span><div className="mt-1 text-sm">{Array.isArray(result.result.sources)?result.result.sources.filter((s:any)=>typeof s!=="string"&&["unavailable","failed","timeout","error","rate_limited"].includes(s?.status)).length:0}</div></div>
+          <div><span className="text-[#67848d]">Source records</span><div className="mt-1 text-sm">{Array.isArray(result.result.sources)&&result.result.sources.some((s:any)=>typeof s!=="string")?result.result.sources.reduce((n:number,s:any)=>n+(typeof s==="string"?0:Number(s?.records_returned)||0),0):(result.result.source_findings??0)}</div></div>
           <div><span className="text-[#67848d]">Persisted findings</span><div className="mt-1 text-sm">{result.result.findings_persisted??0}</div></div>
           <div><span className="text-[#67848d]">Alerts linked</span><div className="mt-1 text-sm">{result.result.alerts??0}</div></div>
         </div>
