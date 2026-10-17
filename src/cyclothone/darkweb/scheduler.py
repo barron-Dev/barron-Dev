@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from urllib.parse import urlsplit
 from datetime import UTC, datetime
 
 from cyclothone.darkweb.matcher import DarkWebMatcher
@@ -136,8 +137,10 @@ class DarkWebScheduler:
         started = time.monotonic()
         try:
             findings = await pull()
-            result = await self._ingest(findings)
             monitor = monitor or getattr(pull, "__self__", None)
+            if source_id == "native_onion" and monitor is not None:
+                await self._persist_onion_seed_state(monitor)
+            result = await self._ingest(findings)
             channel_status = getattr(monitor, "channel_status", {})
             failed_channels = [channel for channel, state in channel_status.items() if state != "checked"]
             source_status = "degraded" if result["errors"] or failed_channels else "ok"
@@ -171,6 +174,32 @@ class DarkWebScheduler:
             alerts += int(result.get("alerts", 0))
             errors += int(result.get("errors", 0))
         return {"matched": matched, "alerts": alerts, "errors": errors}
+
+    async def _persist_onion_seed_state(self, crawler: NativeOnionCrawler) -> None:
+        rows = []
+        for url, state in crawler.seed_status.items():
+            parsed = urlsplit(url)
+            row = {
+                "url": url,
+                "hostname": (parsed.hostname or "").lower(),
+                "seed_origin": crawler.seed_origin.get(url, "configured"),
+                "discovered_from": crawler.discovered_from.get(url),
+                "status": state if state in {"checked", "failed", "disabled"} else "candidate",
+                "last_status": state,
+                "last_checked": datetime.now(UTC).isoformat() if state in {"checked", "failed"} else None,
+            }
+            digest = crawler.seed_content_hash.get(url)
+            if digest:
+                row["last_response_sha256"] = digest
+            rows.append(row)
+        if not rows:
+            return
+
+        async def _do():
+            client = await supabase._ensure()
+            return await client.table("dw_onion_seeds").upsert(rows, on_conflict="url").execute()
+
+        await supabase._retry(_do, attempts=2)
 
     async def _enabled_sources(self) -> set[str]:
         async def _do():
