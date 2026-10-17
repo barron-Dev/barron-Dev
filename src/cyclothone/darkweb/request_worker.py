@@ -84,12 +84,19 @@ def _require_recorded_finding(response: object) -> dict:
 
 
 def _finding_matches_target(finding: object, watch_kind: str, watch_value: str) -> bool:
-    """Match a provider finding to the monitored identifier without fuzzy guesses."""
-    kind = str(getattr(finding, "kind", "")).strip().lower()
-    value = str(getattr(finding, "matched_value", "")).strip().lower()
+    """Match a provider finding or persisted row without fuzzy guesses."""
+    if isinstance(finding, dict):
+        kind = str(finding.get("kind") or "").strip().lower()
+        raw_value = finding.get("matched_value")
+    else:
+        kind = str(getattr(finding, "kind", "")).strip().lower()
+        raw_value = getattr(finding, "matched_value", "")
+    value = str(raw_value or "").strip().lower()
     expected = watch_value.strip().lower()
     if kind == watch_kind and value == expected:
         return True
+    # A domain monitor should also surface historical exact email-address
+    # matches at that domain, but must never promote a subdomain/suffix guess.
     if watch_kind == "domain" and kind == "email":
         local, separator, domain = value.rpartition("@")
         return bool(local and separator and domain.rstrip(".") == expected)
@@ -253,8 +260,7 @@ class DarkWebRequestWorker:
             "id,source_id,content_hash,kind,matched_value,context,source_url,severity,first_seen,collected_at,tenant_id,watchlist_id",
             tenant_id=tenant_id,
         )
-        exact = [f for f in historical if str(f.get("kind", "")).lower() == watch_kind
-                 and str(f.get("matched_value", "")).strip().lower() == watch_value]
+        exact = [f for f in historical if _finding_matches_target(f, watch_kind, watch_value)]
         historical_candidates = [
             {
                 "id": item.get("id"), "source": item.get("source_id"),
