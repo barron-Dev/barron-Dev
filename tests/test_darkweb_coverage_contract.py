@@ -7,7 +7,7 @@ from cyclothone.darkweb.scheduler import (
     _configured_telegram_channels,
 )
 from cyclothone.darkweb.native_onion import NativeOnionCrawler
-from cyclothone.darkweb.request_worker import _coverage_state, _source_is_enabled
+from cyclothone.darkweb.request_worker import _coverage_state, _requester_actor, _source_is_enabled
 
 
 def test_coverage_is_none_when_no_implemented_live_provider_was_checked():
@@ -95,6 +95,15 @@ async def test_scheduler_marks_telegram_unavailable_when_explicitly_unconfigured
     mark_source.assert_awaited_once_with("telegram_public", "unavailable_missing_channel", pulled=False)
     run_pull.assert_not_awaited()
 
+
+
+def test_case_link_actor_comes_from_authenticated_request_owner():
+    assert _requester_actor({"requester_user_id": "user-123"}) == "user-123"
+
+
+def test_case_link_actor_fails_closed_when_request_owner_missing():
+    with pytest.raises(RuntimeError, match="case_link_requester_missing"):
+        _requester_actor({"requester_user_id": None})
 
 
 def test_native_onion_config_fallback_only_applies_before_source_registration():
