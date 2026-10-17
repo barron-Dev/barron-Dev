@@ -98,14 +98,15 @@ class DarkWebScheduler:
             await self._run_pull(
                 crawler.SOURCE,
                 lambda c=crawler, d=domain: c.pull("domain", d),
+                monitor=crawler,
             )
 
-    async def _run_pull(self, source_id: str, pull) -> None:
+    async def _run_pull(self, source_id: str, pull, *, monitor=None) -> None:
         started = time.monotonic()
         try:
             findings = await pull()
             result = await self._ingest(findings)
-            monitor = getattr(pull, "__self__", None)
+            monitor = monitor or getattr(pull, "__self__", None)
             channel_status = getattr(monitor, "channel_status", {})
             failed_channels = [channel for channel, state in channel_status.items() if state != "checked"]
             source_status = "degraded" if result["errors"] or failed_channels else "ok"
