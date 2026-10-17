@@ -2,7 +2,7 @@ from __future__ import annotations
 import re
 from urllib.parse import urlsplit
 
-_TARGET = re.compile(r"(?im)^\\s*target:\\s*(.+?)\\s*$")
+_TARGET = re.compile(r"(?im)^\s*target:\\s*(.+?)\\s*$")
 
 def parse_target(description: str | None) -> str | None:
     if not description:
