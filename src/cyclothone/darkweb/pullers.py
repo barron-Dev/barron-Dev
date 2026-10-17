@@ -198,6 +198,9 @@ class PastePublicMonitor:
     # public feed is the supported Pastebin.ca JSON API.
     FEED = "https://pastebin.ca/api/v1/feed?limit=20"
 
+    def __init__(self) -> None:
+        self.items_checked = 0
+
     async def pull(self, target_type: str | None = None, target: str | None = None) -> list[Finding]:
         target = normalize(target) if target else None
         target_kind = {"email": "email", "domain": "domain", "url": "domain"}.get(target_type or "")
@@ -206,6 +209,7 @@ class PastePublicMonitor:
                 response = await client.get(self.FEED, headers={"user-agent": "cyclothone-darkweb/1.0"})
                 response.raise_for_status()
                 entries = _paste_entries_from_feed(response.text)
+                self.items_checked = 0
                 if not entries:
                     return []
                 semaphore = asyncio.Semaphore(5)
@@ -254,6 +258,7 @@ class PastePublicMonitor:
                         "Email identifier appeared in public paste content; paste contents are not retained.",
                         "medium", public_url, {"paste_id": paste_id},
                     ))
+        self.items_checked = successful
         if entries and successful == 0:
             raise RuntimeError("all public paste item fetches failed")
         return findings
