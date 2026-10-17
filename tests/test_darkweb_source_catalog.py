@@ -35,4 +35,5 @@ def test_layers_are_separate_and_planned_connectors_are_explicit():
     assert "telegram_public" in surface_ids
     assert "pastebin_public" in surface_ids
     assert "hibp" not in surface_ids
-    assert get_source("hibp").availability == "planned"
+    assert get_source("hibp") is None
+    assert "bluesky_public" in surface_ids
