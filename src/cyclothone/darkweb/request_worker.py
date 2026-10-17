@@ -475,7 +475,7 @@ class DarkWebRequestWorker:
         # visibility into the entire dark web or unconfigured services.
         coverage = _coverage_state(sources)
         dark_sources = [x for x in sources if x.get("source") in {"native_onion", "ransomwatch"}]
-        surface_sources = [x for x in sources if x.get("source") in {"pastebin_public", "telegram_public", "github_code"}]
+        surface_sources = [x for x in sources if x.get("source") in {"pastebin_public", "telegram_public", "github_code", "bluesky_public"}]
         dark_findings = [f for f in persisted if str(f.get("web_layer") or "").lower() == "dark"
                          or str(f.get("source_id") or "") in {"native_onion", "ransomwatch"}]
         surface_findings = [f for f in persisted if f not in dark_findings]
@@ -490,6 +490,13 @@ class DarkWebRequestWorker:
                 "findings": dark_findings[:200],
             },
             "surface_web": {"sources": surface_sources, "findings": surface_findings[:200]},
+            "source_summary": {
+                "checked_count": len(checked_sources),
+                "unavailable_count": len(unavailable_sources),
+                "checked_source_ids": [x.get("source") for x in checked_sources],
+                "unavailable_source_ids": [x.get("source") for x in unavailable_sources],
+                "layers": {"dark_web": dark_sources, "surface_web": surface_sources},
+            },
             "findings": persisted[:200], "evidence": evidence[:200], "alerts": relevant_alerts[:200],
             "case_id": case_id, "recommendations": (
                 ["Review each possible match against the source evidence.", "Rotate exposed credentials and investigate affected accounts."]
