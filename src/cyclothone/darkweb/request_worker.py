@@ -278,9 +278,14 @@ class DarkWebRequestWorker:
                 return {"source": source_id, "state": "unavailable", "reason": "unsupported_target_type"}, []
             try:
                 findings = await asyncio.wait_for(pull(), timeout=timeout)
-                monitor = getattr(pull, "__self__", None)
+                monitor = source_monitors.get(source_id) or getattr(pull, "__self__", None)
                 if source_id == "native_onion":
                     monitor = onion_crawler
+                if source_id == "pastebin_public" and getattr(monitor, "items_checked", 0) == 0:
+                    return {
+                        "source": source_id, "state": "unavailable",
+                        "reason": "no_public_items_fetched", "items_checked": 0,
+                    }, []
                     await self._persist_onion_seed_state(onion_crawler)
                 channel_status = getattr(monitor, "channel_status", {})
                 failed_channels = [
@@ -351,6 +356,8 @@ class DarkWebRequestWorker:
             else ("missing_channels" if not telegram_channels else None)
         )
         telegram_monitor = TelegramPublicMonitor(telegram_channels) if telegram_channels else None
+        paste_monitor = PastePublicMonitor()
+        bluesky_monitor = BlueskyPublicMonitor()
         onion_seeds, onion_seed_origins, onion_seed_discovered_from = await self._onion_seed_urls()
         onion_reason = (
             "missing_onion_seeds" if not onion_seeds
@@ -361,12 +368,17 @@ class DarkWebRequestWorker:
             seed_origins=onion_seed_origins,
             discovered_from=onion_seed_discovered_from,
         )
+        source_monitors = {
+            "telegram_public": telegram_monitor,
+            "pastebin_public": paste_monitor,
+            "bluesky_public": bluesky_monitor,
+        }
         provider_specs = [
             ("native_onion", (lambda: onion_crawler.pull(watch_kind, watch_value)) if not onion_reason else None, 150, onion_reason),
             ("ransomwatch", RansomwatchPuller().pull if not ransom_reason else None, 35, ransom_reason),
-            ("pastebin_public", (lambda: PastePublicMonitor().pull(target_type, watch_value)) if public_target_supported else None, 50, paste_reason),
+            ("pastebin_public", (lambda: paste_monitor.pull(target_type, watch_value)) if public_target_supported else None, 50, paste_reason),
             ("telegram_public", (lambda: telegram_monitor.pull(target_type, watch_value)) if telegram_monitor and public_target_supported else None, 90, telegram_reason),
-            ("bluesky_public", (lambda: BlueskyPublicMonitor().pull(target_type, watch_value))
+            ("bluesky_public", (lambda: bluesky_monitor.pull(target_type, watch_value))
              if target_type in {"domain", "url", "email", "brand", "username", "ip"} else None,
              20, None if target_type in {"domain", "url", "email", "brand", "username", "ip"} else "unsupported_target_type"),
         ]
