@@ -6,7 +6,8 @@ from cyclothone.darkweb.scheduler import (
     DarkWebScheduler,
     _configured_telegram_channels,
 )
-from cyclothone.darkweb.request_worker import _coverage_state
+from cyclothone.darkweb.native_onion import NativeOnionCrawler
+from cyclothone.darkweb.request_worker import _coverage_state, _requester_actor, _source_is_enabled
 
 
 def test_coverage_is_none_when_no_implemented_live_provider_was_checked():
@@ -93,3 +94,73 @@ async def test_scheduler_marks_telegram_unavailable_when_explicitly_unconfigured
 
     mark_source.assert_awaited_once_with("telegram_public", "unavailable_missing_channel", pulled=False)
     run_pull.assert_not_awaited()
+
+
+
+def test_case_link_actor_comes_from_authenticated_request_owner():
+    assert _requester_actor({"requester_user_id": "user-123"}) == "user-123"
+
+
+def test_case_link_actor_fails_closed_when_request_owner_missing():
+    with pytest.raises(RuntimeError, match="case_link_requester_missing"):
+        _requester_actor({"requester_user_id": None})
+
+
+def test_native_onion_config_fallback_only_applies_before_source_registration():
+    assert _source_is_enabled("native_onion", set(), set())
+    assert not _source_is_enabled("native_onion", set(), {"native_onion"})
+    assert _source_is_enabled("native_onion", {"native_onion"}, {"native_onion"})
+
+
+def test_non_native_sources_still_require_enabled_registry_rows():
+    assert not _source_is_enabled("pastebin_public", set(), set())
+    assert not _source_is_enabled("pastebin_public", set(), {"pastebin_public"})
+    assert _source_is_enabled("pastebin_public", {"pastebin_public"}, {"pastebin_public"})
+
+
+class _EmptyBodyResponse:
+    status_code = 200
+    headers = {"content-type": "text/html; charset=utf-8"}
+    encoding = "utf-8"
+
+    async def aiter_bytes(self):
+        yield b"  \n\t"
+
+
+class _EmptyBodyStream:
+    def __init__(self):
+        self.response = _EmptyBodyResponse()
+
+    async def __aenter__(self):
+        return self.response
+
+    async def __aexit__(self, *args):
+        return False
+
+
+class _EmptyBodyClient:
+    def __init__(self, *args, **kwargs):
+        pass
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *args):
+        return False
+
+    def stream(self, method, url):
+        return _EmptyBodyStream()
+
+
+@pytest.mark.asyncio
+async def test_empty_onion_response_is_not_counted_as_a_checked_page(monkeypatch):
+    seed = "http://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.onion/"
+    monkeypatch.setattr("cyclothone.darkweb.native_onion.httpx.AsyncClient", _EmptyBodyClient)
+    crawler = NativeOnionCrawler(seeds=[seed], proxy="socks5://127.0.0.1:9050")
+
+    with pytest.raises(RuntimeError, match="native_onion_no_seed_reachable"):
+        await crawler.pull("domain", "owned-example.com")
+
+    assert crawler.pages_checked == 0
+    assert crawler.pages_failed == 1
+    assert crawler.seed_status[seed] == "failed"

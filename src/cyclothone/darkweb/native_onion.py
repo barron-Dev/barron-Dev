@@ -194,9 +194,15 @@ class NativeOnionCrawler:
                                         break
                                 body = b"".join(chunks)
                                 text = body.decode(response.encoding or "utf-8", errors="replace")
+                            if not body.strip():
+                                self.pages_failed += 1
+                                continue
                             parser = _PageParser()
                             parser.feed(text)
                             page_text = " ".join(parser.text_parts)
+                            if not page_text and not parser.links:
+                                self.pages_failed += 1
+                                continue
                             body_hash = hashlib.sha256(body).hexdigest()
                             self.seed_content_hash.setdefault(seed, body_hash)
                             total_pages += 1
