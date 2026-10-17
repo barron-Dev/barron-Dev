@@ -340,7 +340,25 @@ class DarkWebRequestWorker:
                 return {"source": source_id, "state": "checked"}, findings
             except Exception:
                 logger.warning("dark-web provider request failed source=%s request_id=%s", source_id, request_id, exc_info=True)
-                return {"source": source_id, "state": "failed", "reason": "source_request_failed"}, []
+                monitor = source_monitors.get(source_id) or getattr(pull, "__self__", None)
+                status = {"source": source_id, "state": "failed", "reason": "source_request_failed"}
+                channel_status = getattr(monitor, "channel_status", {})
+                if channel_status:
+                    status["channels"] = [
+                        {"channel": channel, "state": state}
+                        for channel, state in sorted(channel_status.items())
+                    ]
+                    status["checked_channels"] = sum(state == "checked" for state in channel_status.values())
+                    status["failed_channels"] = sum(state != "checked" for state in channel_status.values())
+                seed_status = getattr(monitor, "seed_status", {})
+                if seed_status:
+                    status["seeds"] = [
+                        {"seed": seed, "state": state, "origin": monitor.seed_origin.get(seed, "configured")}
+                        for seed, state in sorted(seed_status.items())
+                    ]
+                    status["pages_checked"] = getattr(monitor, "pages_checked", 0)
+                    status["pages_failed"] = getattr(monitor, "pages_failed", 0)
+                return status, []
 
         # The upstream Ransomwatch corpus is archived. Keep it out of live
         # coverage and current alerts until a maintained source is verified.
