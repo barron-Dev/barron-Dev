@@ -33,8 +33,9 @@ ALTER TABLE public.dw_onion_seeds ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON TABLE public.dw_onion_seeds FROM anon, authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.dw_onion_seeds TO service_role;
 
--- Enabling the registry row does not imply that Tor or any seed is reachable.
--- The request worker reports the source unavailable until a real scan succeeds.
+-- The initial insert enables the native collector, but re-running this migration
+-- must not override an operator's later decision to disable the source.
+-- A registry row never proves Tor or any seed is reachable.
 INSERT INTO public.dw_sources
     (id, name, kind, endpoint, enabled, web_layer, access_mode, last_status, last_pull_at)
 VALUES
@@ -44,5 +45,4 @@ ON CONFLICT (id) DO UPDATE SET
     name = EXCLUDED.name,
     kind = EXCLUDED.kind,
     web_layer = EXCLUDED.web_layer,
-    access_mode = EXCLUDED.access_mode,
-    enabled = true;
+    access_mode = EXCLUDED.access_mode;
