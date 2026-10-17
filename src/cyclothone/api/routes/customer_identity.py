@@ -709,7 +709,7 @@ async def service_requests(p:DeveloperPrincipal=Depends(principal)):
     org_ids=[r["id"] for r in orgs]
     rows=[]
     for org_id in org_ids:
-        rows.extend(await supabase.select("service_requests","id,organization_id,requester_user_id,service_key,urgency,description,status,created_at,updated_at",organization_id=org_id,requester_user_id=p.user_id))
+        rows.extend(await supabase.select("service_requests","id,organization_id,requester_user_id,service_key,urgency,description,target,target_type,status,processing_state,result,completed_at,created_at,updated_at",organization_id=org_id,requester_user_id=p.user_id))
     return {"service_requests":rows}
 
 @router.post("/customer/service-requests")
