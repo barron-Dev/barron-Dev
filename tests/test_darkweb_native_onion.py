@@ -40,11 +40,15 @@ class _Client:
 
     def stream(self, method, url):
         self.urls.append(url)
+        if "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.onion" in url:
+            return _Stream(_Response(b"<html><body>owned-example.com on discovered onion</body></html>"))
         if url.endswith("/"):
             return _Stream(_Response(
                 b'<html><body>owned-example.com '
                 b'<a href="/leak">detail</a>'
-                b'<a href="https://example.com/outside">outside</a></body></html>'
+                b'<a href="https://example.com/outside">outside</a>'
+                b'<a href="http://bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.onion/">onion source</a>'
+                b'</body></html>'
             ))
         return _Stream(_Response(b"<html><body>owned-example.com appeared</body></html>"))
 
@@ -69,11 +73,11 @@ async def test_native_crawler_only_follows_same_onion_host_and_records_exact_evi
     with patch("cyclothone.darkweb.native_onion.httpx.AsyncClient", _Client):
         findings = await crawler.pull("domain", "owned-example.com")
 
-    assert crawler.pages_checked == 2
-    assert crawler.seed_status == {
-        "http://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.onion/": "checked"
-    }
-    assert len(findings) == 2
+    assert crawler.pages_checked == 3
+    assert crawler.configured_seed_count == 1
+    assert len(crawler.discovered_seeds) == 1
+    assert crawler.seed_status["http://bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.onion/"] == "checked"
+    assert len(findings) == 3
     assert all(f.kind == "domain" and f.matched_value == "owned-example.com" for f in findings)
     assert all(f.metadata["exposure_layer"] == "dark" for f in findings)
     assert all(f.metadata["access_mode"] == "tor_public_onion" for f in findings)
