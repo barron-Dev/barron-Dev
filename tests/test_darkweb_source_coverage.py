@@ -8,7 +8,7 @@ def test_archived_and_planned_sources_do_not_inflate_live_coverage_denominator()
         {"source": "ransomwatch", "availability": "historical_only", "state": "unavailable"},
         {"source": "github_code", "availability": "planned", "state": "unavailable"},
     ]
-    assert _coverage_state(sources) == "all_configured_live_sources_checked"
+    assert _coverage_state(sources) == "all_configured_sources_checked"
 
 
 def test_unreachable_implemented_source_keeps_coverage_partial():
