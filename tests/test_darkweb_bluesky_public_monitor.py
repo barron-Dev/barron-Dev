@@ -53,9 +53,11 @@ async def test_bluesky_public_monitor_reports_exact_public_identifier_without_st
             },
         ]
     })
+    monitor = BlueskyPublicMonitor()
     with patch("cyclothone.darkweb.pullers.httpx.AsyncClient", _Client):
-        findings = await BlueskyPublicMonitor().pull("email", "Security@Example.org")
+        findings = await monitor.pull("email", "Security@Example.org")
 
+    assert monitor.posts_checked == 2
     assert len(findings) == 1
     finding = findings[0]
     assert finding.source_id == "bluesky_public"
@@ -73,8 +75,10 @@ async def test_bluesky_public_monitor_reports_exact_public_identifier_without_st
 @pytest.mark.asyncio
 async def test_bluesky_public_monitor_accepts_zero_match_success_as_empty_result():
     _Client.response = _Response({"posts": []})
+    monitor = BlueskyPublicMonitor()
     with patch("cyclothone.darkweb.pullers.httpx.AsyncClient", _Client):
-        findings = await BlueskyPublicMonitor().pull("domain", "example.org")
+        findings = await monitor.pull("domain", "example.org")
+    assert monitor.posts_checked == 0
     assert findings == []
 
 
