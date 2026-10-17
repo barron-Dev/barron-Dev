@@ -37,3 +37,10 @@ def test_layers_are_separate_and_planned_connectors_are_explicit():
     assert "hibp" not in surface_ids
     assert get_source("hibp") is None
     assert "bluesky_public" in surface_ids
+
+
+def test_hibp_collector_is_removed_and_bluesky_collector_is_real():
+    import cyclothone.darkweb.pullers as pullers
+
+    assert not hasattr(pullers, "HIBPPuller")
+    assert hasattr(pullers, "BlueskyPublicMonitor")
