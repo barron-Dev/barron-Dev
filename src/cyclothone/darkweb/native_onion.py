@@ -108,13 +108,21 @@ class NativeOnionCrawler:
 
     SOURCE = "native_onion"
 
-    def __init__(self, seeds: list[str] | None = None, proxy: str | None = None) -> None:
+    def __init__(
+        self,
+        seeds: list[str] | None = None,
+        proxy: str | None = None,
+        seed_origins: dict[str, str] | None = None,
+        discovered_from: dict[str, str] | None = None,
+    ) -> None:
         self.seeds = list(dict.fromkeys(seeds if seeds is not None else configured_onion_seeds()))
         self.proxy = (proxy or os.getenv("CYCLOTHONE_DW_ONION_PROXY") or "socks5://127.0.0.1:9050").strip()
-        self.configured_seed_count = len(self.seeds)
+        self.seed_origin: dict[str, str] = {
+            seed: (seed_origins or {}).get(seed, "configured") for seed in self.seeds
+        }
+        self.configured_seed_count = sum(origin == "configured" for origin in self.seed_origin.values())
         self.seed_status: dict[str, str] = {}
-        self.seed_origin: dict[str, str] = {seed: "configured" for seed in self.seeds}
-        self.discovered_from: dict[str, str] = {}
+        self.discovered_from: dict[str, str] = dict(discovered_from or {})
         self.discovered_seeds: list[dict[str, str]] = []
         self.seed_content_hash: dict[str, str] = {}
         self.pages_checked = 0
