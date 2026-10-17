@@ -476,15 +476,36 @@ async def create_organization(body:OrgRequest,p:DeveloperPrincipal=Depends(princ
             hibp_key = os.getenv("CYCLOTHONE_HIBP_KEY", "").strip() or os.getenv("SENTINEL_HIBP_KEY", "").strip()
             github_token = os.getenv("CYCLOTHONE_GITHUB_TOKEN", "").strip() or os.getenv("SENTINEL_GITHUB_TOKEN", "").strip()
             if "ransomwatch" in enabled:
-                findings.extend(await RansomwatchPuller().pull())
-                source_results.append("ransomwatch")
-            if hibp_key and "hibp" in enabled:
-                findings.extend(await HIBPPuller(hibp_key).pull_domain(target))
-                source_results.append("hibp")
-            if github_token and "github_code" in enabled:
-                findings.extend(await GitHubCodeMonitor(github_token).pull_domain(target))
-                source_results.append("github_code")
-            if not source_results:
+                before = len(findings)
+                try:
+                    findings.extend(await RansomwatchPuller().pull())
+                    source_results.append({"name":"ransomwatch","status":"succeeded","attempted":True,"records_returned":len(findings)-before})
+                except Exception as exc:
+                    logger.warning("DWM source ransomwatch failed: %s", type(exc).__name__)
+                    source_results.append({"name":"ransomwatch","status":"failed","attempted":True,"records_returned":0,"error_code":"source_pull_failed"})
+            if "hibp" in enabled:
+                if not hibp_key:
+                    source_results.append({"name":"hibp","status":"unavailable","attempted":False,"records_returned":0,"error_code":"credential_missing"})
+                else:
+                    before = len(findings)
+                    try:
+                        findings.extend(await HIBPPuller(hibp_key).pull_domain(target))
+                        source_results.append({"name":"hibp","status":"succeeded","attempted":True,"records_returned":len(findings)-before})
+                    except Exception as exc:
+                        logger.warning("DWM source hibp failed: %s", type(exc).__name__)
+                        source_results.append({"name":"hibp","status":"failed","attempted":True,"records_returned":0,"error_code":"source_pull_failed"})
+            if "github_code" in enabled:
+                if not github_token:
+                    source_results.append({"name":"github_code","status":"unavailable","attempted":False,"records_returned":0,"error_code":"credential_missing"})
+                else:
+                    before = len(findings)
+                    try:
+                        findings.extend(await GitHubCodeMonitor(github_token).pull_domain(target))
+                        source_results.append({"name":"github_code","status":"succeeded","attempted":True,"records_returned":len(findings)-before})
+                    except Exception as exc:
+                        logger.warning("DWM source github_code failed: %s", type(exc).__name__)
+                        source_results.append({"name":"github_code","status":"failed","attempted":True,"records_returned":0,"error_code":"source_pull_failed"})
+            if not any(item.get("attempted") and item.get("status") == "succeeded" for item in source_results):
                 await supabase.update("service_requests", {"status":"blocked"}, id=str(row["id"]))
                 raise HTTPException(503, detail="dark_web_sources_unavailable")
             matcher = DarkWebMatcher()
