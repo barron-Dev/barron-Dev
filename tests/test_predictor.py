@@ -34,7 +34,7 @@ def test_predicts_best_path_and_is_cycle_safe():
         {str(a): [Edge(b,"connects_to"), Edge(c,"writes")],
          str(b): [Edge(c,"hosts"), Edge(a,"depends_on")]}
     )
-    result = AttackPathPredictor(g, {"service": .8, "database": .9}).predict(str(a), 3, 10)
+    result = AttackPathPredictor(g, {"service": .8, "database": .95}).predict(str(a), 3, 10)
     assert [x.node_external for x in result] == ["c", "b"]
     assert result[0].hops == 2
     assert result[0].path[-1]["relation"] == "hosts"
