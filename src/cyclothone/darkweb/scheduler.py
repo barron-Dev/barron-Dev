@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 import time
 from datetime import UTC, datetime
 
 from cyclothone.darkweb.matcher import DarkWebMatcher
-from cyclothone.darkweb.pullers import GitHubCodeMonitor, HIBPPuller, PastePublicMonitor, TelegramPublicMonitor
+from cyclothone.darkweb.native_onion import NativeOnionCrawler, configured_onion_seeds
+from cyclothone.darkweb.pullers import PastePublicMonitor, TelegramPublicMonitor
 from cyclothone.darkweb.telegram_config import (
     DEFAULT_PUBLIC_TELEGRAM_CHANNELS,  # noqa: F401 — compatibility export
     configured_telegram_channels,
@@ -86,16 +86,19 @@ class DarkWebScheduler:
 
     async def _domain_tick(self) -> None:
         domains = await self._tenant_domains()
-        hibp_key = (os.getenv("CYCLOTHONE_HIBP_KEY") or os.getenv("SENTINEL_HIBP_KEY") or "").strip()
-        github_token = (os.getenv("CYCLOTHONE_GITHUB_TOKEN") or os.getenv("SENTINEL_GITHUB_TOKEN") or "").strip()
         enabled = await self._enabled_sources()
+        seeds = configured_onion_seeds()
+        if "native_onion" not in enabled:
+            return
+        if not seeds:
+            await self._mark_source("native_onion", "unavailable_missing_onion_seeds", pulled=False)
+            return
         for domain in domains:
-            if hibp_key and "hibp" in enabled:
-                puller = HIBPPuller(hibp_key)
-                await self._run_pull(puller.SOURCE, lambda p=puller, d=domain: p.pull_domain(d))
-            if github_token and "github_code" in enabled:
-                monitor = GitHubCodeMonitor(github_token)
-                await self._run_pull(monitor.SOURCE, lambda m=monitor, d=domain: m.pull_domain(d))
+            crawler = NativeOnionCrawler(seeds=seeds)
+            await self._run_pull(
+                crawler.SOURCE,
+                lambda c=crawler, d=domain: c.pull("domain", d),
+            )
 
     async def _run_pull(self, source_id: str, pull) -> None:
         started = time.monotonic()
