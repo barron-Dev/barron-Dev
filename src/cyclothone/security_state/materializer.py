@@ -15,7 +15,12 @@ def _sources(result: dict[str, Any]) -> list[dict[str, Any]]:
         return [x for x in raw if isinstance(x, dict)]
     raw = result.get("sources")
     if isinstance(raw, list):
-        # The current DWM handler appends source IDs only after the pull succeeds.
+        # New results persist structured source outcomes. Legacy string entries are
+        # accepted only for older request results whose handler recorded them after
+        # a completed pull; they are not synthesized for new executions.
+        structured = [x for x in raw if isinstance(x, dict)]
+        if structured:
+            return structured
         return [{"name": str(x), "status": "succeeded", "attempted": True}
                 for x in raw if isinstance(x, str) and x.strip()]
     if result.get("method") == "bounded passive public HTTP assessment" and result.get("status_code") is not None:
