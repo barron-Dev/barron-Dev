@@ -31,14 +31,14 @@ def test_coverage_only_says_all_live_sources_checked_when_every_live_check_succe
         {"source": "telegram_public", "availability": "implemented", "state": "checked"},
         {"source": "ransomwatch", "availability": "historical_only", "state": "unavailable"},
         {"source": "github_code", "availability": "planned", "state": "unavailable"},
-    ]) == "all_configured_live_sources_checked"
+    ]) == "all_configured_sources_checked"
 
 
 def test_archived_ransomwatch_is_not_counted_as_fresh_coverage():
     assert _coverage_state([
         {"source": "ransomwatch", "availability": "historical_only", "state": "unavailable", "reason": "historical_only_archived_feed"},
         {"source": "pastebin_public", "availability": "implemented", "state": "checked"},
-    ]) == "all_configured_live_sources_checked"
+    ]) == "all_configured_sources_checked"
 
 
 def test_telegram_defaults_use_only_the_supplied_public_handles(monkeypatch):
