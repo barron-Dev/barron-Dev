@@ -274,6 +274,9 @@ class BlueskyPublicMonitor:
     SOURCE = "bluesky_public"
     ENDPOINT = "https://public.api.bsky.app/xrpc/app.bsky.feed.searchPosts"
 
+    def __init__(self) -> None:
+        self.posts_checked = 0
+
     async def pull(self, target_type: str, target: str) -> list[Finding]:
         target = normalize(target)
         if target_type not in {"domain", "url", "email", "brand", "username", "ip"}:
@@ -292,6 +295,9 @@ class BlueskyPublicMonitor:
         except Exception as exc:
             raise RuntimeError("Bluesky public search failed") from exc
         posts = payload.get("posts", []) if isinstance(payload, dict) else []
+        if not isinstance(posts, list):
+            raise RuntimeError("invalid Bluesky public search response")
+        self.posts_checked = min(len(posts), 25)
         out: list[Finding] = []
         needle = target.casefold()
         for item in posts[:25]:
