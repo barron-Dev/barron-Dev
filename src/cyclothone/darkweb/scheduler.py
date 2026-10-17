@@ -84,14 +84,16 @@ class DarkWebScheduler:
         elif "telegram_public" in enabled:
             await self._mark_source("telegram_public", "unavailable_missing_channel", pulled=False)
 
-    async def _onion_seed_urls(self) -> list[str]:
+    async def _onion_seed_urls(self) -> tuple[list[str], dict[str, str], dict[str, str]]:
         seeds = configured_onion_seeds()
+        origins = {seed: "configured" for seed in seeds}
+        discovered_from: dict[str, str] = {}
         try:
             async def _do():
                 client = await supabase._ensure()
                 return await (
                     client.table("dw_onion_seeds")
-                    .select("url,status,last_checked")
+                    .select("url,status,seed_origin,discovered_from,last_checked")
                     .in_("status", ["checked", "failed"])
                     .order("last_checked", desc=True)
                     .limit(50)
@@ -100,25 +102,30 @@ class DarkWebScheduler:
             rows = (await supabase._retry(_do, attempts=1)).data or []
             for row in rows:
                 url = str(row.get("url") or "").strip()
-                if url and url not in seeds:
+                if url and url not in origins and len(seeds) < 50:
                     seeds.append(url)
-                if len(seeds) >= 50:
-                    break
+                    origins[url] = "discovered" if row.get("seed_origin") == "discovered" else "configured"
+                    if row.get("discovered_from"):
+                        discovered_from[url] = str(row["discovered_from"])
         except Exception:
             logger.warning("native onion seed registry unavailable", exc_info=True)
-        return seeds[:50]
+        return seeds[:50], origins, discovered_from
 
     async def _domain_tick(self) -> None:
         domains = await self._tenant_domains()
         enabled = await self._enabled_sources()
-        seeds = await self._onion_seed_urls()
+        seeds, seed_origins, seed_discovered_from = await self._onion_seed_urls()
         if "native_onion" not in enabled:
             return
         if not seeds:
             await self._mark_source("native_onion", "unavailable_missing_onion_seeds", pulled=False)
             return
         for domain in domains:
-            crawler = NativeOnionCrawler(seeds=seeds)
+            crawler = NativeOnionCrawler(
+                seeds=seeds,
+                seed_origins=seed_origins,
+                discovered_from=seed_discovered_from,
+            )
             await self._run_pull(
                 crawler.SOURCE,
                 lambda c=crawler, d=domain: c.pull("domain", d),
