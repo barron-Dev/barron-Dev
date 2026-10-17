@@ -33,7 +33,7 @@ jobs:
       - name: Compliance rule coverage
         run: |
           for j in GDPR UAE_PDPL SAUDI_PDPL POPIA DPDP_IN; do
-            grep -q "'$j'" supabase/migrations/*mdi_copilot_compliance.sql || { echo "missing $j"; exit 1; }
+            grep -R -q "'$j'" supabase/migrations --include="*mdi*compliance*.sql" || { echo "missing $j"; exit 1; }
           done
       - name: No production database dependency
         run: |
