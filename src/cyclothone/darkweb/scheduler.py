@@ -84,10 +84,34 @@ class DarkWebScheduler:
         elif "telegram_public" in enabled:
             await self._mark_source("telegram_public", "unavailable_missing_channel", pulled=False)
 
+    async def _onion_seed_urls(self) -> list[str]:
+        seeds = configured_onion_seeds()
+        try:
+            async def _do():
+                client = await supabase._ensure()
+                return await (
+                    client.table("dw_onion_seeds")
+                    .select("url,status,last_checked")
+                    .in_("status", ["checked", "failed"])
+                    .order("last_checked", desc=True)
+                    .limit(50)
+                    .execute()
+                )
+            rows = (await supabase._retry(_do, attempts=1)).data or []
+            for row in rows:
+                url = str(row.get("url") or "").strip()
+                if url and url not in seeds:
+                    seeds.append(url)
+                if len(seeds) >= 50:
+                    break
+        except Exception:
+            logger.warning("native onion seed registry unavailable", exc_info=True)
+        return seeds[:50]
+
     async def _domain_tick(self) -> None:
         domains = await self._tenant_domains()
         enabled = await self._enabled_sources()
-        seeds = configured_onion_seeds()
+        seeds = await self._onion_seed_urls()
         if "native_onion" not in enabled:
             return
         if not seeds:
