@@ -153,15 +153,25 @@ class NativeOnionCrawler:
                             continue
                         visited.add(url)
                         try:
-                            response = await client.get(url)
-                            if response.status_code < 200 or response.status_code >= 300:
-                                self.pages_failed += 1
-                                continue
-                            content_type = response.headers.get("content-type", "").lower()
-                            if content_type and not any(kind in content_type for kind in ("text/html", "text/plain", "application/xhtml")):
-                                continue
-                            body = response.content[:MAX_BODY_BYTES]
-                            text = body.decode(response.encoding or "utf-8", errors="replace")
+                            async with client.stream("GET", url) as response:
+                                if response.status_code < 200 or response.status_code >= 300:
+                                    self.pages_failed += 1
+                                    continue
+                                content_type = response.headers.get("content-type", "").lower()
+                                if content_type and not any(kind in content_type for kind in ("text/html", "text/plain", "application/xhtml")):
+                                    continue
+                                chunks: list[bytes] = []
+                                body_size = 0
+                                async for chunk in response.aiter_bytes():
+                                    remaining = MAX_BODY_BYTES - body_size
+                                    if remaining <= 0:
+                                        break
+                                    chunks.append(chunk[:remaining])
+                                    body_size += min(len(chunk), remaining)
+                                    if body_size >= MAX_BODY_BYTES:
+                                        break
+                                body = b"".join(chunks)
+                                text = body.decode(response.encoding or "utf-8", errors="replace")
                             parser = _PageParser()
                             parser.feed(text)
                             page_text = " ".join(parser.text_parts)
