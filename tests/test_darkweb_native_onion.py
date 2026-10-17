@@ -13,6 +13,20 @@ class _Response:
     def __init__(self, body):
         self.content = body
 
+    async def aiter_bytes(self):
+        yield self.content
+
+
+class _Stream:
+    def __init__(self, response):
+        self.response = response
+
+    async def __aenter__(self):
+        return self.response
+
+    async def __aexit__(self, *args):
+        return False
+
 
 class _Client:
     def __init__(self, *args, **kwargs):
@@ -24,15 +38,15 @@ class _Client:
     async def __aexit__(self, *args):
         return False
 
-    async def get(self, url):
+    def stream(self, method, url):
         self.urls.append(url)
         if url.endswith("/"):
-            return _Response(
+            return _Stream(_Response(
                 b'<html><body>owned-example.com '
                 b'<a href="/leak">detail</a>'
                 b'<a href="https://example.com/outside">outside</a></body></html>'
-            )
-        return _Response(b"<html><body>owned-example.com appeared</body></html>")
+            ))
+        return _Stream(_Response(b"<html><body>owned-example.com appeared</body></html>"))
 
 
 def test_configured_onion_seeds_reject_non_onion_and_private_urls():
