@@ -17,6 +17,7 @@ async def test_enrollment_token_is_hashed_and_never_sent_to_rpc():
     principal = DeveloperPrincipal(
         tenant_id=str(uuid4()),
         app_id=str(uuid4()),
+        user_id=None,
         scopes=frozenset({"console:write"}),
         auth_type="api_key",
     )
