@@ -10,6 +10,7 @@ from urllib.parse import urlsplit
 import httpx
 
 from cyclothone.darkweb.matcher import DarkWebMatcher
+from cyclothone.darkweb.native_onion import NativeOnionCrawler, configured_onion_seeds
 from cyclothone.darkweb.pullers import (
     GitHubCodeMonitor,
     HIBPPuller,
@@ -239,6 +240,21 @@ class DarkWebRequestWorker:
                             for channel, state in sorted(channel_status.items())
                         ],
                     }, findings
+                seed_status = getattr(monitor, "seed_status", {})
+                pages_checked = getattr(monitor, "pages_checked", None)
+                pages_failed = getattr(monitor, "pages_failed", None)
+                if pages_checked is not None:
+                    failed_seeds = [seed for seed, state in seed_status.items() if state != "checked"]
+                    return {
+                        "source": source_id,
+                        "state": "checked",
+                        "coverage": "partial" if failed_seeds or pages_failed else "all_reachable_pages_checked",
+                        "configured_seeds": len(seed_status),
+                        "seeds": [{"seed": seed, "state": state} for seed, state in sorted(seed_status.items())],
+                        "pages_checked": pages_checked,
+                        "pages_failed": pages_failed,
+                        "matches": getattr(monitor, "matches", 0),
+                    }, findings
                 return {"source": source_id, "state": "checked"}, findings
             except Exception:
                 logger.warning("dark-web provider request failed source=%s request_id=%s", source_id, request_id, exc_info=True)
@@ -267,7 +283,14 @@ class DarkWebRequestWorker:
             else ("missing_channels" if not telegram_channels else None)
         )
         telegram_monitor = TelegramPublicMonitor(telegram_channels) if telegram_channels else None
+        onion_seeds = configured_onion_seeds()
+        onion_reason = (
+            "missing_onion_seeds" if not onion_seeds
+            else ("unsupported_target_type" if target_type not in {"domain", "url", "email", "brand", "username", "ip", "other"} else None)
+        )
+        onion_crawler = NativeOnionCrawler(seeds=onion_seeds)
         provider_specs = [
+            ("native_onion", (lambda: onion_crawler.pull(watch_kind, watch_value)) if not onion_reason else None, 150, onion_reason),
             ("ransomwatch", RansomwatchPuller().pull if not ransom_reason else None, 35, ransom_reason),
             ("hibp", hibp_call, 25, hibp_reason),
             ("github_code", (lambda: GitHubCodeMonitor(github_token).pull_domain(provider_domain)) if github_token and provider_domain else None, 65, github_reason),
@@ -343,7 +366,7 @@ class DarkWebRequestWorker:
         # Re-read tenant-scoped findings for this watchlist and keep result evidence bounded.
         persisted = await supabase.select(
             "dw_findings",
-            "id,source_id,content_hash,matched_value,context,source_url,severity,first_seen,collected_at,watchlist_id",
+            "id,source_id,content_hash,matched_value,context,source_url,severity,first_seen,collected_at,watchlist_id,web_layer,access_mode",
             tenant_id=tenant_id, watchlist_id=watch_id,
         )
         # The watchlist may already have findings from the continuous scheduler.
@@ -405,10 +428,24 @@ class DarkWebRequestWorker:
         # Coverage describes this configured provider set only; it never claims
         # visibility into the entire dark web or unconfigured services.
         coverage = _coverage_state(sources)
+        dark_sources = [x for x in sources if x.get("source") in {"native_onion", "ransomwatch"}]
+        surface_sources = [x for x in sources if x.get("source") in {"pastebin_public", "telegram_public", "github_code"}]
+        breach_sources = [x for x in sources if x.get("source") == "hibp"]
+        dark_findings = [f for f in persisted if str(f.get("web_layer") or "").lower() == "dark"
+                         or str(f.get("source_id") or "") in {"native_onion", "ransomwatch"}]
+        surface_findings = [f for f in persisted if f not in dark_findings]
+        native_status = next((x for x in dark_sources if x.get("source") == "native_onion"), None)
         result = {
             "service": "dark_web_monitoring", "target": watch_value, "target_type": target_type,
             "coverage": coverage, "sources_checked": checked_sources,
             "sources_unavailable": unavailable_sources,
+            "dark_web": {
+                "coverage": native_status.get("coverage", "unavailable") if native_status and native_status.get("state") == "checked" else "unavailable",
+                "source": native_status or {"source": "native_onion", "state": "unavailable", "reason": "not_checked"},
+                "findings": dark_findings[:200],
+            },
+            "surface_web": {"sources": surface_sources, "findings": surface_findings[:200]},
+            "breach_intelligence": {"sources": breach_sources},
             "findings": persisted[:200], "evidence": evidence[:200], "alerts": relevant_alerts[:200],
             "case_id": case_id, "recommendations": (
                 ["Review each possible match against the source evidence.", "Rotate exposed credentials and investigate affected accounts."]
