@@ -38,68 +38,6 @@ def _redact(text: str) -> str:
     return EMAIL_RE.sub("[email]", text)[:2000]
 
 
-class HIBPPuller:
-    SOURCE = "hibp"
-    BASE = "https://haveibeenpwned.com/api/v3"
-
-    def __init__(self, api_key: str) -> None:
-        self.api_key = api_key
-
-    async def pull_domain(self, domain: str) -> list[Finding]:
-        domain = normalize(domain)
-        if not domain or len(domain) > 253:
-            return []
-        try:
-            async with httpx.AsyncClient(timeout=20.0) as client:
-                response = await client.get(
-                    f"{self.BASE}/breacheddomain/{domain}",
-                    headers={"hibp-api-key": self.api_key, "user-agent": "cyclothone-darkweb/1.0"},
-                )
-                if response.status_code == 404:
-                    return []
-                response.raise_for_status()
-                data = response.json()
-        except Exception as exc:
-            raise RuntimeError(f"HIBP pull failed for {domain}") from exc
-        findings: list[Finding] = []
-        for alias, breaches in (data or {}).items():
-            email = normalize(alias if "@" in alias else f"{alias}@{domain}")
-            for breach in breaches or []:
-                findings.append(Finding(self.SOURCE, "email", email, "Identifier appeared in a reported breach.", "high", None, {"breach": str(breach), "domain": domain}))
-        return findings
-
-    async def pull_account(self, email: str) -> list[Finding]:
-        """Check one explicitly supplied email address using HIBP's account endpoint."""
-        email = normalize(email)
-        if "@" not in email or email.count("@") != 1 or len(email) > 320:
-            return []
-        from urllib.parse import quote
-
-        try:
-            async with httpx.AsyncClient(timeout=20.0) as client:
-                response = await client.get(
-                    f"{self.BASE}/breachedaccount/{quote(email, safe='')}",
-                    params={"truncateResponse": "false", "includeUnverified": "false"},
-                    headers={"hibp-api-key": self.api_key, "user-agent": "cyclothone-darkweb/1.0"},
-                )
-                if response.status_code == 404:
-                    return []
-                response.raise_for_status()
-                breaches = response.json()
-        except Exception as exc:
-            raise RuntimeError("HIBP account pull failed") from exc
-        return [
-            Finding(
-                self.SOURCE, "email", email,
-                "Email identifier appeared in a reported breach.",
-                "high", None,
-                {"breach": str(breach.get("Name") or breach.get("Title") or "reported breach")},
-            )
-            for breach in (breaches or [])
-            if isinstance(breach, dict)
-        ]
-
-
 def _domain_from_victim_title(title: str) -> str | None:
     """Return a domain only when the victim title itself is exactly a hostname/URL.
 
@@ -172,8 +110,10 @@ class TelegramPublicMonitor:
         # Per-channel outcomes remain available to the scheduler for honest coverage.
         self.channel_status: dict[str, str] = {}
 
-    async def pull(self) -> list[Finding]:
+    async def pull(self, target_type: str | None = None, target: str | None = None) -> list[Finding]:
         semaphore = asyncio.Semaphore(5)
+        target = normalize(target) if target else None
+        target_kind = {"email": "email", "domain": "domain", "url": "domain"}.get(target_type or "")
 
         async def pull_channel(channel: str) -> tuple[str, list[Finding] | None]:
             try:
@@ -185,14 +125,25 @@ class TelegramPublicMonitor:
                         )
                         response.raise_for_status()
                         html = response.text
-                findings = [
-                    Finding(
-                        self.SOURCE, "email", normalize(email),
-                        "Monitored identifier appeared in a public Telegram web preview; credential material redacted.",
-                        "critical", f"https://t.me/s/{channel}", {"channel": channel},
-                    )
-                    for email in dict.fromkeys(EMAIL_RE.findall(html))
-                ]
+                if target and target_kind:
+                    haystack = html.casefold()
+                    matched = target.casefold() in haystack
+                    if target_kind == "domain":
+                        matched = bool(re.search(r"(?<![a-z0-9.-])" + re.escape(target.casefold()) + r"(?![a-z0-9.-])", haystack))
+                    findings = ([Finding(
+                        self.SOURCE, target_kind, target,
+                        "Requested identifier observed in a public Telegram web preview; page content is not retained.",
+                        "high", f"https://t.me/s/{channel}", {"channel": channel, "observed_text_sha256": hashlib.sha256(html.encode()).hexdigest()},
+                    )] if matched else [])
+                else:
+                    findings = [
+                        Finding(
+                            self.SOURCE, "email", normalize(email),
+                            "Email identifier appeared in a public Telegram web preview; page content is not retained.",
+                            "medium", f"https://t.me/s/{channel}", {"channel": channel},
+                        )
+                        for email in dict.fromkeys(EMAIL_RE.findall(html))
+                    ]
                 return channel, findings
             except Exception as exc:
                 logger.warning("Telegram channel failed channel=%s error=%s", channel, type(exc).__name__)
@@ -247,12 +198,22 @@ class PastePublicMonitor:
     # public feed is the supported Pastebin.ca JSON API.
     FEED = "https://pastebin.ca/api/v1/feed?limit=20"
 
-    async def pull(self) -> list[Finding]:
+    def __init__(self) -> None:
+        self.items_checked = 0
+        self.feed_checked = False
+        self.feed_entries_count = 0
+
+    async def pull(self, target_type: str | None = None, target: str | None = None) -> list[Finding]:
+        target = normalize(target) if target else None
+        target_kind = {"email": "email", "domain": "domain", "url": "domain"}.get(target_type or "")
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
                 response = await client.get(self.FEED, headers={"user-agent": "cyclothone-darkweb/1.0"})
                 response.raise_for_status()
+                self.feed_checked = True
                 entries = _paste_entries_from_feed(response.text)
+                self.feed_entries_count = len(entries)
+                self.items_checked = 0
                 if not entries:
                     return []
                 semaphore = asyncio.Semaphore(5)
@@ -282,19 +243,95 @@ class PastePublicMonitor:
                 continue
             paste_id, public_url, content = result
             successful += 1
-            for email in dict.fromkeys(EMAIL_RE.findall(content)):
-                findings.append(Finding(
-                    self.SOURCE,
-                    "email",
-                    normalize(email),
-                    "Identifier appeared in public paste content; paste contents are not retained.",
-                    "medium",
-                    public_url,
-                    {"paste_id": paste_id},
-                ))
+            if target and target_kind:
+                haystack = content.casefold()
+                matched = target.casefold() in haystack
+                if target_kind == "domain":
+                    matched = bool(re.search(r"(?<![a-z0-9.-])" + re.escape(target.casefold()) + r"(?![a-z0-9.-])", haystack))
+                if matched:
+                    findings.append(Finding(
+                        self.SOURCE, target_kind, target,
+                        "Requested identifier observed in public paste content; paste contents are not retained.",
+                        "medium", public_url,
+                        {"paste_id": paste_id, "observed_text_sha256": hashlib.sha256(content.encode()).hexdigest()},
+                    ))
+            else:
+                for email in dict.fromkeys(EMAIL_RE.findall(content)):
+                    findings.append(Finding(
+                        self.SOURCE, "email", normalize(email),
+                        "Email identifier appeared in public paste content; paste contents are not retained.",
+                        "medium", public_url, {"paste_id": paste_id},
+                    ))
+        self.items_checked = successful
         if entries and successful == 0:
             raise RuntimeError("all public paste item fetches failed")
         return findings
+
+
+class BlueskyPublicMonitor:
+    """Search public Bluesky posts for an explicitly supplied customer identifier.
+
+    Uses the public AppView endpoint without credentials. A successful API response
+    is a source check even when it returns zero matching posts; it does not imply
+    exhaustive coverage of deleted, private, unindexed, or rate-limited content.
+    """
+    SOURCE = "bluesky_public"
+    ENDPOINT = "https://public.api.bsky.app/xrpc/app.bsky.feed.searchPosts"
+
+    def __init__(self) -> None:
+        self.posts_checked = 0
+
+    async def pull(self, target_type: str, target: str) -> list[Finding]:
+        target = normalize(target)
+        if target_type not in {"domain", "url", "email", "brand", "username", "ip"}:
+            raise RuntimeError("unsupported Bluesky target type")
+        if not target or len(target) > 253:
+            raise RuntimeError("invalid Bluesky search target")
+        params = {"q": target, "limit": 25, "sort": "latest"}
+        try:
+            async with httpx.AsyncClient(timeout=15.0, follow_redirects=False) as client:
+                response = await client.get(
+                    self.ENDPOINT, params=params,
+                    headers={"user-agent": "Cyclothone-DW-Monitor/1.0"},
+                )
+                response.raise_for_status()
+                payload = response.json()
+        except Exception as exc:
+            raise RuntimeError("Bluesky public search failed") from exc
+        posts = payload.get("posts", []) if isinstance(payload, dict) else []
+        if not isinstance(posts, list):
+            raise RuntimeError("invalid Bluesky public search response")
+        self.posts_checked = min(len(posts), 25)
+        out: list[Finding] = []
+        needle = target.casefold()
+        for item in posts[:25]:
+            if not isinstance(item, dict):
+                continue
+            record = item.get("record") or {}
+            text = str(record.get("text") or "")
+            lowered_text = text.casefold()
+            if target_type in {"domain", "url"}:
+                matched = bool(re.search(r"(?<![a-z0-9.-])" + re.escape(needle) + r"(?![a-z0-9.-])", lowered_text))
+            else:
+                matched = needle in lowered_text
+            if not matched:
+                continue
+            author = item.get("author") or {}
+            handle = str(author.get("handle") or "")
+            uri = str(item.get("uri") or "")
+            rkey = uri.rsplit("/", 1)[-1] if uri else ""
+            post_url = f"https://bsky.app/profile/{handle}/post/{rkey}" if handle and rkey else None
+            kind = {
+                "email": "email", "username": "username", "brand": "company_name",
+                "ip": "ip", "other": "other", "domain": "domain", "url": "domain",
+            }[target_type]
+            out.append(Finding(
+                self.SOURCE, kind, target,
+                "Exact identifier text observed in a public Bluesky post; post text is not retained.",
+                "medium", post_url,
+                {"author_handle": handle, "post_uri": uri, "observed_text_sha256": hashlib.sha256(text.encode()).hexdigest()},
+            ))
+        return out
 
 
 class GitHubCodeMonitor:
