@@ -497,7 +497,7 @@ class DarkWebRequestWorker:
                 "completed_at": datetime.now(UTC).isoformat(),
             }
             await self._complete(
-                request, "failed", "failed", failure_result, "no_source_checked"
+                request, "failed", "blocked", failure_result, "no_source_checked"
             )
             return
 
