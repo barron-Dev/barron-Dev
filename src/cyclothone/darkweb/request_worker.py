@@ -410,6 +410,7 @@ class DarkWebRequestWorker:
             ("bluesky_public", (lambda: bluesky_monitor.pull(target_type, watch_value))
              if target_type in {"domain", "url", "email", "brand", "username", "ip"} else None,
              20, None if target_type in {"domain", "url", "email", "brand", "username", "ip"} else "unsupported_target_type"),
+            ("github_code", None, 20, None),
         ]
         provider_results = await asyncio.gather(*(
             run_source(source_id, pull, timeout, reason)
