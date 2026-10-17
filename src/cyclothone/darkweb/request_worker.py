@@ -70,7 +70,9 @@ def _coverage_state(sources: list[dict]) -> str:
         source.get("state") == "checked" and source.get("coverage") != "partial"
         for source in live_sources
     ):
-        return "all_configured_live_sources_checked"
+        # Keep the existing API enum stable for clients; denominator now
+        # includes only implemented live sources as documented above.
+        return "all_configured_sources_checked"
     return "partial"
 
 
