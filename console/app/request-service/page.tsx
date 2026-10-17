@@ -91,7 +91,22 @@ export default function RequestService(){ const [orgs,setOrgs]=useState<Customer
       <div className="mt-2 text-lg">The workflow has been recorded.</div>
       {stage&&<div className="mt-2 text-xs text-[#8ca6ad]">Live stage: <span className="text-[#c2f35a]">{stage}</span></div>}
       <Progress value={progress}/>
-      {result?.result&&<div className="mt-6 rounded-[1.5rem] border border-white/10 bg-[#06181e]/70 p-5">
+      {result?.result?.service==="dark_web_monitoring"&&<div className="mt-6 rounded-[1.5rem] border border-white/10 bg-[#06181e]/70 p-5">
+        <div className="text-[9px] uppercase tracking-[.18em] text-[#4f8494]">Persisted Dark Web Monitoring result</div>
+        <div className="mt-2 text-base">{result.result.target}</div>
+        <div className="mt-4 grid grid-cols-2 gap-3 text-xs md:grid-cols-4">
+          <div><span className="text-[#67848d]">Sources completed</span><div className="mt-1 text-sm">{Array.isArray(result.result.sources)?result.result.sources.length:0}</div></div>
+          <div><span className="text-[#67848d]">Source findings</span><div className="mt-1 text-sm">{result.result.source_findings??0}</div></div>
+          <div><span className="text-[#67848d]">Persisted findings</span><div className="mt-1 text-sm">{result.result.findings_persisted??0}</div></div>
+          <div><span className="text-[#67848d]">Alerts linked</span><div className="mt-1 text-sm">{result.result.alerts??0}</div></div>
+        </div>
+        <div className="mt-5"><div className="text-[9px] uppercase tracking-[.15em] text-[#67848d]">Source outcomes recorded</div>
+          <div className="mt-2 flex flex-wrap gap-2">{(Array.isArray(result.result.sources)?result.result.sources:[]).map((source:string)=><span key={source} className="rounded-full border border-[#c2f35a]/20 px-3 py-1 text-[10px] text-[#c2f35a]">{source}</span>)}</div>
+        </div>
+        <div className="mt-5 space-y-2">{(Array.isArray(result.result.findings)?result.result.findings:[]).slice(0,20).map((finding:any,i:number)=><div key={finding.id||i} className="rounded-xl border border-white/8 px-3 py-3 text-xs"><span className="uppercase text-[#c2f35a]">{finding.severity||"unknown"}</span><span className="ml-3">{finding.title||finding.kind||finding.matched_value||"Persisted finding"}</span></div>)}</div>
+        <div className="mt-4 text-[10px] text-[#67848d]">Counts come from this request's persisted result. They are not the global source catalogue size.</div>
+      </div>}
+      {result?.result&&result.result.service!=="dark_web_monitoring"&&<div className="mt-6 rounded-[1.5rem] border border-white/10 bg-[#06181e]/70 p-5">
         <div className="text-[9px] uppercase tracking-[.18em] text-[#4f8494]">Real assessment result</div>
         <div className="mt-2 text-base">{result.result.target}</div>
         <div className="mt-4 grid grid-cols-2 gap-3 text-xs md:grid-cols-4">
