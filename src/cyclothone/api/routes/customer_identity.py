@@ -394,6 +394,194 @@ async def create_organization(body:OrgRequest,p:DeveloperPrincipal=Depends(princ
         id=str(organization_id),
         owner_user_id=p.user_id,
     )
+    return {"organization": row}
+
+
+class VerificationRequest(BaseModel):
+    verification_type: str
+    provider: str|None=None
+    reference: str|None=None
+
+@router.get("/customer/organizations/{organization_id}/verification")
+async def verification_status(organization_id: str, p:DeveloperPrincipal=Depends(principal)):
+    org=await supabase.select_one("customer_organizations","id,verification_status",id=organization_id,owner_user_id=p.user_id)
+    if not org: raise HTTPException(404,detail="organization_not_found")
+    rows=await supabase.select("identity_verifications","id,verification_type,status,provider,reference,submitted_at,verified_at,expires_at,created_at",organization_id=organization_id)
+    return {"organization":org,"verifications":rows}
+
+@router.post("/customer/organizations/{organization_id}/verification")
+async def submit_verification(organization_id: str, body: VerificationRequest, p:DeveloperPrincipal=Depends(principal)):
+    allowed={"email","domain","identity","business","government","authorization"}
+    if body.verification_type not in allowed: raise HTTPException(400,detail="invalid_verification_type")
+    org=await supabase.select_one(
+        "customer_organizations",
+        "id,tenant_id,verification_status,admission_status",
+        id=organization_id,
+        owner_user_id=p.user_id,
+    )
+    if not org: raise HTTPException(404,detail="organization_not_found")
+    if org.get("admission_status") == "approved":
+        raise HTTPException(409,detail="workspace_already_admitted")
+    row=await supabase.insert_one(
+        "identity_verifications",
+        {
+            "organization_id":organization_id,
+            "subject_user_id":p.user_id,
+            "verification_type":body.verification_type,
+            "status":"submitted",
+            "provider":body.provider,
+            "reference":body.reference,
+            "submitted_at":datetime.now(UTC).isoformat(),
+        },
+    )
+    return row
+
+@router.post("/customer/tenants/{tenant_id}/recovery-policy")
+async def provision_recovery_policy(
+    tenant_id: str,
+    body: RecoveryPolicyRequest,
+    p: DeveloperPrincipal=Depends(operator_principal),
+):
+    region=os.getenv("CYCLOTHONE_RECOVERY_REGION","").strip()
+    bucket=os.getenv("CYCLOTHONE_RECOVERY_BUCKET","").strip()
+    kms_ref=os.getenv("CYCLOTHONE_RECOVERY_KMS_KEY_REF","").strip() or None
+    if not region or not bucket:
+        raise HTTPException(503,detail="recovery_storage_configuration_missing")
+    prefix=f"{tenant_id}/"
+    try:
+        policy_id=await supabase.rpc(
+            "provision_recovery_policy",
+            {
+                "p_tenant_id":tenant_id,
+                "p_reviewer":p.user_id,
+                "p_region":region,
+                "p_bucket":bucket,
+                "p_prefix":prefix,
+                "p_retention_days":body.retention_days,
+                "p_rpo_minutes":body.rpo_minutes,
+                "p_object_lock_mode":"NONE",
+                "p_kms_key_ref":kms_ref,
+            },
+        )
+    except Exception as exc:
+        detail=str(exc)
+        mapping={
+            "tenant_not_found":(404,"tenant_not_found"),
+            "recovery_storage_required":(422,"recovery_storage_required"),
+            "invalid_recovery_policy":(422,"invalid_recovery_policy"),
+            "reviewer_identity_mismatch":(403,"reviewer_identity_mismatch"),
+        }
+        for key,(code,msg) in mapping.items():
+            if key in detail: raise HTTPException(code,detail=msg)
+        raise
+    return {"status":"enabled","policy_id":policy_id,"tenant_id":tenant_id,"object_lock_mode":"NONE"}
+
+
+@router.post("/customer/admissions/verifications/{verification_id}/review")
+async def review_verification(
+    verification_id: str,
+    body: AdmissionDecisionRequest,
+    status: str,
+    p: DeveloperPrincipal=Depends(operator_principal),
+):
+    if not p.user_id: raise HTTPException(403,detail="operator_identity_required")
+    review_status=status.strip().lower()
+    if review_status not in {"verified","rejected"}:
+        raise HTTPException(422,detail="invalid_verification_review_status")
+    try:
+        organization_id=await supabase.rpc(
+            "review_customer_verification",
+            {
+                "p_verification_id":verification_id,
+                "p_reviewer":p.user_id,
+                "p_status":review_status,
+                "p_reason":body.reason,
+            },
+        )
+    except Exception as exc:
+        detail=str(exc)
+        mapping={
+            "verification_not_found":(404,"verification_not_found"),
+            "organization_not_found":(404,"organization_not_found"),
+            "verification_not_actionable":(409,"verification_not_actionable"),
+            "unsupported_admission_verification_type":(422,"unsupported_admission_verification_type"),
+            "reviewer_identity_mismatch":(403,"reviewer_identity_mismatch"),
+            "invalid_verification_review_status":(422,"invalid_verification_review_status"),
+        }
+        for key,(code,msg) in mapping.items():
+            if key in detail: raise HTTPException(code,detail=msg)
+        raise
+    return {"status":review_status,"organization_id":organization_id}
+
+
+@router.get("/customer/service-requests")
+async def service_requests(p:DeveloperPrincipal=Depends(principal)):
+    orgs=await supabase.select("customer_organizations","id",owner_user_id=p.user_id)
+    org_ids=[r["id"] for r in orgs]
+    rows=[]
+    for org_id in org_ids:
+        rows.extend(await supabase.select("service_requests","id,organization_id,requester_user_id,service_key,urgency,description,target,target_type,status,processing_state,result,completed_at,created_at,updated_at",organization_id=org_id,requester_user_id=p.user_id))
+    return {"service_requests":rows}
+
+@router.post("/customer/service-requests")
+async def create_service_request(body:ServiceRequest,p:DeveloperPrincipal=Depends(principal)):
+    if not p.user_id:
+        raise HTTPException(403,detail="user_identity_required")
+    organization_id=body.organization_id
+    if organization_id:
+        org=await supabase.select_one("customer_organizations","id,tenant_id,admission_status",id=organization_id,owner_user_id=p.user_id)
+        if not org:
+            raise HTTPException(404,detail="organization_not_found")
+    else:
+        org=await supabase.select_one("customer_organizations","id,tenant_id,admission_status",owner_user_id=p.user_id,organization_type="individual")
+        if not org:
+            organization_id=await supabase.rpc("create_customer_organization_for_user",{
+                "p_owner_user_id":p.user_id,
+                "p_type":"individual",
+                "p_legal_name":"Personal Workspace",
+                "p_country_code":None,
+                "p_domain":None,
+                "p_registration_number":None,
+            })
+            org=await supabase.select_one("customer_organizations","id,tenant_id,admission_status",id=str(organization_id),owner_user_id=p.user_id)
+        else:
+            organization_id=org["id"]
+    if not org or not org.get("tenant_id"):
+        raise HTTPException(503,detail="workspace_unavailable")
+    if body.service_key not in {"cybersecurity_assessment","incident_response","threat_intelligence","brand_protection","dark_web_monitoring","soc_mdr","ai_security","physical_security","compliance","mobile_digital_intelligence","other"}:
+        raise HTTPException(400,detail="invalid service")
+    if body.urgency not in {"low","normal","high","critical"}:
+        raise HTTPException(400,detail="invalid urgency")
+    if not p.user_id:
+        raise HTTPException(403,detail="user_identity_required")
+
+    description=body.description.strip()
+    target_match=re.search(r"^Target:\\s*(.+)$", description, re.MULTILINE | re.IGNORECASE)
+    request_target=(target_match.group(1).strip() if target_match else "") or None
+    if request_target:
+        if request_target.lower().startswith(("http://","https://")):
+            request_target_type="url"
+        elif "@" in request_target:
+            request_target_type="email"
+        elif re.fullmatch(r"(?:\d{1,3}\.){3}\d{1,3}", request_target):
+            request_target_type="public_ip"
+        elif "." in request_target:
+            request_target_type="domain"
+        else:
+            request_target_type="other"
+    else:
+        request_target_type="other"
+    row=await supabase.insert_one("service_requests",{
+        "organization_id":organization_id,
+        "requester_user_id":p.user_id,
+        "service_key":body.service_key,
+        "urgency":body.urgency,
+        "description":description,
+        "target":request_target,
+        "target_type":request_target_type,
+        "status":"submitted",
+    })
+
     if body.service_key == "brand_protection":
         import re
         from datetime import datetime, UTC
@@ -621,193 +809,6 @@ async def create_organization(body:OrgRequest,p:DeveloperPrincipal=Depends(princ
             await supabase.update("service_requests", {"status":"blocked"}, id=str(row["id"]))
             raise HTTPException(503, detail="compliance_unavailable")
 
-    return row
-
-
-class VerificationRequest(BaseModel):
-    verification_type: str
-    provider: str|None=None
-    reference: str|None=None
-
-@router.get("/customer/organizations/{organization_id}/verification")
-async def verification_status(organization_id: str, p:DeveloperPrincipal=Depends(principal)):
-    org=await supabase.select_one("customer_organizations","id,verification_status",id=organization_id,owner_user_id=p.user_id)
-    if not org: raise HTTPException(404,detail="organization_not_found")
-    rows=await supabase.select("identity_verifications","id,verification_type,status,provider,reference,submitted_at,verified_at,expires_at,created_at",organization_id=organization_id)
-    return {"organization":org,"verifications":rows}
-
-@router.post("/customer/organizations/{organization_id}/verification")
-async def submit_verification(organization_id: str, body: VerificationRequest, p:DeveloperPrincipal=Depends(principal)):
-    allowed={"email","domain","identity","business","government","authorization"}
-    if body.verification_type not in allowed: raise HTTPException(400,detail="invalid_verification_type")
-    org=await supabase.select_one(
-        "customer_organizations",
-        "id,tenant_id,verification_status,admission_status",
-        id=organization_id,
-        owner_user_id=p.user_id,
-    )
-    if not org: raise HTTPException(404,detail="organization_not_found")
-    if org.get("admission_status") == "approved":
-        raise HTTPException(409,detail="workspace_already_admitted")
-    row=await supabase.insert_one(
-        "identity_verifications",
-        {
-            "organization_id":organization_id,
-            "subject_user_id":p.user_id,
-            "verification_type":body.verification_type,
-            "status":"submitted",
-            "provider":body.provider,
-            "reference":body.reference,
-            "submitted_at":datetime.now(UTC).isoformat(),
-        },
-    )
-    return row
-
-@router.post("/customer/tenants/{tenant_id}/recovery-policy")
-async def provision_recovery_policy(
-    tenant_id: str,
-    body: RecoveryPolicyRequest,
-    p: DeveloperPrincipal=Depends(operator_principal),
-):
-    region=os.getenv("CYCLOTHONE_RECOVERY_REGION","").strip()
-    bucket=os.getenv("CYCLOTHONE_RECOVERY_BUCKET","").strip()
-    kms_ref=os.getenv("CYCLOTHONE_RECOVERY_KMS_KEY_REF","").strip() or None
-    if not region or not bucket:
-        raise HTTPException(503,detail="recovery_storage_configuration_missing")
-    prefix=f"{tenant_id}/"
-    try:
-        policy_id=await supabase.rpc(
-            "provision_recovery_policy",
-            {
-                "p_tenant_id":tenant_id,
-                "p_reviewer":p.user_id,
-                "p_region":region,
-                "p_bucket":bucket,
-                "p_prefix":prefix,
-                "p_retention_days":body.retention_days,
-                "p_rpo_minutes":body.rpo_minutes,
-                "p_object_lock_mode":"NONE",
-                "p_kms_key_ref":kms_ref,
-            },
-        )
-    except Exception as exc:
-        detail=str(exc)
-        mapping={
-            "tenant_not_found":(404,"tenant_not_found"),
-            "recovery_storage_required":(422,"recovery_storage_required"),
-            "invalid_recovery_policy":(422,"invalid_recovery_policy"),
-            "reviewer_identity_mismatch":(403,"reviewer_identity_mismatch"),
-        }
-        for key,(code,msg) in mapping.items():
-            if key in detail: raise HTTPException(code,detail=msg)
-        raise
-    return {"status":"enabled","policy_id":policy_id,"tenant_id":tenant_id,"object_lock_mode":"NONE"}
-
-
-@router.post("/customer/admissions/verifications/{verification_id}/review")
-async def review_verification(
-    verification_id: str,
-    body: AdmissionDecisionRequest,
-    status: str,
-    p: DeveloperPrincipal=Depends(operator_principal),
-):
-    if not p.user_id: raise HTTPException(403,detail="operator_identity_required")
-    review_status=status.strip().lower()
-    if review_status not in {"verified","rejected"}:
-        raise HTTPException(422,detail="invalid_verification_review_status")
-    try:
-        organization_id=await supabase.rpc(
-            "review_customer_verification",
-            {
-                "p_verification_id":verification_id,
-                "p_reviewer":p.user_id,
-                "p_status":review_status,
-                "p_reason":body.reason,
-            },
-        )
-    except Exception as exc:
-        detail=str(exc)
-        mapping={
-            "verification_not_found":(404,"verification_not_found"),
-            "organization_not_found":(404,"organization_not_found"),
-            "verification_not_actionable":(409,"verification_not_actionable"),
-            "unsupported_admission_verification_type":(422,"unsupported_admission_verification_type"),
-            "reviewer_identity_mismatch":(403,"reviewer_identity_mismatch"),
-            "invalid_verification_review_status":(422,"invalid_verification_review_status"),
-        }
-        for key,(code,msg) in mapping.items():
-            if key in detail: raise HTTPException(code,detail=msg)
-        raise
-    return {"status":review_status,"organization_id":organization_id}
-
-
-@router.get("/customer/service-requests")
-async def service_requests(p:DeveloperPrincipal=Depends(principal)):
-    orgs=await supabase.select("customer_organizations","id",owner_user_id=p.user_id)
-    org_ids=[r["id"] for r in orgs]
-    rows=[]
-    for org_id in org_ids:
-        rows.extend(await supabase.select("service_requests","id,organization_id,requester_user_id,service_key,urgency,description,target,target_type,status,processing_state,result,completed_at,created_at,updated_at",organization_id=org_id,requester_user_id=p.user_id))
-    return {"service_requests":rows}
-
-@router.post("/customer/service-requests")
-async def create_service_request(body:ServiceRequest,p:DeveloperPrincipal=Depends(principal)):
-    if not p.user_id:
-        raise HTTPException(403,detail="user_identity_required")
-    organization_id=body.organization_id
-    if organization_id:
-        org=await supabase.select_one("customer_organizations","id,tenant_id,admission_status",id=organization_id,owner_user_id=p.user_id)
-        if not org:
-            raise HTTPException(404,detail="organization_not_found")
-    else:
-        org=await supabase.select_one("customer_organizations","id,tenant_id,admission_status",owner_user_id=p.user_id,organization_type="individual")
-        if not org:
-            organization_id=await supabase.rpc("create_customer_organization_for_user",{
-                "p_owner_user_id":p.user_id,
-                "p_type":"individual",
-                "p_legal_name":"Personal Workspace",
-                "p_country_code":None,
-                "p_domain":None,
-                "p_registration_number":None,
-            })
-            org=await supabase.select_one("customer_organizations","id,tenant_id,admission_status",id=str(organization_id),owner_user_id=p.user_id)
-        else:
-            organization_id=org["id"]
-    if not org or not org.get("tenant_id"):
-        raise HTTPException(503,detail="workspace_unavailable")
-    if body.service_key not in {"cybersecurity_assessment","incident_response","threat_intelligence","brand_protection","dark_web_monitoring","soc_mdr","ai_security","physical_security","compliance","mobile_digital_intelligence","other"}:
-        raise HTTPException(400,detail="invalid service")
-    if body.urgency not in {"low","normal","high","critical"}:
-        raise HTTPException(400,detail="invalid urgency")
-    if not p.user_id:
-        raise HTTPException(403,detail="user_identity_required")
-
-    description=body.description.strip()
-    target_match=re.search(r"^Target:\\s*(.+)$", description, re.MULTILINE | re.IGNORECASE)
-    request_target=(target_match.group(1).strip() if target_match else "") or None
-    if request_target:
-        if request_target.lower().startswith(("http://","https://")):
-            request_target_type="url"
-        elif "@" in request_target:
-            request_target_type="email"
-        elif re.fullmatch(r"(?:\d{1,3}\.){3}\d{1,3}", request_target):
-            request_target_type="public_ip"
-        elif "." in request_target:
-            request_target_type="domain"
-        else:
-            request_target_type="other"
-    else:
-        request_target_type="other"
-    row=await supabase.insert_one("service_requests",{
-        "organization_id":organization_id,
-        "requester_user_id":p.user_id,
-        "service_key":body.service_key,
-        "urgency":body.urgency,
-        "description":description,
-        "target":request_target,
-        "target_type":request_target_type,
-        "status":"submitted",
-    })
 
     # Customer requests must enter a real service path. The first production
     # service is a bounded, passive external assessment: it uses the existing
