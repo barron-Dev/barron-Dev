@@ -397,7 +397,7 @@ async def create_organization(body:OrgRequest,p:DeveloperPrincipal=Depends(princ
     if body.service_key == "brand_protection":
         import re
         from datetime import datetime, UTC
-        target_match=re.search(r"^Target:\\s*(.+)$", description, re.MULTILINE | re.IGNORECASE)
+        target_match=re.search(r"^Target:\s*(.+)$", description, re.MULTILINE | re.IGNORECASE)
         target=(target_match.group(1).strip() if target_match else "")
         if not target:
             await supabase.update("service_requests", {"status":"blocked"}, id=str(row["id"]))
@@ -752,7 +752,7 @@ async def create_service_request(body:ServiceRequest,p:DeveloperPrincipal=Depend
             request_target_type="url"
         elif "@" in request_target:
             request_target_type="email"
-        elif re.fullmatch(r"(?:\\d{1,3}\\.){3}\\d{1,3}", request_target):
+        elif re.fullmatch(r"(?:\d{1,3}\.){3}\d{1,3}", request_target):
             request_target_type="public_ip"
         elif "." in request_target:
             request_target_type="domain"
