@@ -6,6 +6,12 @@ ALTER TABLE public.dw_sources ADD CONSTRAINT dw_sources_access_mode_check
 ALTER TABLE public.dw_findings DROP CONSTRAINT IF EXISTS dw_findings_access_mode_check;
 ALTER TABLE public.dw_findings ADD CONSTRAINT dw_findings_access_mode_check
     CHECK (access_mode = ANY (ARRAY['public','authenticated_customer','licensed_feed','customer_connector','tor_public_onion']));
+ALTER TABLE public.dw_watchlist DROP CONSTRAINT IF EXISTS dw_watchlist_kind_check;
+ALTER TABLE public.dw_watchlist ADD CONSTRAINT dw_watchlist_kind_check
+    CHECK (kind = ANY (ARRAY['email','domain','ip','wallet','phone','company_name','executive_name','api_key_hash','employee_id','customer_id','username','other']));
+ALTER TABLE public.dw_findings DROP CONSTRAINT IF EXISTS dw_findings_kind_check;
+ALTER TABLE public.dw_findings ADD CONSTRAINT dw_findings_kind_check
+    CHECK (kind = ANY (ARRAY['email','domain','ip','wallet','phone','company_name','executive_name','api_key_hash','employee_id','customer_id','username','other']));
 CREATE TABLE IF NOT EXISTS public.dw_onion_seeds (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     url text NOT NULL UNIQUE,
