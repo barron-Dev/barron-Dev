@@ -299,7 +299,12 @@ class BlueskyPublicMonitor:
                 continue
             record = item.get("record") or {}
             text = str(record.get("text") or "")
-            if needle not in text.casefold():
+            lowered_text = text.casefold()
+            if target_type in {"domain", "url"}:
+                matched = bool(re.search(r"(?<![a-z0-9.-])" + re.escape(needle) + r"(?![a-z0-9.-])", lowered_text))
+            else:
+                matched = needle in lowered_text
+            if not matched:
                 continue
             author = item.get("author") or {}
             handle = str(author.get("handle") or "")
