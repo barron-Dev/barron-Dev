@@ -10,4 +10,5 @@ ON CONFLICT (id) DO UPDATE SET
     name = EXCLUDED.name,
     kind = EXCLUDED.kind,
     web_layer = EXCLUDED.web_layer,
-    access_mode = EXCLUDED.access_mode;
+    access_mode = EXCLUDED.access_mode,
+    enabled = true;
