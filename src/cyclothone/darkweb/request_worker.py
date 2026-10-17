@@ -11,6 +11,7 @@ import httpx
 from cyclothone.darkweb.matcher import DarkWebMatcher
 from cyclothone.darkweb.native_onion import NativeOnionCrawler, configured_onion_seeds
 from cyclothone.darkweb.pullers import (
+    BlueskyPublicMonitor,
     PastePublicMonitor,
     RansomwatchPuller,
     TelegramPublicMonitor,
@@ -342,6 +343,9 @@ class DarkWebRequestWorker:
             ("ransomwatch", RansomwatchPuller().pull if not ransom_reason else None, 35, ransom_reason),
             ("pastebin_public", PastePublicMonitor().pull if public_target_supported else None, 50, paste_reason),
             ("telegram_public", telegram_monitor.pull if telegram_monitor and public_target_supported else None, 90, telegram_reason),
+            ("bluesky_public", (lambda: BlueskyPublicMonitor().pull(target_type, watch_value))
+             if target_type in {"domain", "url", "email", "brand", "username", "ip"} else None,
+             20, None if target_type in {"domain", "url", "email", "brand", "username", "ip"} else "unsupported_target_type"),
         ]
         provider_results = await asyncio.gather(*(
             run_source(source_id, pull, timeout, reason)
