@@ -18,6 +18,7 @@ from cyclothone.darkweb.pullers import (
 )
 from cyclothone.darkweb.telegram_config import configured_telegram_channels
 from cyclothone.storage.supabase_client import supabase
+from cyclothone.darkweb.source_catalog import get_source, is_excluded_source
 
 logger = logging.getLogger(__name__)
 ALLOWED_TYPES = {"domain", "url", "email", "brand", "username", "ip", "other"}
@@ -261,6 +262,14 @@ class DarkWebRequestWorker:
         findings = []
         telegram_channels = configured_telegram_channels(use_defaults=False)
         async def run_source(source_id: str, pull, timeout: int, unavailable_reason: str | None = None):
+            # Enforce the canonical source catalog at execution time. A provider
+            # cannot run or be reported as coverage if it is excluded, unknown,
+            # planned, or historical-only, even if an old DB registry row exists.
+            definition = get_source(source_id)
+            if definition is None or is_excluded_source(source_id):
+                return {"source": source_id, "state": "unavailable", "reason": "excluded_by_policy"}, []
+            if definition.availability != "implemented":
+                return {"source": source_id, "state": "unavailable", "reason": definition.availability}, []
             if source_id not in enabled:
                 return {"source": source_id, "state": "unavailable", "reason": "disabled"}, []
             if unavailable_reason:
