@@ -76,6 +76,13 @@ def _coverage_state(sources: list[dict]) -> str:
     return "partial"
 
 
+def _source_is_enabled(source_id: str, enabled_source_ids: set[str], registered_source_ids: set[str]) -> bool:
+    """Honor operator disablement; use config-only fallback only before native source registration."""
+    if source_id in enabled_source_ids:
+        return True
+    return source_id == "native_onion" and source_id not in registered_source_ids
+
+
 def _require_recorded_finding(response: object) -> dict:
     """Require the database RPC to confirm a durable finding and alert."""
     rows = response if isinstance(response, list) else [response]
@@ -273,8 +280,9 @@ class DarkWebRequestWorker:
             }
             for item in exact
         ]
-        enabled_rows = await supabase.select("dw_sources", "id,enabled,last_status,last_pull_at", enabled=True)
-        enabled = {str(x["id"]) for x in enabled_rows}
+        source_rows = await supabase.select("dw_sources", "id,enabled,last_status,last_pull_at")
+        registered_source_ids = {str(x["id"]) for x in source_rows}
+        enabled = {str(x["id"]) for x in source_rows if x.get("enabled") is True}
         sources: list[dict] = []
         pulled = []
         findings = []
@@ -288,10 +296,10 @@ class DarkWebRequestWorker:
                 return {"source": source_id, "state": "unavailable", "reason": "excluded_by_policy"}, []
             if definition.availability != "implemented":
                 return {"source": source_id, "state": "unavailable", "reason": definition.availability}, []
-            # Native onion execution is code/config driven; the source registry
-            # migration may not yet exist in production. Reviewed seeds, not a
-            # dw_sources row, determine whether that native check can run.
-            if source_id not in enabled and source_id != "native_onion":
+            # Before the native-source migration exists, reviewed environment seeds
+            # can drive the collector. Once registered, an operator-disabled row
+            # must be honored exactly like every other source.
+            if not _source_is_enabled(source_id, enabled, registered_source_ids):
                 return {"source": source_id, "state": "unavailable", "reason": "disabled"}, []
             if unavailable_reason:
                 return {"source": source_id, "state": "unavailable", "reason": unavailable_reason}, []
