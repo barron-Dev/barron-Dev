@@ -587,8 +587,17 @@ class DarkWebRequestWorker:
                     "evidence": evidence[:200],
                 })
                 case_id = str(case["id"])
+                # customer_case_links.created_by is NOT NULL in production.
+                # The authenticated request owner is carried by the claimed request;
+                # fail closed rather than inserting a NULL actor or inventing one.
+                requester_user_id = request.get("requester_user_id")
+                if not requester_user_id:
+                    raise RuntimeError("case_link_requester_missing")
                 await supabase.insert_one("customer_case_links", {
-                    "organization_id": organization_id, "service_request_id": request_id, "case_id": case_id,
+                    "organization_id": organization_id,
+                    "service_request_id": request_id,
+                    "case_id": case_id,
+                    "created_by": str(requester_user_id),
                 })
             for alert in relevant_alerts:
                 if not alert.get("case_id"):
