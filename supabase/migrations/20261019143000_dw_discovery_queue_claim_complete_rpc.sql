@@ -32,12 +32,26 @@ begin
     raise exception 'p_lease_seconds must be between 30 and 900';
   end if;
 
+  -- A worker crash must not cause an expired lease to be reclaimed forever.
+  update public.dw_source_discovery_queue q
+  set queue_status = 'dead_letter',
+      last_error_code = 'lease_expired_attempt_limit',
+      dead_lettered_at = now(),
+      lease_token = null,
+      lease_expires_at = null,
+      next_attempt_at = null,
+      updated_at = now()
+  where q.queue_status = 'processing'
+    and q.lease_expires_at < now()
+    and coalesce(q.attempt_count, 0) >= 6;
+
   return query
   with eligible as (
     select q.id
     from public.dw_source_discovery_queue q
     where (q.queue_status = 'queued' and coalesce(q.next_attempt_at, now()) <= now())
-       or (q.queue_status = 'processing' and q.lease_expires_at < now())
+       or (q.queue_status = 'processing' and q.lease_expires_at < now()
+           and coalesce(q.attempt_count, 0) < 6)
     order by q.created_at, q.id
     for update skip locked
     limit p_limit
@@ -78,8 +92,16 @@ declare
   v_rows integer;
   v_outcome text := p_outcome;
 begin
-  if p_outcome not in ('completed', 'retry', 'dead_letter') then
+  if p_outcome is null or p_outcome not in ('completed', 'retry', 'dead_letter') then
     raise exception 'unsupported outcome';
+  end if;
+  if p_job_id is null or p_lease_token is null then
+    raise exception 'job id and lease token are required';
+  end if;
+  if p_result_metadata is null
+     or jsonb_typeof(p_result_metadata) <> 'object'
+     or pg_column_size(p_result_metadata) > 65536 then
+    raise exception 'result metadata must be a JSON object no larger than 64 KiB';
   end if;
   if p_retry_after_seconds is null or p_retry_after_seconds < 30 or p_retry_after_seconds > 86400 then
     raise exception 'p_retry_after_seconds must be between 30 and 86400';
