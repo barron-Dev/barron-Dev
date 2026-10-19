@@ -14,9 +14,16 @@ class URLPolicyTests(unittest.TestCase):
         )
 
     def test_rejects_private_and_loopback_ips(self):
-        for host in ("127.0.0.1", "10.0.0.8", "169.254.169.254", "192.168.1.2", "::1"):
+        for host in ("127.0.0.1", "10.0.0.8", "169.254.169.254", "192.168.1.2", "[::1]"):
             with self.subTest(host=host):
                 self.assertFalse(validate_candidate_url(f"http://{host}/", tor_configured=True).allowed)
+
+    def test_rejects_non_web_ports(self):
+        self.assertEqual(
+            validate_candidate_url("https://example.com:8443/", tor_configured=True).reason,
+            "non_web_port_forbidden",
+        )
+        self.assertTrue(validate_candidate_url("https://example.com:443/", tor_configured=True).allowed)
 
     def test_onion_fails_closed_without_tor(self):
         host = "a" * 56 + ".onion"
