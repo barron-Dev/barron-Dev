@@ -92,20 +92,22 @@ async def test_unknown_discovery_job_is_dead_lettered_not_reported_success():
 
 
 @pytest.mark.asyncio
-async def test_official_source_discovery_is_not_falsely_completed():
+async def test_official_source_discovery_routes_to_bounded_health_adapter(monkeypatch):
     worker = DWDiscoveryQueueWorker()
-    outcome, metadata, error, retry_after = await worker._process(
-        {
-            "job_id": 7,
-            "scope_key": "BJ",
-            "category_slug": "corrections_prisons",
-            "discovery_kind": "official_corrections_prison_source_discovery",
-        }
-    )
-    assert outcome == "retry"
-    assert metadata["reason"] == "official_source_adapter_not_integrated"
-    assert error == "provider_adapter_not_integrated"
-    assert retry_after == 3600
+    expected = ("completed", {"source_health_only": True, "country_coverage_claimed": False}, None, 300)
+    adapter = AsyncMock(return_value=expected)
+    monkeypatch.setattr(worker, "_check_official_endpoint", adapter)
+    job = {
+        "job_id": 7,
+        "scope_key": "country:bj",
+        "category_slug": "corrections_prisons",
+        "discovery_kind": "official_corrections_prison_source_discovery",
+    }
+
+    result = await worker._process(job)
+
+    assert result == expected
+    adapter.assert_awaited_once_with("country:bj", "corrections_prisons", job)
 
 
 class _FakeResponse:
