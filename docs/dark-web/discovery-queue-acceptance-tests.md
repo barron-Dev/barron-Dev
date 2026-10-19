@@ -5,6 +5,9 @@ These checks are release gates for the migration in this PR. They are not repres
 ## Schema and permissions
 - Apply both migrations to a disposable database.
 - Verify the new lease columns and partial indexes exist.
+- Verify queue CHECK constraints allow the new discovery kinds and the `completed` / `dead_letter` terminal states.
+- Verify invalid/null outcomes, null job/token, non-object metadata, and metadata larger than 64 KiB are rejected.
+- Verify expired leases at the retry cap are dead-lettered and cannot be reclaimed forever.
 - Verify only `service_role` can execute `claim_dw_source_discovery_jobs` and `complete_dw_source_discovery_job`; `anon`, `authenticated`, and `public` must not execute them.
 - Confirm the deployment's Postgres role has `gen_random_uuid()` available.
 
@@ -22,7 +25,8 @@ These checks are release gates for the migration in this PR. They are not repres
 4. Claim another job, allow its lease to expire, reclaim it, and assert the first token cannot complete it.
 5. Retry a job below the attempt limit; assert it returns to queued with a future retry time.
 6. Retry at the attempt limit; assert dead_letter and a terminal timestamp.
-7. Assert malformed outcomes and invalid retry settings are rejected.
+7. Assert malformed/null outcomes, null identifiers/tokens, invalid retry settings, and oversized/non-object metadata are rejected.
+8. Let a claimed job expire six times; assert the final expired lease becomes terminal `dead_letter` and is no longer claimed.
 
 ## Worker behavior
 - A failed provider attempt must not be marked completed just because a page returned HTTP 200.
