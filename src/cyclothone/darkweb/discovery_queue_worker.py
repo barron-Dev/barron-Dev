@@ -21,6 +21,33 @@ MAX_LEASE_SECONDS = 120
 MAX_ATTEMPTS = 6
 MAX_SEARCH_RESULTS = 25
 MAX_INDEX_BODY = 1_000_000
+
+OFFICIAL_ENDPOINTS: dict[str, list[tuple[str, str, tuple[str, ...]]]] = {
+    "criminal_justice_public_records": [
+        ("interpol_public_notices", "https://www.interpol.int/How-we-work/Notices", ("global",)),
+        ("europol_press_releases", "https://www.europol.europa.eu/media-press/newsroom", ("europe",)),
+        ("fbi_press_releases", "https://www.fbi.gov/news/press-releases", ("united states",)),
+        ("us_doj_press_releases", "https://www.justice.gov/news", ("united states",)),
+        ("uk_national_crime_agency_news", "https://www.nationalcrimeagency.gov.uk/news", ("united kingdom",)),
+        ("canada_rcmp_news", "https://www.rcmp-grc.gc.ca/en/news", ("canada",)),
+        ("australia_afp_news", "https://www.afp.gov.au/news-centre", ("australia",)),
+        ("new_zealand_police_news", "https://www.police.govt.nz/news", ("new zealand",)),
+        ("unodc_publications", "https://www.unodc.org/unodc/en/publications.html", ("global",)),
+        ("africapol_public_news", "https://afripol.africa-union.org/", ("africa",)),
+        ("aseanapol_public_news", "https://www.aseanapol.org/", ("southeast asia",)),
+    ],
+    "corrections_prisons": [
+        ("world_prison_brief", "https://www.prisonstudies.org/world-prison-brief-data", ("global",)),
+        ("prison_insider", "https://www.prison-insider.com/en", ("global",)),
+        ("coe_cpt_publications", "https://www.coe.int/en/web/cpt", ("europe",)),
+    ],
+    "cybercrime_public_advisories": [
+        ("fbi_ic3_publications", "https://www.ic3.gov/PSA", ("united states",)),
+        ("us_cisa_alerts", "https://www.cisa.gov/news-events/cybersecurity-advisories", ("united states",)),
+        ("uk_ncsc_guidance", "https://www.ncsc.gov.uk/section/keep-up-to-date/all-technical-guidance", ("united kingdom",)),
+        ("interpol_public_notices", "https://www.interpol.int/How-we-work/Notices", ("global",)),
+    ],
+}
 ALLOWED_KINDS = {
     "official_criminal_justice_source_discovery",
     "official_corrections_prison_source_discovery",
@@ -170,6 +197,112 @@ class DWDiscoveryQueueWorker:
         except Exception as exc:
             logger.error("DW discovery completion unavailable job_id=%s error=%s", job_id, type(exc).__name__)
 
+    async def _check_official_endpoint(
+        self, scope: str, category: str, job: dict
+    ) -> tuple[str, dict, str | None, int]:
+        candidates = OFFICIAL_ENDPOINTS.get(category, [])
+        if not candidates:
+            return "retry", {
+                "reason": "official_endpoint_adapter_not_configured",
+                "scope_key": scope,
+                "category_slug": category,
+            }, "provider_adapter_not_integrated", 3600
+
+        # Scope lookup supplies a display label, not an attribution signal.
+        scope_row = await supabase.select_one(
+            "dw_geographic_scopes", "display_name,scope_type", scope_key=scope
+        )
+        scope_label = str((scope_row or {}).get("display_name") or scope).casefold()
+        applicable = [
+            item for item in candidates
+            if "global" in item[2] or any(region in scope_label for region in item[2])
+        ]
+        if not applicable:
+            return "retry", {
+                "reason": "no_curated_endpoint_for_scope",
+                "scope_key": scope,
+                "scope_label": scope_label[:100],
+                "category_slug": category,
+            }, "no_curated_endpoint_for_scope", 3600
+
+        # Spread work deterministically across the curated public endpoints.
+        job_number = int(job.get("job_id") or 0)
+        source_id, source_url, _regions = applicable[job_number % len(applicable)]
+        parsed = urlsplit(source_url)
+        if parsed.scheme != "https" or not parsed.hostname or parsed.hostname not in {
+            "www.interpol.int", "www.europol.europa.eu", "www.fbi.gov",
+            "www.justice.gov", "www.nationalcrimeagency.gov.uk",
+            "www.rcmp-grc.gc.ca", "www.afp.gov.au", "www.police.govt.nz",
+            "www.unodc.org", "afripol.africa-union.org", "www.aseanapol.org",
+            "www.prisonstudies.org", "www.prison-insider.com", "www.coe.int",
+            "www.ic3.gov", "www.cisa.gov", "www.ncsc.gov.uk",
+        }:
+            return "dead_letter", {"reason": "endpoint_not_allowlisted"}, "endpoint_not_allowlisted", 300
+
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(12.0, connect=8.0),
+            follow_redirects=False,
+            headers={"user-agent": "Cyclothone-DW-Discovery/1.0", "accept": "text/html"},
+        ) as client:
+            async with client.stream("GET", source_url) as response:
+                status = response.status_code
+                content_type = response.headers.get("content-type", "").lower()
+                chunks: list[bytes] = []
+                size = 0
+                if status == 200 and ("text/html" in content_type or "text/plain" in content_type or not content_type):
+                    async for chunk in response.aiter_bytes():
+                        remaining = MAX_INDEX_BODY - size
+                        if remaining <= 0:
+                            break
+                        chunks.append(chunk[:remaining])
+                        size += min(len(chunk), remaining)
+                        if size >= MAX_INDEX_BODY:
+                            break
+                body = b"".join(chunks)
+
+        if status != 200 or not body.strip():
+            return "retry", {
+                "source_id": source_id,
+                "source_url": source_url,
+                "http_status": status,
+                "content_type": content_type[:120],
+                "body_bytes_inspected": len(body),
+                "scope_key": scope,
+                "scope_label": scope_label[:100],
+                "source_health_only": True,
+                "country_coverage_claimed": False,
+            }, "official_endpoint_not_confirmed", 900
+
+        digest = hashlib.sha256(body).hexdigest()
+        persisted = False
+        try:
+            row = await supabase.update(
+                "dw_sector_source_catalog",
+                {
+                    "last_checked_at": __import__("datetime").datetime.now(__import__("datetime").UTC).isoformat(),
+                    "last_check_result": "reachable_public_html",
+                },
+                id=source_id,
+            )
+            persisted = row is not None
+        except Exception:
+            logger.info("source catalog health update unavailable source_id=%s", source_id)
+
+        return "completed", {
+            "source_id": source_id,
+            "source_url": source_url,
+            "http_status": status,
+            "content_type": content_type[:120],
+            "body_bytes_inspected": len(body),
+            "body_sha256": digest,
+            "scope_key": scope,
+            "scope_label": scope_label[:100],
+            "source_health_only": True,
+            "country_coverage_claimed": False,
+            "integration_status_unchanged": True,
+            "catalog_health_persisted": persisted,
+        }, None, 300
+
     async def _process(self, job: dict) -> tuple[str, dict, str | None, int]:
         kind = str(job.get("discovery_kind") or "")
         scope = str(job.get("scope_key") or "")
@@ -178,13 +311,7 @@ class DWDiscoveryQueueWorker:
             return "dead_letter", {"reason": "unsupported_discovery_job"}, "unsupported_discovery_job", 0
 
         if kind != "public_onion_threat_intel_candidate_discovery":
-            # Official-source discovery is deliberately not guessed. It needs
-            # curated regional adapters before a job can claim success.
-            return "retry", {
-                "reason": "official_source_adapter_not_integrated",
-                "scope_key": scope,
-                "category_slug": category,
-            }, "provider_adapter_not_integrated", 3600
+            return await self._check_official_endpoint(scope, category, job)
 
         term = _search_term(scope, category)
         async with httpx.AsyncClient(
