@@ -6,6 +6,7 @@ These checks are release gates for the migration in this PR. They are not repres
 - Apply both migrations to a disposable database.
 - Verify the new lease columns and partial indexes exist.
 - Verify queue CHECK constraints allow the new discovery kinds and the `completed` / `dead_letter` terminal states.
+- Verify the claim RPC only leases the four discovery kinds implemented by this worker; legacy queued jobs must remain untouched.
 - Verify invalid/null outcomes, null job/token, non-object metadata, and metadata larger than 64 KiB are rejected.
 - Verify expired leases at the retry cap are dead-lettered and cannot be reclaimed forever.
 - Verify only `service_role` can execute `claim_dw_source_discovery_jobs` and `complete_dw_source_discovery_job`; `anon`, `authenticated`, and `public` must not execute them.
