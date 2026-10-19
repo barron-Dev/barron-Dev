@@ -49,6 +49,9 @@ def validate_candidate_url(value: str, *, tor_configured: bool) -> URLDecision:
         return URLDecision(False, "scheme_or_host_not_allowed")
     if parsed.username is not None or parsed.password is not None:
         return URLDecision(False, "embedded_credentials_forbidden")
+    # This collector is for public web content, not arbitrary TCP services.
+    if parsed.port is not None and parsed.port not in {80, 443}:
+        return URLDecision(False, "non_web_port_forbidden", host)
     if parsed.fragment:
         # Fragments are not sent to servers; normalize away rather than reject.
         pass
