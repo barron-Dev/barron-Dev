@@ -24,6 +24,11 @@ logger = logging.getLogger(__name__)
 ALLOWED_TYPES = {"domain", "url", "email", "brand", "username", "ip", "other"}
 
 
+class InvalidTargetError(ValueError):
+    """Only target-normalization failures that should block a request."""
+
+
+
 def _is_public_host(host: str) -> bool:
     import ipaddress
     try:
@@ -37,26 +42,26 @@ def _is_public_host(host: str) -> bool:
 def normalize_target(value: str, target_type: str) -> str:
     target = value.strip()
     if not target or len(target) > 2000 or target_type not in ALLOWED_TYPES:
-        raise ValueError("invalid_target")
+        raise InvalidTargetError("invalid_target")
     if target_type in {"domain", "url"}:
         candidate = target if "://" in target else f"https://{target}"
         parsed = urlsplit(candidate)
         if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password:
-            raise ValueError("invalid_target")
+            raise InvalidTargetError("invalid_target")
         host = parsed.hostname.rstrip(".").lower()
         if not _is_public_host(host):
-            raise ValueError("private_or_internal_target")
+            raise InvalidTargetError("private_or_internal_target")
         if target_type == "url":
             return candidate
         if ":" in host:
-            raise ValueError("invalid_domain")
+            raise InvalidTargetError("invalid_domain")
         return host
     if target_type == "email":
         if "@" not in target or target.count("@") != 1:
-            raise ValueError("invalid_email_target")
+            raise InvalidTargetError("invalid_email_target")
         local, domain = target.rsplit("@", 1)
         if not local or "." not in domain or not _is_public_host(domain.lower()):
-            raise ValueError("invalid_email_target")
+            raise InvalidTargetError("invalid_email_target")
         return f"{local}@{domain.lower()}"
     return target.lower()
 
@@ -168,7 +173,7 @@ class DarkWebRequestWorker:
                 await asyncio.wait_for(self._process(row), timeout=150)
             except asyncio.CancelledError:
                 raise
-            except ValueError as exc:
+            except InvalidTargetError as exc:
                 logger.warning("dark-web request rejected id=%s reason=%s", row.get("id"), str(exc))
                 try:
                     await self._complete(
