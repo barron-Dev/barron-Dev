@@ -106,3 +106,71 @@ async def test_official_source_discovery_is_not_falsely_completed():
     assert metadata["reason"] == "official_source_adapter_not_integrated"
     assert error == "provider_adapter_not_integrated"
     assert retry_after == 3600
+
+
+class _FakeResponse:
+    status_code = 200
+    headers = {"content-type": "text/html; charset=utf-8"}
+    encoding = "utf-8"
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *args):
+        return None
+
+    async def aiter_bytes(self):
+        yield b"<html><title>Public official notice</title><body>Public information</body></html>"
+
+
+class _FakeClient:
+    def __init__(self, **kwargs):
+        self.kwargs = kwargs
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *args):
+        return None
+
+    def stream(self, method, url):
+        assert method == "GET"
+        assert url.startswith("https://")
+        return _FakeResponse()
+
+
+@pytest.mark.asyncio
+async def test_official_source_check_is_bounded_and_does_not_claim_country_coverage(monkeypatch):
+    worker = DWDiscoveryQueueWorker()
+    scope_rows = [
+        {"display_name": "Benin", "scope_type": "country", "parent_scope_key": "west-africa"},
+        {"display_name": "West Africa", "parent_scope_key": "africa"},
+        {"display_name": "Africa", "parent_scope_key": None},
+    ]
+    monkeypatch.setattr(
+        "cyclothone.darkweb.discovery_queue_worker.supabase.select_one",
+        AsyncMock(side_effect=scope_rows),
+    )
+    catalog_update = AsyncMock(return_value={"id": "interpol_public_notices"})
+    monkeypatch.setattr(
+        "cyclothone.darkweb.discovery_queue_worker.supabase.update", catalog_update
+    )
+    monkeypatch.setattr(
+        "cyclothone.darkweb.discovery_queue_worker.httpx.AsyncClient", _FakeClient
+    )
+
+    outcome, metadata, error, retry_after = await worker._check_official_endpoint(
+        "country:bj",
+        "criminal_justice_public_records",
+        {"job_id": 3},
+    )
+
+    assert outcome == "completed"
+    assert metadata["source_health_only"] is True
+    assert metadata["country_coverage_claimed"] is False
+    assert metadata["body_bytes_inspected"] > 0
+    assert metadata["body_sha256"]
+    assert metadata["integration_status_unchanged"] is True
+    assert error is None
+    assert retry_after == 300
+    catalog_update.assert_awaited_once()
