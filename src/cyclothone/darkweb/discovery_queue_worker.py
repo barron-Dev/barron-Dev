@@ -5,6 +5,7 @@ import hashlib
 import logging
 import os
 import re
+from datetime import UTC, datetime
 from html.parser import HTMLParser
 from urllib.parse import urlsplit
 
@@ -210,12 +211,26 @@ class DWDiscoveryQueueWorker:
 
         # Scope lookup supplies a display label, not an attribution signal.
         scope_row = await supabase.select_one(
-            "dw_geographic_scopes", "display_name,scope_type", scope_key=scope
+            "dw_geographic_scopes", "display_name,scope_type,parent_scope_key", scope_key=scope
         )
-        scope_label = str((scope_row or {}).get("display_name") or scope).casefold()
+        scope_labels = [str((scope_row or {}).get("display_name") or scope).casefold()]
+        parent_key = (scope_row or {}).get("parent_scope_key")
+        for _ in range(3):
+            if not parent_key:
+                break
+            parent = await supabase.select_one(
+                "dw_geographic_scopes", "display_name,parent_scope_key", scope_key=str(parent_key)
+            )
+            if not parent:
+                break
+            scope_labels.append(str(parent.get("display_name") or parent_key).casefold())
+            parent_key = parent.get("parent_scope_key")
+        scope_label = " / ".join(scope_labels)[:200]
         applicable = [
             item for item in candidates
-            if "global" in item[2] or any(region in scope_label for region in item[2])
+            if "global" in item[2] or any(
+                region in label for region in item[2] for label in scope_labels
+            )
         ]
         if not applicable:
             return "retry", {
@@ -279,7 +294,7 @@ class DWDiscoveryQueueWorker:
             row = await supabase.update(
                 "dw_sector_source_catalog",
                 {
-                    "last_checked_at": __import__("datetime").datetime.now(__import__("datetime").UTC).isoformat(),
+                    "last_checked_at": datetime.now(UTC).isoformat(),
                     "last_check_result": "reachable_public_html",
                 },
                 id=source_id,
