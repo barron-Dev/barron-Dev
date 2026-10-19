@@ -57,7 +57,7 @@ async def test_guarded_uses_job_id_and_lease_token_fencing(monkeypatch):
             "p_outcome": "completed",
             "p_error_code": None,
             "p_result_metadata": {"candidate_count": 0},
-            "p_retry_after_seconds": 0,
+            "p_retry_after_seconds": 300,
             "p_max_attempts": 6,
         },
     )
