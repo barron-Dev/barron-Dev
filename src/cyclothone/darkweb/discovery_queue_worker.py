@@ -47,7 +47,9 @@ def _candidate_onion_url(value: str) -> str | None:
             return None
         if parsed.query or parsed.fragment:
             return None
-        return f"{parsed.scheme}://{host}{parsed.path or '/'}"
+        # Store one root candidate per onion host; paths from search snippets
+        # are untrusted and may be session-specific or tracking-heavy.
+        return f"{parsed.scheme}://{host}/"
     except (ValueError, UnicodeError):
         return None
 
@@ -190,20 +192,31 @@ class DWDiscoveryQueueWorker:
             follow_redirects=False,
             headers={"user-agent": "Cyclothone-DW-Discovery/1.0", "accept": "text/html"},
         ) as client:
-            response = await client.get(AHMIA_SEARCH_URL, params={"q": term})
-            if response.status_code != 200:
-                return "retry", {
-                    "index": "ahmia_public_search",
-                    "http_status": response.status_code,
-                    "candidate_count": 0,
-                    "scope_key": scope,
-                    "category_slug": category,
-                }, "public_index_unavailable", 900
-            body = response.content[:MAX_INDEX_BODY]
+            async with client.stream("GET", AHMIA_SEARCH_URL, params={"q": term}) as response:
+                if response.status_code != 200:
+                    return "retry", {
+                        "index": "ahmia_public_search",
+                        "http_status": response.status_code,
+                        "candidate_count": 0,
+                        "scope_key": scope,
+                        "category_slug": category,
+                    }, "public_index_unavailable", 900
+                chunks: list[bytes] = []
+                total_bytes = 0
+                async for chunk in response.aiter_bytes():
+                    remaining = MAX_INDEX_BODY - total_bytes
+                    if remaining <= 0:
+                        break
+                    chunks.append(chunk[:remaining])
+                    total_bytes += min(len(chunk), remaining)
+                    if total_bytes >= MAX_INDEX_BODY:
+                        break
+                body = b"".join(chunks)
+                encoding = response.encoding or "utf-8"
             if not body:
                 return "retry", {"index": "ahmia_public_search", "candidate_count": 0}, "empty_index_response", 900
             parser = _AhmiaLinks()
-            parser.feed(body.decode(response.encoding or "utf-8", errors="replace"))
+            parser.feed(body.decode(encoding, errors="replace"))
 
         candidates: list[str] = []
         seen: set[str] = set()
