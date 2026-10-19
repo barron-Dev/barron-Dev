@@ -84,7 +84,7 @@ class DWDiscoveryQueueWorker:
     def __init__(self) -> None:
         self._task: asyncio.Task | None = None
         self._stop = asyncio.Event()
-        self._enabled = os.getenv("CYCLOTHONE_DW_DISCOVERY_WORKER_ENABLED", "true").strip().lower() not in {
+        self._enabled = os.getenv("CYCLOTHONE_DW_DISCOVERY_WORKER_ENABLED", "false").strip().lower() not in {
             "0", "false", "no", "off"
         }
 
@@ -158,7 +158,8 @@ class DWDiscoveryQueueWorker:
                     "p_outcome": outcome,
                     "p_error_code": error_code,
                     "p_result_metadata": metadata,
-                    "p_retry_after_seconds": retry_after,
+                    # SQL validates this argument even for completed/dead-letter outcomes.
+                    "p_retry_after_seconds": max(30, min(86400, retry_after or 300)),
                     "p_max_attempts": MAX_ATTEMPTS,
                 },
             )
