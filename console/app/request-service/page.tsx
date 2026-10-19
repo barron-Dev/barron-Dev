@@ -32,7 +32,7 @@ function Progress({value}:{value:number|null}){if(value===null)return null;retur
 
 export default function RequestService(){ const [orgs,setOrgs]=useState<CustomerOrganization[]>([]),[org,setOrg]=useState(""),[service,setService]=useState("cybersecurity_assessment"),[urgency,setUrgency]=useState("normal"),[target,setTarget]=useState(""),[targetType,setTargetType]=useState("domain"),[description,setDescription]=useState(""),[verification,setVerification]=useState<any[]>([]),[error,setError]=useState<string|null>(null),[result,setResult]=useState<any>(null),[loading,setLoading]=useState(true);
  async function load(){setLoading(true);setError(null);try{const r=await getCustomerOrganizations();setOrgs(r.organizations);setOrg(r.organizations[0]?.id||"")}catch(e){setError(e instanceof Error?e.message:"Unable to load account")}finally{setLoading(false)}}
- useEffect(()=>{const requested=new URLSearchParams(window.location.search).get("service");if(requested&&SERVICES.some(x=>x[0]===requested))setService(requested);void load()},[]);useEffect(()=>{
+ useEffect(()=>{const params=new URLSearchParams(window.location.search);const requested=params.get("service");const requestedTarget=params.get("target");if(requested&&SERVICES.some(x=>x[0]===requested))setService(requested);if(requestedTarget)setTarget(requestedTarget);void load()},[]);useEffect(()=>{
   const id=result?.request_id;
   if(!id||result?.service!=="dark_web_monitoring"||["succeeded","failed","blocked"].includes(result?.processing_state))return;
   let cancelled=false;
@@ -68,11 +68,12 @@ export default function RequestService(){ const [orgs,setOrgs]=useState<Customer
  const dwHigh=dwFindings.filter((x:any)=>String(x.severity||"").toLowerCase()==="high").length;
  const dwSourceCounts=Object.entries(dwFindings.reduce((acc:Record<string,number>,x:any)=>{const key=String(x.source_id||x.source||"unknown");acc[key]=(acc[key]||0)+1;return acc;},{} as Record<string,number>));
  return <main className="cyclo-water min-h-screen overflow-hidden text-[#e8f1f3]">
-  <header className="relative z-10 flex items-center justify-between border-b border-white/10 bg-[#02090e]/70 px-5 py-4 backdrop-blur-2xl"><div className="flex items-center gap-3"><a href="/customer/services" className="cyclo-mark text-lg font-bold">◌</a><a href="/customer/services" className="font-semibold tracking-tight">CYCLOTHONE</a></div><a href="/customer/services" className="cyclo-pill px-3 py-2 text-[10px] text-[#9ab0b6]">Back to services</a></header>
+  <header className="relative z-10 flex items-center justify-between border-b border-white/10 bg-[#02090e]/70 px-5 py-4 backdrop-blur-2xl"><div className="flex items-center gap-3"><a href="/customer/overview" className="cyclo-mark text-lg font-bold">◌</a><a href="/customer/overview" className="font-semibold tracking-tight">CYCLOTHONE</a></div><a href="/customer/overview" className="cyclo-pill px-3 py-2 text-[10px] text-[#9ab0b6]">Home</a></header>
   <div className="relative z-10 mx-auto max-w-4xl px-5 py-10 md:py-14">
    <div className="text-[9px] uppercase tracking-[.22em] text-[#4f8494]">Controlled request</div><h1 className="mt-3 text-3xl font-semibold md:text-4xl">Start a security workflow.</h1><p className="mt-3 text-sm leading-7 text-[#8ca6ad]">Tell Cyclothone what you want checked. Choose a suggestion below or describe your own objective.</p>
    {error&&<div className="mt-6 rounded-2xl border border-[#ff3d67]/30 bg-[#250910]/50 p-4 text-xs text-[#ff8ba0]">{error}</div>}
    {loading?<div className="mt-8 text-center text-xs text-[#69858d]">Reading account state…</div>:<form onSubmit={submit} className="mt-8">
+    {!result&&<>
     <div className="border-b border-white/10 pb-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
@@ -117,6 +118,7 @@ export default function RequestService(){ const [orgs,setOrgs]=useState<Customer
       </button>
     </section>
 
+    </>}
     {result&&result.service==="dark_web_monitoring"&&<div className="border-t border-[#c2f35a]/20 py-6">
       <div className="text-[9px] uppercase tracking-[.18em] text-[#c2f35a]">Dark Web request · {result.request_id||"request recorded"}</div>
       <div className="mt-2 text-lg">{({queued:"Queued for execution",running:"Checking configured sources",succeeded:"Monitoring result ready",failed:"Execution failed",blocked:"Execution blocked"} as Record<string,string>)[result.processing_state||""]||"Request accepted"}</div>
@@ -169,7 +171,7 @@ export default function RequestService(){ const [orgs,setOrgs]=useState<Customer
         <div className="mt-4 text-[10px] text-[#67848d]">Evidence hash: {result.result.findings ? "captured with the assessment record" : "captured"}</div>
       </div>}
     </div>}
-   </form>}
+   </form>}{result&&<div className="mt-6"><a href="/customer/overview" className="inline-flex rounded-full border border-[#c2f35a]/35 px-5 py-3 text-xs text-[#d9f995] hover:bg-white/[.04]">Return to Home →</a></div>}
   </div>
  </main>
 }
