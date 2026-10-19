@@ -14,7 +14,7 @@ from cyclothone.darkweb.discovery_queue_worker import (
 
 def test_candidate_onion_requires_v3_host_and_web_port():
     host = "a" * 56 + ".onion"
-    assert _candidate_onion_url(f"http://{host}/listing") == f"http://{host}/listing"
+    assert _candidate_onion_url(f"http://{host}/listing") == f"http://{host}/"
     assert _candidate_onion_url(f"https://{host}:8443/") is None
     assert _candidate_onion_url("http://short.onion/") is None
     assert _candidate_onion_url(f"http://user:pass@{host}/") is None
