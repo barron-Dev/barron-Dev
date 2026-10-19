@@ -132,7 +132,8 @@ class DWDiscoveryQueueWorker:
             pass
 
     async def _guarded(self, job: dict) -> None:
-        job_id = job.get("id")
+        # The claim RPC exposes the queue primary key as job_id (not id).
+        job_id = job.get("job_id")
         lease_token = job.get("lease_token")
         if job_id is None or not lease_token:
             logger.error("DW discovery claim missing fencing fields; refusing job")
