@@ -42,6 +42,12 @@ begin
       next_attempt_at = null,
       updated_at = now()
   where q.queue_status = 'processing'
+    and q.discovery_kind = any (array[
+      'official_criminal_justice_source_discovery',
+      'official_corrections_prison_source_discovery',
+      'public_cybercrime_advisory_source_discovery',
+      'public_onion_threat_intel_candidate_discovery'
+    ])
     and q.lease_expires_at < now()
     and coalesce(q.attempt_count, 0) >= 6;
 
@@ -49,9 +55,17 @@ begin
   with eligible as (
     select q.id
     from public.dw_source_discovery_queue q
-    where (q.queue_status = 'queued' and coalesce(q.next_attempt_at, now()) <= now())
-       or (q.queue_status = 'processing' and q.lease_expires_at < now()
-           and coalesce(q.attempt_count, 0) < 6)
+    where q.discovery_kind = any (array[
+            'official_criminal_justice_source_discovery',
+            'official_corrections_prison_source_discovery',
+            'public_cybercrime_advisory_source_discovery',
+            'public_onion_threat_intel_candidate_discovery'
+          ])
+      and (
+        (q.queue_status = 'queued' and coalesce(q.next_attempt_at, now()) <= now())
+        or (q.queue_status = 'processing' and q.lease_expires_at < now()
+            and coalesce(q.attempt_count, 0) < 6)
+      )
     order by q.created_at, q.id
     for update skip locked
     limit p_limit
