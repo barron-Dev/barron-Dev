@@ -39,7 +39,7 @@ def valid_row():
 def to_csv(rows, columns=None):
     columns = columns or sorted(REQUIRED_COLUMNS)
     stream = io.StringIO()
-    writer = csv.DictWriter(stream, fieldnames=columns)
+    writer = csv.DictWriter(stream, fieldnames=columns, extrasaction="ignore")
     writer.writeheader()
     writer.writerows(rows)
     return stream.getvalue()
