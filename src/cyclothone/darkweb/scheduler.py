@@ -32,6 +32,7 @@ class DarkWebScheduler:
         self._task: asyncio.Task | None = None
         self._stop = asyncio.Event()
         self._last_domain = 0.0
+        self._onion_evidence_persisted_this_tick = False
 
     def start(self) -> None:
         if self._task is None or self._task.done():
@@ -113,6 +114,7 @@ class DarkWebScheduler:
         return seeds[:50], origins, discovered_from
 
     async def _domain_tick(self) -> None:
+        self._onion_evidence_persisted_this_tick = False
         domains = await self._tenant_domains()
         enabled = await self._enabled_sources()
         seeds, seed_origins, seed_discovered_from = await self._onion_seed_urls()
@@ -138,8 +140,13 @@ class DarkWebScheduler:
         try:
             findings = await pull()
             monitor = monitor or getattr(pull, "__self__", None)
-            if source_id == "native_onion" and monitor is not None:
+            if (
+                source_id == "native_onion"
+                and monitor is not None
+                and not self._onion_evidence_persisted_this_tick
+            ):
                 await self._persist_onion_seed_state(monitor)
+                self._onion_evidence_persisted_this_tick = True
             result = await self._ingest(findings)
             channel_status = getattr(monitor, "channel_status", {})
             failed_channels = [channel for channel, state in channel_status.items() if state != "checked"]
@@ -156,9 +163,14 @@ class DarkWebScheduler:
         except asyncio.CancelledError:
             raise
         except Exception:
-            if source_id == "native_onion" and monitor is not None:
+            if (
+                source_id == "native_onion"
+                and monitor is not None
+                and not self._onion_evidence_persisted_this_tick
+            ):
                 try:
                     await self._persist_onion_seed_state(monitor)
+                    self._onion_evidence_persisted_this_tick = True
                 except Exception as evidence_exc:
                     logger.error(
                         "native onion failure evidence persistence failed error=%s",
