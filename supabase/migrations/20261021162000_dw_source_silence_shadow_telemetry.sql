@@ -69,11 +69,18 @@ ALTER TABLE public.dw_source_observations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.dw_source_silence_buckets ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.dw_source_silence_scores ENABLE ROW LEVEL SECURITY;
 
-REVOKE ALL ON public.dw_source_observations, public.dw_source_silence_buckets, public.dw_source_silence_scores FROM PUBLIC, anon, authenticated;
+-- Start from an explicit least-privilege state, including any pre-existing/default ACLs.
+-- Observation writes and bucket maintenance must occur only inside the SECURITY DEFINER RPC.
+REVOKE ALL ON public.dw_source_observations, public.dw_source_silence_buckets, public.dw_source_silence_scores
+    FROM PUBLIC, anon, authenticated, service_role;
 GRANT SELECT ON public.dw_source_observations TO service_role;
 GRANT SELECT ON public.dw_source_silence_buckets TO service_role;
 GRANT SELECT, INSERT ON public.dw_source_silence_scores TO service_role;
-GRANT USAGE, SELECT ON SEQUENCE public.dw_source_observations_id_seq TO service_role;
+
+-- The SECURITY DEFINER RPC owner uses the observation identity sequence; service_role
+-- only needs the score identity sequence for its permitted INSERT.
+REVOKE ALL ON SEQUENCE public.dw_source_observations_id_seq, public.dw_source_silence_scores_id_seq
+    FROM PUBLIC, anon, authenticated, service_role;
 GRANT USAGE, SELECT ON SEQUENCE public.dw_source_silence_scores_id_seq TO service_role;
 
 CREATE OR REPLACE FUNCTION public.reject_dw_silence_ledger_mutation()
@@ -85,6 +92,8 @@ BEGIN
     RAISE EXCEPTION 'Cyclothone source observation and silence score ledgers are append-only';
 END;
 $$;
+
+REVOKE ALL ON FUNCTION public.reject_dw_silence_ledger_mutation() FROM PUBLIC, anon, authenticated, service_role;
 
 DROP TRIGGER IF EXISTS trg_dw_source_observations_append_only ON public.dw_source_observations;
 CREATE TRIGGER trg_dw_source_observations_append_only
