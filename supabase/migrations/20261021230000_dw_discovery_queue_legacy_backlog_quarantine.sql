@@ -7,6 +7,26 @@
 
 begin;
 
+-- Fail safely rather than revoke a live worker's lease during rollout.
+do $preflight$
+begin
+  if exists (
+    select 1
+    from public.dw_source_discovery_queue q
+    where q.queue_status = 'processing'
+      and q.discovery_kind in (
+        'feed_discovery',
+        'official_source_discovery',
+        'onion_seed_discovery',
+        'source_health_recheck'
+      )
+      and q.lease_expires_at >= now()
+  ) then
+    raise exception 'legacy discovery queue has an active lease; retry migration after the lease expires';
+  end if;
+end;
+$preflight$;
+
 with quarantined as (
   update public.dw_source_discovery_queue q
   set queue_status = 'deferred',
