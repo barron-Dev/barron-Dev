@@ -194,14 +194,24 @@ class NativeOnionCrawler:
                                     continue
                                 chunks: list[bytes] = []
                                 body_size = 0
+                                oversized_body = False
                                 async for chunk in response.aiter_bytes():
-                                    remaining = MAX_BODY_BYTES - body_size
-                                    if remaining <= 0:
+                                    if body_size + len(chunk) > MAX_BODY_BYTES:
+                                        oversized_body = True
                                         break
-                                    chunks.append(chunk[:remaining])
-                                    body_size += min(len(chunk), remaining)
-                                    if body_size >= MAX_BODY_BYTES:
-                                        break
+                                    chunks.append(chunk)
+                                    body_size += len(chunk)
+                                if oversized_body:
+                                    if url == seed:
+                                        self.seed_probe_evidence[seed] = {
+                                            "http_status": response.status_code,
+                                            "content_type": content_type[:200] or None,
+                                            "response_bytes": body_size,
+                                            "response_sha256": None,
+                                            "error_code": "response_body_too_large",
+                                        }
+                                    self.pages_failed += 1
+                                    continue
                                 body = b"".join(chunks)
                                 text = body.decode(response.encoding or "utf-8", errors="replace")
                             if not body.strip():
