@@ -46,6 +46,7 @@ def test_zero_baseline_rate_is_not_called_silence():
             buckets.append({
                 "bucket_hour": stamp.isoformat(),
                 "documents_new_sum": 0,
+                "poll_count": 4,
                 "complete_poll_count": 4,
                 "failed_poll_count": 0,
             })
@@ -91,6 +92,7 @@ def _eight_week_hourly_buckets(now, documents_per_hour=1):
             buckets.append({
                 "bucket_hour": stamp.isoformat(),
                 "documents_new_sum": documents_per_hour,
+                "poll_count": 4,
                 "complete_poll_count": 4,
                 "failed_poll_count": 0,
             })
