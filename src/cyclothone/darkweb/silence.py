@@ -38,8 +38,10 @@ def derive_cursor_delta(post_ids: list[int], previous_cursor: int | None) -> dic
             "error_code": "cursor_initialized",
         }
     if previous_cursor not in ids:
+        # Do not advance across an unobserved window: doing so would let the next
+        # poll count as complete after silently skipping unseen posts.
         return {
-            "cursor_value": current_cursor,
+            "cursor_value": previous_cursor,
             "documents_new": None,
             "count_complete": False,
             "error_code": "cursor_not_visible",
