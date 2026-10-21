@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import time
 from urllib.parse import urlsplit
 from datetime import UTC, datetime, timedelta
@@ -23,6 +24,12 @@ def _configured_telegram_channels() -> list[str]:
     return configured_telegram_channels()
 
 
+def _source_silence_enabled() -> bool:
+    return os.getenv("CYCLOTHONE_DW_SOURCE_SILENCE_ENABLED", "false").strip().lower() in {
+        "1", "true", "yes"
+    }
+
+
 class DarkWebScheduler:
     GLOBAL_INTERVAL = 15 * 60
     DOMAIN_INTERVAL = 6 * 3600
@@ -30,6 +37,7 @@ class DarkWebScheduler:
 
     def __init__(self) -> None:
         self.matcher = DarkWebMatcher()
+        self.source_silence_enabled = _source_silence_enabled()
         self._task: asyncio.Task | None = None
         self._stop = asyncio.Event()
         self._last_domain = 0.0
@@ -144,7 +152,7 @@ class DarkWebScheduler:
             if source_id == "native_onion" and resolved_monitor is not None:
                 await self._persist_onion_seed_state(resolved_monitor)
             telemetry_ok = True
-            if source_id == "telegram_public" and getattr(resolved_monitor, "channel_observations", None) is not None:
+            if self.source_silence_enabled and source_id == "telegram_public" and getattr(resolved_monitor, "channel_observations", None) is not None:
                 telemetry_attempted = True
                 try:
                     await self._record_telegram_observations(resolved_monitor)
@@ -168,7 +176,8 @@ class DarkWebScheduler:
             raise
         except Exception:
             if (
-                source_id == "telegram_public"
+                self.source_silence_enabled
+                and source_id == "telegram_public"
                 and not telemetry_attempted
                 and getattr(resolved_monitor, "channel_observations", None) is not None
             ):
