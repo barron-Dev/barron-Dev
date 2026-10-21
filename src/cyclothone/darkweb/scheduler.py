@@ -156,6 +156,14 @@ class DarkWebScheduler:
         except asyncio.CancelledError:
             raise
         except Exception:
+            if source_id == "native_onion" and monitor is not None:
+                try:
+                    await self._persist_onion_seed_state(monitor)
+                except Exception as evidence_exc:
+                    logger.error(
+                        "native onion failure evidence persistence failed error=%s",
+                        type(evidence_exc).__name__,
+                    )
             await self._mark_source(source_id, "failed")
             logger.exception("dark web source failed: %s", source_id)
 
@@ -224,13 +232,19 @@ class DarkWebScheduler:
                 },
             })
         for offset in range(0, len(missing_rows), 100):
-            inserted = await client.table("dw_onion_seeds").insert(
+            await client.table("dw_onion_seeds").insert(
                 missing_rows[offset:offset + 100]
             ).execute()
-            for row in inserted.data or []:
-                host = str(row.get("hostname") or "").lower()
-                if host:
-                    existing_by_host[host] = row
+        if missing_rows:
+            for offset in range(0, len(hosts), 100):
+                batch = hosts[offset:offset + 100]
+                result = await client.table("dw_onion_seeds").select(
+                    "id,url,hostname,seed_type,monitoring_enabled"
+                ).in_("hostname", batch).execute()
+                for row in result.data or []:
+                    host = str(row.get("hostname") or "").lower()
+                    if host:
+                        existing_by_host[host] = row
 
         for url, state in crawler.seed_status.items():
             parsed = urlsplit(url)
