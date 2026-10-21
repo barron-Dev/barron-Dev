@@ -79,3 +79,50 @@ def test_missing_previous_cursor_is_unknown_not_silence():
     assert result["documents_new"] is None
     assert result["count_complete"] is False
     assert result["error_code"] == "cursor_not_visible"
+
+
+
+def _eight_week_hourly_buckets(now, documents_per_hour=1):
+    start = now - timedelta(days=56)
+    buckets = []
+    for week in range(8):
+        for slot in range(168):
+            stamp = start + timedelta(days=week * 7, hours=slot)
+            buckets.append({
+                "bucket_hour": stamp.isoformat(),
+                "documents_new_sum": documents_per_hour,
+                "complete_poll_count": 4,
+                "failed_poll_count": 0,
+            })
+    return buckets
+
+
+def test_healthy_eight_week_baseline_can_only_create_shadow_candidate():
+    now = datetime(2026, 10, 21, 12, tzinfo=UTC)
+    result = evaluate_silence(
+        _eight_week_hourly_buckets(now),
+        now=now,
+        last_document_at=now - timedelta(hours=5),
+        monitoring_healthy=True,
+    )
+    assert result["state"] == "silence_candidate"
+    assert result["shadow_only"] is True
+    assert result["p_value"] <= 0.01
+
+
+def test_failed_collection_hour_blocks_silence_candidate():
+    now = datetime(2026, 10, 21, 12, tzinfo=UTC)
+    buckets = _eight_week_hourly_buckets(now)
+    failed_hour = (now - timedelta(hours=2)).isoformat()
+    for bucket in buckets:
+        if bucket["bucket_hour"] == failed_hour:
+            bucket["failed_poll_count"] = 1
+            break
+    result = evaluate_silence(
+        buckets,
+        now=now,
+        last_document_at=now - timedelta(hours=5),
+        monitoring_healthy=True,
+    )
+    assert result["state"] == "monitoring_unavailable"
+    assert result.get("reason") == "gap_collection_not_continuously_healthy"
