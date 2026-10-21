@@ -1,6 +1,6 @@
 """Evidence integrity primitives; no network calls, archive writes, or timestamp submissions."""
 from __future__ import annotations
-import hashlib, json
+import hashlib, json, re
 from dataclasses import dataclass
 from typing import Iterable
 
@@ -40,10 +40,10 @@ def normalize_anchor(entity_type: str, value: str) -> str:
     raw=value.strip()
     if entity_type=="onion":
         host=raw.lower().removeprefix("http://").removeprefix("https://").split("/",1)[0].split(":",1)[0].rstrip(".")
-        if len(host)!=62 or not host.endswith(".onion") or any(c not in "abcdefghijklmnopqrstuvwxyz234567." for c in host):
+        if not re.fullmatch(r"[a-z2-7]{56}\\.onion",host):
             raise ValueError("invalid v3 onion hostname syntax")
         return host
-    if entity_type=="pgp_key": return "".join(raw.split()).upper()
+    if entity_type=="pgp_key":\n        fingerprint="".join(raw.split()).upper()\n        if not re.fullmatch(r"(?:[0-9A-F]{40}|[0-9A-F]{64})",fingerprint): raise ValueError("invalid PGP fingerprint syntax")\n        return fingerprint
     if entity_type=="eth_address":
         if len(raw)!=42 or not raw.startswith("0x") or any(c not in "0123456789abcdefABCDEF" for c in raw[2:]): raise ValueError("invalid ETH address syntax")
         return "0x"+raw[2:].lower()
@@ -54,5 +54,5 @@ def normalize_anchor(entity_type: str, value: str) -> str:
     if entity_type=="email":
         if raw.count("@")!=1: raise ValueError("invalid email syntax")
         local,domain=raw.rsplit("@",1)
-        return local+"@"+domain.lower()
+        return local.lower()+"@"+domain.lower()
     raise ValueError("this entity type requires a type-specific validated normalizer")
