@@ -119,7 +119,7 @@ BEGIN
     IF p_outcome IS NULL OR p_outcome NOT IN ('checked', 'failed', 'unavailable') THEN
         RAISE EXCEPTION 'invalid source observation outcome';
     END IF;
-    IF p_scope_key IS NULL OR length(p_scope_key) NOT BETWEEN 1 AND 240 OR p_scope_key NOT LIKE p_source_id || ':%' THEN
+    IF p_scope_key IS NULL OR length(p_scope_key) NOT BETWEEN 1 AND 240 OR left(p_scope_key, length(p_source_id) + 1) <> p_source_id || ':' THEN
         RAISE EXCEPTION 'invalid source observation scope';
     END IF;
     IF p_documents_new IS NOT NULL AND p_documents_new < 0 THEN
