@@ -176,30 +176,125 @@ class DarkWebScheduler:
         return {"matched": matched, "alerts": alerts, "errors": errors}
 
     async def _persist_onion_seed_state(self, crawler: NativeOnionCrawler) -> None:
-        rows = []
-        for url, state in crawler.seed_status.items():
-            parsed = urlsplit(url)
-            row = {
-                "url": url,
-                "hostname": (parsed.hostname or "").lower(),
-                "seed_origin": crawler.seed_origin.get(url, "configured"),
-                "discovered_from": crawler.discovered_from.get(url),
-                "status": state if state in {"checked", "failed", "disabled"} else "candidate",
-                "last_status": state,
-                "last_checked": datetime.now(UTC).isoformat() if state in {"checked", "failed"} else None,
-            }
-            digest = crawler.seed_content_hash.get(url)
-            if digest:
-                row["last_response_sha256"] = digest
-            rows.append(row)
-        if not rows:
+        if not crawler.seed_status:
             return
 
-        async def _do():
-            client = await supabase._ensure()
-            return await client.table("dw_onion_seeds").upsert(rows, on_conflict="url").execute()
+        client = await supabase._ensure()
+        urls = list(crawler.seed_status)
+        hosts = sorted({
+            (urlsplit(url).hostname or "").lower()
+            for url in urls
+            if urlsplit(url).hostname
+        })
+        existing_by_host: dict[str, dict] = {}
+        for offset in range(0, len(hosts), 100):
+            batch = hosts[offset:offset + 100]
+            result = await client.table("dw_onion_seeds").select(
+                "id,url,hostname,seed_type,monitoring_enabled"
+            ).in_("hostname", batch).execute()
+            for row in result.data or []:
+                host = str(row.get("hostname") or "").lower()
+                if host:
+                    existing_by_host[host] = row
 
-        await supabase._retry(_do, attempts=2)
+        # Newly discovered onion links are inventory candidates only. Never enable
+        # monitoring here; actual probe evidence is recorded separately below.
+        missing_rows = []
+        for url in urls:
+            parsed = urlsplit(url)
+            host = (parsed.hostname or "").lower()
+            if not host or host in existing_by_host:
+                continue
+            missing_rows.append({
+                "url": url,
+                "hostname": host,
+                "seed_origin": crawler.seed_origin.get(url, "configured"),
+                "discovered_from": crawler.discovered_from.get(url),
+                "status": "candidate",
+                "category_slug": "unclassified",
+                "source_role": "candidate_onion_service",
+                "requires_tor_probe": True,
+                "monitoring_enabled": False,
+                "candidate_trust": "candidate",
+                "probe_metadata": {
+                    "tor_route_verified": False,
+                    "reachability_verified": False,
+                    "publisher_identity_verified": False,
+                    "customer_matching_allowed": False,
+                },
+            })
+        for offset in range(0, len(missing_rows), 100):
+            inserted = await client.table("dw_onion_seeds").insert(
+                missing_rows[offset:offset + 100]
+            ).execute()
+            for row in inserted.data or []:
+                host = str(row.get("hostname") or "").lower()
+                if host:
+                    existing_by_host[host] = row
+
+        for url, state in crawler.seed_status.items():
+            parsed = urlsplit(url)
+            host = (parsed.hostname or "").lower()
+            seed_row = existing_by_host.get(host)
+            if not seed_row or not seed_row.get("id"):
+                logger.warning("onion probe evidence not persisted: seed row unavailable host=%s", host)
+                continue
+            probe = crawler.seed_probe_evidence.get(url, {})
+            http_status = probe.get("http_status")
+            digest = probe.get("response_sha256")
+            response_bytes = int(probe.get("response_bytes") or 0)
+            # A response obtained through a configured proxy is not by itself
+            # proof that the proxy is a trusted Tor route. Keep that flag false
+            # until the runtime route is independently validated.
+            has_http_content = (
+                isinstance(http_status, int)
+                and 200 <= http_status < 300
+                and isinstance(digest, str)
+                and len(digest) == 64
+                and response_bytes > 0
+            )
+            outcome = "reachable_unverified" if has_http_content else "unreachable"
+            error_code = probe.get("error_code")
+            metadata = {
+                "collector": "native_onion",
+                "seed_state": state,
+                "seed_origin": crawler.seed_origin.get(url, "configured"),
+                "discovered_from": crawler.discovered_from.get(url),
+                "tor_route_verified": False,
+                "publisher_identity_verified": False,
+                "customer_matching_allowed": False,
+                "content_inspected": bool(has_http_content),
+                "response_bytes": response_bytes,
+                "response_sha256": digest,
+            }
+            try:
+                await supabase.rpc(
+                    "dw_record_onion_probe_result",
+                    {
+                        "p_seed_id": str(seed_row["id"]),
+                        "p_probe_method": "native_onion_crawler",
+                        "p_tor_route_verified": False,
+                        "p_request_url": url,
+                        "p_http_status": http_status,
+                        "p_response_sha256": digest,
+                        "p_content_type": probe.get("content_type"),
+                        "p_response_bytes": response_bytes,
+                        "p_publisher_proof_url": None,
+                        "p_publisher_proof_verified": False,
+                        "p_independent_corroboration_url": None,
+                        "p_independent_corroboration_verified": False,
+                        "p_provenance_match": False,
+                        "p_outcome": outcome,
+                        "p_error_code": str(error_code)[:120] if error_code else None,
+                        "p_evidence_metadata": metadata,
+                    },
+                )
+            except Exception as exc:
+                logger.error(
+                    "onion probe evidence persistence failed host=%s error=%s",
+                    host,
+                    type(exc).__name__,
+                )
 
     async def _enabled_sources(self) -> set[str]:
         async def _do():
