@@ -299,7 +299,7 @@ class DarkWebScheduler:
                     "dw_record_onion_probe_result",
                     {
                         "p_seed_id": str(seed_row["id"]),
-                        "p_probe_method": "native_onion_crawler",
+                        "p_probe_method": "tor_https_get" if parsed.scheme == "https" else "tor_http_get",
                         "p_tor_route_verified": False,
                         "p_request_url": url,
                         "p_http_status": http_status,
