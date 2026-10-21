@@ -290,7 +290,7 @@ class DarkWebScheduler:
                 "source_id": "telegram_public",
                 "scope_key": scope_key,
                 "evaluated_at": now.isoformat(),
-                "last_document_at": latest_document_at.isoformat() if latest_document_dt else None,
+                "last_document_at": latest_document_dt.isoformat() if latest_document_dt else None,
                 "baseline_start": score.get("baseline_start"),
                 "baseline_end": score.get("baseline_end"),
                 "baseline_bucket_count": int(score.get("baseline_bucket_count") or 0),
