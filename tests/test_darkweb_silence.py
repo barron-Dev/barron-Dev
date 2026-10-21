@@ -201,3 +201,16 @@ def test_incomplete_cursor_poll_during_gap_blocks_silence_candidate():
     )
     assert result["state"] == "monitoring_unavailable"
     assert result.get("reason") == "gap_collection_not_continuously_healthy"
+
+
+
+def test_single_isolated_publication_burst_does_not_define_expected_rate():
+    now = datetime(2026, 10, 21, 12, tzinfo=UTC)
+    buckets = _eight_week_hourly_buckets(now, documents_per_hour=0)
+    buckets[0]["documents_new_sum"] = 100
+    result = evaluate_silence(
+        buckets, now=now, last_document_at=now - timedelta(days=2),
+        monitoring_healthy=True,
+    )
+    assert result["state"] == "no_expected_activity"
+    assert result["expected_rate_per_hour"] == 0
