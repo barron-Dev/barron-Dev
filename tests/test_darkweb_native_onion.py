@@ -2,7 +2,7 @@ from unittest.mock import patch
 
 import pytest
 
-from cyclothone.darkweb.native_onion import NativeOnionCrawler, configured_onion_seeds
+from cyclothone.darkweb.native_onion import MAX_BODY_BYTES, NativeOnionCrawler, configured_onion_seeds
 
 
 class _Response:
@@ -88,6 +88,26 @@ async def test_native_crawler_only_follows_same_onion_host_and_records_exact_evi
     assert all(f.metadata["exposure_layer"] == "dark" for f in findings)
     assert all(f.metadata["access_mode"] == "tor_public_onion" for f in findings)
     assert all("outside" not in (f.source_url or "") for f in findings)
+
+
+@pytest.mark.asyncio
+async def test_native_crawler_rejects_oversized_response_without_hashing_partial_body():
+    class _LargeClient(_Client):
+        def stream(self, method, url):
+            self.urls.append(url)
+            return _Stream(_Response(b"x" * (MAX_BODY_BYTES + 1)))
+
+    seed = "http://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.onion/"
+    crawler = NativeOnionCrawler(seeds=[seed], proxy="socks5://127.0.0.1:9050")
+    with patch("cyclothone.darkweb.native_onion.httpx.AsyncClient", _LargeClient):
+        with pytest.raises(RuntimeError, match="native_onion_no_seed_reachable"):
+            await crawler.pull("domain", "owned-example.com")
+
+    evidence = crawler.seed_probe_evidence[seed]
+    assert evidence["http_status"] == 200
+    assert evidence["error_code"] == "response_body_too_large"
+    assert evidence["response_sha256"] is None
+    assert crawler.pages_checked == 0
 
 
 @pytest.mark.asyncio
