@@ -21,6 +21,39 @@ def _as_utc(value: datetime | str) -> datetime:
     return value.astimezone(UTC)
 
 
+def derive_cursor_delta(post_ids: list[int], previous_cursor: int | None) -> dict:
+    """Count new visible Telegram posts only when the previous cursor is still visible."""
+    ids = sorted({int(value) for value in post_ids if int(value) > 0})
+    if not ids:
+        return {
+            "cursor_value": previous_cursor,
+            "documents_new": None,
+            "count_complete": False,
+            "error_code": "telegram_message_parse_empty",
+        }
+    current_cursor = max(ids)
+    if previous_cursor is None:
+        return {
+            "cursor_value": current_cursor,
+            "documents_new": None,
+            "count_complete": False,
+            "error_code": "cursor_initialized",
+        }
+    if previous_cursor not in ids:
+        return {
+            "cursor_value": current_cursor,
+            "documents_new": None,
+            "count_complete": False,
+            "error_code": "cursor_not_visible",
+        }
+    return {
+        "cursor_value": current_cursor,
+        "documents_new": sum(1 for value in ids if value > previous_cursor),
+        "count_complete": True,
+        "error_code": None,
+    }
+
+
 def silence_pvalue(
     last_document_at: datetime | str,
     now: datetime | str,
