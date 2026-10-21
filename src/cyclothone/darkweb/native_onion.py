@@ -125,6 +125,7 @@ class NativeOnionCrawler:
         self.discovered_from: dict[str, str] = dict(discovered_from or {})
         self.discovered_seeds: list[dict[str, str]] = []
         self.seed_content_hash: dict[str, str] = {}
+        self.seed_probe_evidence: dict[str, dict] = {}
         self.pages_checked = 0
         self.pages_failed = 0
         self.matches = 0
@@ -176,10 +177,18 @@ class NativeOnionCrawler:
                         visited.add(url)
                         try:
                             async with client.stream("GET", url) as response:
+                                content_type = response.headers.get("content-type", "").lower()
+                                if url == seed and seed not in self.seed_probe_evidence:
+                                    self.seed_probe_evidence[seed] = {
+                                        "http_status": response.status_code,
+                                        "content_type": content_type[:200] or None,
+                                        "response_bytes": 0,
+                                        "response_sha256": None,
+                                        "error_code": None if 200 <= response.status_code < 300 else f"http_status_{response.status_code}",
+                                    }
                                 if response.status_code < 200 or response.status_code >= 300:
                                     self.pages_failed += 1
                                     continue
-                                content_type = response.headers.get("content-type", "").lower()
                                 if content_type and not any(kind in content_type for kind in ("text/html", "text/plain", "application/xhtml")):
                                     continue
                                 chunks: list[bytes] = []
@@ -205,6 +214,14 @@ class NativeOnionCrawler:
                                 continue
                             body_hash = hashlib.sha256(body).hexdigest()
                             self.seed_content_hash.setdefault(seed, body_hash)
+                            if url == seed:
+                                self.seed_probe_evidence[seed] = {
+                                    "http_status": response.status_code,
+                                    "content_type": content_type[:200] or None,
+                                    "response_bytes": len(body),
+                                    "response_sha256": body_hash,
+                                    "error_code": None,
+                                }
                             total_pages += 1
                             seed_pages += 1
                             self.pages_checked += 1
@@ -249,6 +266,14 @@ class NativeOnionCrawler:
                         except asyncio.CancelledError:
                             raise
                         except Exception as exc:
+                            if url == seed and seed not in self.seed_probe_evidence:
+                                self.seed_probe_evidence[seed] = {
+                                    "http_status": None,
+                                    "content_type": None,
+                                    "response_bytes": 0,
+                                    "response_sha256": None,
+                                    "error_code": type(exc).__name__[:120],
+                                }
                             self.pages_failed += 1
                             logger.info("native onion page failed host=%s error=%s", host, type(exc).__name__)
                     self.seed_status[seed] = "checked" if seed_success else "failed"
