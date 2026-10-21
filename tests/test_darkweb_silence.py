@@ -1,6 +1,7 @@
 from datetime import UTC, datetime, timedelta
 
 from cyclothone.darkweb.silence import derive_cursor_delta, evaluate_silence, silence_pvalue
+from cyclothone.darkweb.scheduler import _source_silence_enabled
 
 
 def test_poisson_zero_probability_is_monotonic_with_gap():
@@ -214,3 +215,16 @@ def test_single_isolated_publication_burst_does_not_define_expected_rate():
     )
     assert result["state"] == "no_expected_activity"
     assert result["expected_rate_per_hour"] == 0
+
+
+
+def test_source_silence_telemetry_is_disabled_without_explicit_flag(monkeypatch):
+    monkeypatch.delenv("CYCLOTHONE_DW_SOURCE_SILENCE_ENABLED", raising=False)
+    assert _source_silence_enabled() is False
+
+
+def test_source_silence_telemetry_requires_explicit_true(monkeypatch):
+    monkeypatch.setenv("CYCLOTHONE_DW_SOURCE_SILENCE_ENABLED", "true")
+    assert _source_silence_enabled() is True
+    monkeypatch.setenv("CYCLOTHONE_DW_SOURCE_SILENCE_ENABLED", "0")
+    assert _source_silence_enabled() is False
