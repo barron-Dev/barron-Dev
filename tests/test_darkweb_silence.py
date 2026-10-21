@@ -1,6 +1,6 @@
 from datetime import UTC, datetime, timedelta
 
-from cyclothone.darkweb.silence import evaluate_silence, silence_pvalue
+from cyclothone.darkweb.silence import derive_cursor_delta, evaluate_silence, silence_pvalue
 
 
 def test_poisson_zero_probability_is_monotonic_with_gap():
@@ -54,3 +54,28 @@ def test_zero_baseline_rate_is_not_called_silence():
         monitoring_healthy=True,
     )
     assert result["state"] == "no_expected_activity"
+
+
+
+def test_first_cursor_is_initialization_not_a_zero_count():
+    result = derive_cursor_delta([10, 11, 12], None)
+    assert result == {
+        "cursor_value": 12,
+        "documents_new": None,
+        "count_complete": False,
+        "error_code": "cursor_initialized",
+    }
+
+
+def test_visible_cursor_with_no_new_posts_is_a_complete_zero():
+    result = derive_cursor_delta([10, 11, 12], 12)
+    assert result["documents_new"] == 0
+    assert result["count_complete"] is True
+    assert result["error_code"] is None
+
+
+def test_missing_previous_cursor_is_unknown_not_silence():
+    result = derive_cursor_delta([30, 31, 32], 12)
+    assert result["documents_new"] is None
+    assert result["count_complete"] is False
+    assert result["error_code"] == "cursor_not_visible"
