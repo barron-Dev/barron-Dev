@@ -97,6 +97,7 @@ class DarkWebScheduler:
                     client.table("dw_onion_seeds")
                     .select("url,status,seed_origin,discovered_from,last_checked")
                     .in_("status", ["checked", "failed"])
+                    .eq("monitoring_enabled", True)
                     .order("last_checked", desc=True)
                     .limit(50)
                     .execute()
