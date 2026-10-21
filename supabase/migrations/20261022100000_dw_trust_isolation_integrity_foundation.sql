@@ -1,8 +1,7 @@
 -- Cyclothone Dark Web trust/isolation foundation. Additive and dormant.
 -- No source activation, probing, or secret provisioning is performed by this migration.
 begin;
-create schema if not exists extensions;
-create extension if not exists vector with schema extensions;
+create extension if not exists vector;
 create table if not exists public.dw_client_auth_credentials (
  id uuid primary key default gen_random_uuid(),
  tenant_id uuid not null references public.tenants(id) on delete cascade,
@@ -122,7 +121,7 @@ create table if not exists public.dw_content_embeddings (
  id uuid primary key default gen_random_uuid(),
  source_id uuid not null references public.dw_onion_seeds(id) on delete cascade,
  tenant_id uuid references public.tenants(id) on delete cascade,
- embedding extensions.vector(1536) not null,
+ embedding public.vector(1536) not null,
  topic_label text,
  baseline_id uuid,
  model_id text not null,
@@ -185,7 +184,7 @@ commit;
 ),
  created_at timestamptz not null default now()
 );
-create index if not exists dw_content_embeddings_hnsw_idx on public.dw_content_embeddings using hnsw (embedding extensions.vector_cosine_ops);
+create index if not exists dw_content_embeddings_hnsw_idx on public.dw_content_embeddings using hnsw (embedding public.vector_cosine_ops);
 create index if not exists dw_content_embeddings_source_time_idx on public.dw_content_embeddings(source_id,created_at desc);
 create table if not exists public.dw_source_anomaly_events (
  id uuid primary key default gen_random_uuid(),
