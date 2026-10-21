@@ -81,6 +81,33 @@ def _hour_of_week(value: datetime) -> int:
     return utc.weekday() * 24 + utc.hour
 
 
+def zero_arrival_probability(expected_count: float, dispersion_size: float | None = None) -> float:
+    """P(N=0) for an expected count, using Poisson or negative-binomial dispersion."""
+    lam = max(float(expected_count), 0.0)
+    if dispersion_size is None or not isfinite(dispersion_size) or dispersion_size <= 0:
+        return exp(-lam)
+    size = float(dispersion_size)
+    return (size / (size + lam)) ** size
+
+
+def _expected_count_over_gap(
+    last_seen: datetime,
+    current: datetime,
+    slot_rates: dict[int, float],
+) -> float:
+    """Integrate the seasonal hourly baseline over the exact observed gap."""
+    cursor = _as_utc(last_seen)
+    end_time = _as_utc(current)
+    expected = 0.0
+    while cursor < end_time:
+        next_hour = cursor.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
+        segment_end = min(next_hour, end_time)
+        fraction = (segment_end - cursor).total_seconds() / 3600.0
+        expected += max(slot_rates.get(_hour_of_week(cursor), 0.0), 0.0) * fraction
+        cursor = segment_end
+    return expected
+
+
 def evaluate_silence(
     buckets: list[dict],
     *,
@@ -167,7 +194,8 @@ def evaluate_silence(
             "hour_of_week_slots_ready": sum(len(slots.get(slot, [])) >= MIN_VALID_HOURS_PER_SLOT for slot in range(168)),
         }
 
-    # Winsorize the upper 5% to keep a single burst from dominating the rate.
+    # Winsorize the upper 5% to keep one burst from dominating global or
+    # seasonal rates. Shrink each hour-of-week slot toward the global robust rate.
     counts = sorted(count for _, count in valid)
     cap_index = min(len(counts) - 1, int(0.95 * (len(counts) - 1)))
     cap = counts[cap_index]
@@ -177,10 +205,19 @@ def evaluate_silence(
             "state": "no_expected_activity",
             "p_value": 1.0,
             "expected_rate_per_hour": 0.0,
+            "expected_count": 0.0,
             "baseline_bucket_count": len(valid),
         }
 
-    # Convert variance to the negative-binomial size parameter r where possible.
+    slot_rates: dict[int, float] = {}
+    for slot, values in slots.items():
+        ordered = sorted(values)
+        slot_cap = ordered[min(len(ordered) - 1, int(0.95 * (len(ordered) - 1)))]
+        slot_rate = mean(min(value, slot_cap) for value in ordered)
+        weight = len(values) / (len(values) + MIN_VALID_HOURS_PER_SLOT)
+        slot_rates[slot] = weight * slot_rate + (1.0 - weight) * robust_rate
+
+    # Estimate over-dispersion from the full valid hourly series.
     sample_mean = mean(counts)
     variance = sum((count - sample_mean) ** 2 for count in counts) / max(len(counts) - 1, 1)
     dispersion_size = None
@@ -189,12 +226,15 @@ def evaluate_silence(
         dispersion_size = max(min(dispersion_size, 1e6), 1e-3)
 
     gap_hours = max((current - last_seen).total_seconds() / 3600.0, 0.0)
-    p_value = silence_pvalue(last_seen, current, robust_rate, dispersion_size)
+    expected_count = _expected_count_over_gap(last_seen, current, slot_rates)
+    p_value = zero_arrival_probability(expected_count, dispersion_size)
+    expected_rate = expected_count / gap_hours if gap_hours > 0 else 0.0
     candidate = gap_hours >= MIN_SILENCE_GAP_HOURS and p_value <= SILENCE_PVALUE_THRESHOLD
     return {
         "state": "silence_candidate" if candidate else "normal",
         "p_value": p_value,
-        "expected_rate_per_hour": robust_rate,
+        "expected_rate_per_hour": expected_rate,
+        "expected_count": expected_count,
         "dispersion_size": dispersion_size,
         "gap_hours": gap_hours,
         "baseline_bucket_count": len(valid),
