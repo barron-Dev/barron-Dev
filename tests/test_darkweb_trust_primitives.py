@@ -1,5 +1,5 @@
 import unittest
-from src.cyclothone.darkweb.trust_primitives import (
+from cyclothone.darkweb.trust_primitives import (
  anomaly_score, cosine_distance, isolation_username, minhash_signature,
  minhash_similarity, mirror_verdict, normalize_text, sha256_hex, simhash64,
  validate_v3_hostname,
