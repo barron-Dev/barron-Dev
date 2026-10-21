@@ -17,7 +17,7 @@ DIRECTORY_URL = "https://securedrop.org/api/v1/directory/"
 DIRECTORY_HOST = "securedrop.org"
 MAX_BODY_BYTES = 4_000_000
 MAX_ENTRIES = 5_000
-ONION_V3_HOST = re.compile(r"^[a-z2-7]{56}\\.onion$", re.IGNORECASE)
+ONION_V3_HOST = re.compile(r"^[a-z2-7]{56}\.onion$", re.IGNORECASE)
 
 
 def _valid_https_url(value: object, allowed_hosts: set[str]) -> str | None:
@@ -78,7 +78,7 @@ def parse_directory(body: bytes) -> list[dict]:
             "seed_origin": "discovered",
             "discovered_from": DIRECTORY_URL,
             "status": "candidate",
-            "category_slug": "publisher",
+            "category_slug": "unclassified",
             "source_role": "securedrop_directory_candidate",
             "provenance_url": directory_url,
             "candidate_trust": "candidate",
@@ -141,10 +141,10 @@ class SecureDropDirectoryCollector:
                     size = 0
                     async for chunk in response.aiter_bytes():
                         remaining = MAX_BODY_BYTES - size
-                        if remaining <= 0:
+                        if remaining <= 0 or len(chunk) > remaining:
                             raise RuntimeError("securedrop_directory_body_too_large")
-                        chunks.append(chunk[:remaining])
-                        size += min(len(chunk), remaining)
+                        chunks.append(chunk)
+                        size += len(chunk)
                     body = b"".join(chunks)
             digest = hashlib.sha256(body).hexdigest()
             candidates = parse_directory(body)
