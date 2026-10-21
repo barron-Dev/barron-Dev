@@ -143,9 +143,12 @@ def test_any_incomplete_poll_invalidates_that_hour_for_baseline():
                 "complete_poll_count": 4,
                 "failed_poll_count": 0,
             })
-    # A checked response with an unparseable cursor is unknown, not a zero.
-    buckets[0]["poll_count"] = 4
-    buckets[0]["complete_poll_count"] = 3
+    # Repeated checked responses with an unparseable cursor leave one seasonal
+    # slot without enough complete history; they must not be counted as zeros.
+    for row in buckets:
+        if datetime.fromisoformat(row["bucket_hour"]).weekday() * 24 + datetime.fromisoformat(row["bucket_hour"]).hour == 0:
+            row["poll_count"] = 4
+            row["complete_poll_count"] = 3
     result = evaluate_silence(
         buckets, now=now, last_document_at=now - timedelta(days=2),
         monitoring_healthy=True,
