@@ -127,34 +127,6 @@ def evaluate_silence(
     if last_seen is None:
         return {"state": "insufficient_baseline", "p_value": None, "baseline_bucket_count": 0}
 
-    # A quiet-source claim is invalid if any complete hour in the observed gap
-    # lacks enough successful polls or contains a failed poll. Partial boundary
-    # hours are excluded rather than guessed.
-    bucket_by_hour = {
-        _as_utc(row["bucket_hour"]).replace(minute=0, second=0, microsecond=0): row
-        for row in buckets
-    }
-    first_full_hour = last_seen.replace(minute=0, second=0, microsecond=0)
-    if first_full_hour < last_seen:
-        first_full_hour += timedelta(hours=1)
-    end_full_hour = current.replace(minute=0, second=0, microsecond=0)
-    check_hour = first_full_hour
-    while check_hour < end_full_hour:
-        gap_bucket = bucket_by_hour.get(check_hour)
-        if (
-            gap_bucket is None
-            or int(gap_bucket.get("complete_poll_count") or 0) < MIN_COMPLETE_POLLS_PER_HOUR
-            or int(gap_bucket.get("failed_poll_count") or 0) != 0
-        ):
-            return {
-                "state": "monitoring_unavailable",
-                "p_value": None,
-                "baseline_bucket_count": 0,
-                "reason": "gap_collection_not_continuously_healthy",
-                "unhealthy_hour": check_hour.isoformat(),
-            }
-        check_hour += timedelta(hours=1)
-
     valid = []
     for row in buckets:
         bucket_time = _as_utc(row["bucket_hour"])
@@ -193,6 +165,34 @@ def evaluate_silence(
             "baseline_bucket_count": len(valid),
             "hour_of_week_slots_ready": sum(len(slots.get(slot, [])) >= MIN_VALID_HOURS_PER_SLOT for slot in range(168)),
         }
+
+    # A quiet-source claim is invalid if any complete hour in the observed gap
+    # lacks enough successful polls or contains a failed poll. Partial boundary
+    # hours are excluded rather than guessed.
+    bucket_by_hour = {
+        _as_utc(row["bucket_hour"]).replace(minute=0, second=0, microsecond=0): row
+        for row in buckets
+    }
+    first_full_hour = last_seen.replace(minute=0, second=0, microsecond=0)
+    if first_full_hour < last_seen:
+        first_full_hour += timedelta(hours=1)
+    end_full_hour = current.replace(minute=0, second=0, microsecond=0)
+    check_hour = first_full_hour
+    while check_hour < end_full_hour:
+        gap_bucket = bucket_by_hour.get(check_hour)
+        if (
+            gap_bucket is None
+            or int(gap_bucket.get("complete_poll_count") or 0) < MIN_COMPLETE_POLLS_PER_HOUR
+            or int(gap_bucket.get("failed_poll_count") or 0) != 0
+        ):
+            return {
+                "state": "monitoring_unavailable",
+                "p_value": None,
+                "baseline_bucket_count": 0,
+                "reason": "gap_collection_not_continuously_healthy",
+                "unhealthy_hour": check_hour.isoformat(),
+            }
+        check_hour += timedelta(hours=1)
 
     # Estimate the global rate from the 168 seasonal slot means, not the
     # pooled 95th percentile: pooled clipping would erase legitimate activity
