@@ -5,10 +5,10 @@ bytes from an approved capture adapter and must not pass decompressed response b
 as though they were wire-exact.
 """
 from __future__ import annotations
-import base64, gzip, hashlib, os, uuid
+import base64, gzip, hashlib, os, re, uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable\nfrom urllib.parse import urlsplit
 
 def sha256_hex(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
