@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from cyclothone.developer.auth import DeveloperPrincipal, authenticate_request
 from cyclothone.storage.supabase_client import supabase
+from cyclothone.api.routes.identity_investigation import router as identity_investigation_router
 
 router = APIRouter(tags=["identity"])
 
@@ -12,6 +13,8 @@ def principal(p: DeveloperPrincipal = Depends(authenticate_request)) -> Develope
     p.require(("console:read",))
     return p
 
+
+router.include_router(identity_investigation_router)
 
 @router.get("/identity/context")
 async def identity_context(p: DeveloperPrincipal = Depends(principal)):
