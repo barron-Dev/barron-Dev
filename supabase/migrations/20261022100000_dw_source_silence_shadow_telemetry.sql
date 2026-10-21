@@ -166,7 +166,7 @@ BEGIN
             + CASE WHEN p_count_complete THEN p_documents_new ELSE 0 END,
         last_document_at = COALESCE(
             GREATEST(existing.last_document_at, p_latest_document_at),
-            public.dw_source_silence_buckets.last_document_at,
+            existing.last_document_at,
             p_latest_document_at
         ),
         last_observed_at = GREATEST(existing.last_observed_at, p_observed_at),
