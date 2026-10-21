@@ -55,11 +55,14 @@ as $$
 declare prior_hash text; canonical text;
 begin
  perform pg_advisory_xact_lock(732104,881);
+ if exists (select 1 from public.dw_evidence_log where seq >= new.seq) then
+  raise exception 'evidence sequence allocated out of insert order; retry transaction' using errcode = '40001';
+ end if;
  select row_hash into prior_hash from public.dw_evidence_log order by seq desc limit 1;
  new.prev_hash := coalesce(prior_hash,repeat('0',64));
  canonical := concat_ws('|',new.seq::text,new.evidence_id::text,new.tenant_id::text,new.source_id::text,
- coalesce(new.queue_job_id::text,''),new.idempotency_key,new.archive_uri,new.warc_record_id,new.capture_kind,
- coalesce(new.response_status::text,''),new.content_length::text,new.content_sha256,new.archive_sha256,
+ coalesce(new.queue_job_id::text,''),new.idempotency_key,new.archive_uri,new.warc_record_id,new.archive_format,new.capture_kind,
+ coalesce(new.response_status::text,''),coalesce(new.content_type,''),new.content_length::text,new.content_sha256,new.archive_sha256,
  new.metadata_sha256,to_char(new.captured_at at time zone 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),new.prev_hash);
  new.row_hash := encode(extensions.digest(convert_to(canonical,'UTF8'),'sha256'),'hex');
  return new;
