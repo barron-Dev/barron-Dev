@@ -40,7 +40,7 @@ def normalize_anchor(entity_type: str, value: str) -> str:
     raw=value.strip()
     if entity_type=="onion":
         host=raw.lower().removeprefix("http://").removeprefix("https://").split("/",1)[0].split(":",1)[0].rstrip(".")
-        if not re.fullmatch(r"[a-z2-7]{56}\\.onion",host):
+        if not re.fullmatch(r"[a-z2-7]{56}\.onion",host):
             raise ValueError("invalid v3 onion hostname syntax")
         return host
     if entity_type=="pgp_key":\n        fingerprint="".join(raw.split()).upper()\n        if not re.fullmatch(r"(?:[0-9A-F]{40}|[0-9A-F]{64})",fingerprint): raise ValueError("invalid PGP fingerprint syntax")\n        return fingerprint
