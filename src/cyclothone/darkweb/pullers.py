@@ -131,12 +131,12 @@ class TelegramPublicMonitor:
 
                 post_ids = sorted({
                     int(value) for value in re.findall(
-                        r'data-post=["\\'][^/"\\']+/(\\d+)["\\']', html, flags=re.IGNORECASE
+                        r"data-post=[\"'][^/\"']+/(\\d+)[\"']", html, flags=re.IGNORECASE
                     )
                 })
                 published_at = []
                 for raw_time in re.findall(
-                    r'<time\\b[^>]*\\bdatetime=["\\']([^"\\']+)["\\']', html, flags=re.IGNORECASE
+                    r"<time\\b[^>]*\\bdatetime=[\"']([^\"']+)[\"']", html, flags=re.IGNORECASE
                 ):
                     try:
                         parsed_time = datetime.fromisoformat(raw_time.replace("Z", "+00:00"))
