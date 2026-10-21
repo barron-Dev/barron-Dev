@@ -154,3 +154,27 @@ def test_any_incomplete_poll_invalidates_that_hour_for_baseline():
         monitoring_healthy=True,
     )
     assert result["state"] == "insufficient_baseline"
+
+
+
+def test_sparse_weekly_publishing_does_not_collapse_to_zero_rate():
+    now = datetime(2026, 10, 21, 12, tzinfo=UTC)
+    start = now - timedelta(days=56)
+    buckets = []
+    for week in range(8):
+        for hour_index in range(168):
+            stamp = start + timedelta(days=week * 7, hours=hour_index)
+            slot = stamp.weekday() * 24 + stamp.hour
+            buckets.append({
+                "bucket_hour": stamp.isoformat(),
+                "documents_new_sum": 1 if slot == 12 else 0,
+                "poll_count": 4,
+                "complete_poll_count": 4,
+                "failed_poll_count": 0,
+            })
+    result = evaluate_silence(
+        buckets, now=now, last_document_at=now - timedelta(days=7),
+        monitoring_healthy=True,
+    )
+    assert result["state"] != "no_expected_activity"
+    assert result["expected_rate_per_hour"] > 0
