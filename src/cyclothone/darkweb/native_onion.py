@@ -20,7 +20,7 @@ MAX_PAGES_PER_SEED = 20
 MAX_TOTAL_PAGES = 100
 MAX_BODY_BYTES = 512_000
 ONION_SUFFIX = ".onion"
-ONION_V3_HOST = re.compile(r"^[a-z2-7]{56}\\.onion$")
+ONION_V3_HOST = re.compile(r"^[a-z2-7]{56}\.onion$")
 
 
 def configured_onion_seeds() -> list[str]:
