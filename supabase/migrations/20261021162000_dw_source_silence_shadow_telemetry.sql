@@ -131,6 +131,11 @@ BEGIN
     IF p_source_id IS NULL OR length(p_source_id) = 0 THEN
         RAISE EXCEPTION 'invalid source identifier';
     END IF;
+    -- Fail closed if the source is not registered. The FK also protects stored
+    -- rows, but this gives the RPC a clear validation boundary before any writes.
+    IF NOT EXISTS (SELECT 1 FROM public.dw_sources WHERE id = p_source_id) THEN
+        RAISE EXCEPTION 'source is not registered';
+    END IF;
     IF p_observed_at IS NULL OR p_observed_at > now() + interval '5 minutes'
        OR p_observed_at < now() - interval '24 hours' THEN
         RAISE EXCEPTION 'observation timestamp outside accepted window';
@@ -166,6 +171,14 @@ BEGIN
     END IF;
     IF p_metadata IS NULL OR jsonb_typeof(p_metadata) <> 'object' OR octet_length(p_metadata::text) > 8192 THEN
         RAISE EXCEPTION 'invalid observation metadata';
+    END IF;
+    -- For Telegram, bind the scope to the explicit channel metadata rather than
+    -- accepting any arbitrary suffix under the source prefix.
+    IF p_source_id = 'telegram_public'
+       AND (p_metadata ->> 'channel' IS NULL
+            OR length(p_metadata ->> 'channel') NOT BETWEEN 1 AND 200
+            OR p_scope_key <> 'telegram_public:' || (p_metadata ->> 'channel')) THEN
+        RAISE EXCEPTION 'Telegram scope does not match channel metadata';
     END IF;
 
     v_hour := date_trunc('hour', p_observed_at AT TIME ZONE 'UTC') AT TIME ZONE 'UTC';
