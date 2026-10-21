@@ -43,7 +43,11 @@ def normalize_anchor(entity_type: str, value: str) -> str:
         if not re.fullmatch(r"[a-z2-7]{56}\.onion",host):
             raise ValueError("invalid v3 onion hostname syntax")
         return host
-    if entity_type=="pgp_key":\n        fingerprint="".join(raw.split()).upper()\n        if not re.fullmatch(r"(?:[0-9A-F]{40}|[0-9A-F]{64})",fingerprint): raise ValueError("invalid PGP fingerprint syntax")\n        return fingerprint
+    if entity_type=="pgp_key":
+        fingerprint="".join(raw.split()).upper()
+        if not re.fullmatch(r"(?:[0-9A-F]{40}|[0-9A-F]{64})",fingerprint):
+            raise ValueError("invalid PGP fingerprint syntax")
+        return fingerprint
     if entity_type=="eth_address":
         if len(raw)!=42 or not raw.startswith("0x") or any(c not in "0123456789abcdefABCDEF" for c in raw[2:]): raise ValueError("invalid ETH address syntax")
         return "0x"+raw[2:].lower()
