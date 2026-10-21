@@ -183,6 +183,7 @@ def evaluate_silence(
         if (
             gap_bucket is None
             or int(gap_bucket.get("complete_poll_count") or 0) < MIN_COMPLETE_POLLS_PER_HOUR
+            or int(gap_bucket.get("poll_count") or 0) != int(gap_bucket.get("complete_poll_count") or 0)
             or int(gap_bucket.get("failed_poll_count") or 0) != 0
         ):
             return {
