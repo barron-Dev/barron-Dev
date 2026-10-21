@@ -4,7 +4,7 @@ from uuid import uuid4
 import pytest
 
 from cyclothone.darkweb.matcher import DarkWebMatcher, max_severity
-from cyclothone.darkweb.pullers import Finding, normalize, value_hash
+from cyclothone.darkweb.pullers import Finding, TelegramPublicMonitor, normalize, value_hash
 
 
 def test_identifier_hash_is_normalized():
@@ -53,3 +53,13 @@ async def test_watchlist_match_fans_out_per_tenant():
         })
     assert result == {"matched": 2, "alerts": 2, "errors": 0}
     assert record.await_count == 2
+
+
+
+@pytest.mark.asyncio
+async def test_telegram_empty_configuration_is_unavailable_not_success():
+    monitor = TelegramPublicMonitor([])
+    with pytest.raises(RuntimeError, match="no Telegram public channels configured"):
+        await monitor.pull()
+    assert monitor.channel_status == {}
+    assert monitor.channel_observations == {}
