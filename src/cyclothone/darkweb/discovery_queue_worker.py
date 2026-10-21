@@ -12,6 +12,7 @@ from urllib.parse import urlsplit
 import httpx
 
 from cyclothone.storage.supabase_client import supabase
+from cyclothone.darkweb.securedrop_directory import SecureDropDirectoryCollector
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +23,7 @@ MAX_LEASE_SECONDS = 120
 MAX_ATTEMPTS = 6
 MAX_SEARCH_RESULTS = 25
 MAX_INDEX_BODY = 1_000_000
+SECUREDROP_REFRESH_SECONDS = 24 * 60 * 60
 
 OFFICIAL_ENDPOINTS: dict[str, list[tuple[str, str, tuple[str, ...]]]] = {
     "criminal_justice_public_records": [
@@ -117,6 +119,7 @@ class DWDiscoveryQueueWorker:
         self._enabled = os.getenv("CYCLOTHONE_DW_DISCOVERY_WORKER_ENABLED", "false").strip().lower() not in {
             "0", "false", "no", "off"
         }
+        self._last_securedrop_refresh = 0.0
 
     def start(self) -> None:
         if not self._enabled:
@@ -139,6 +142,7 @@ class DWDiscoveryQueueWorker:
     async def _loop(self) -> None:
         await asyncio.sleep(10)
         while not self._stop.is_set():
+            await self._maybe_refresh_securedrop_directory()
             try:
                 rows = await supabase.rpc(
                     "claim_dw_source_discovery_jobs",
@@ -154,6 +158,23 @@ class DWDiscoveryQueueWorker:
                 # Missing/unapplied migration is a visible blocker, never a fake success.
                 logger.error("DW discovery queue unavailable error=%s", type(exc).__name__)
                 await self._sleep(30)
+
+    async def _maybe_refresh_securedrop_directory(self) -> None:
+        now = asyncio.get_running_loop().time()
+        if now - self._last_securedrop_refresh < SECUREDROP_REFRESH_SECONDS:
+            return
+        self._last_securedrop_refresh = now
+        try:
+            result = await SecureDropDirectoryCollector().run()
+            logger.info(
+                "SecureDrop directory refresh state=%s candidates=%s new_candidates=%s findings_created=%s",
+                result.get("state"),
+                result.get("candidate_count", 0),
+                result.get("new_candidate_count", 0),
+                result.get("customer_findings_created", 0),
+            )
+        except Exception as exc:
+            logger.error("SecureDrop directory refresh failed error=%s", type(exc).__name__)
 
     async def _sleep(self, seconds: int) -> None:
         try:
