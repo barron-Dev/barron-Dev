@@ -243,7 +243,7 @@ class DarkWebScheduler:
 
             bucket_response = await (
                 client.table("dw_source_silence_buckets")
-                .select("bucket_hour,complete_poll_count,failed_poll_count,documents_new_sum,last_document_at")
+                .select("bucket_hour,poll_count,complete_poll_count,failed_poll_count,documents_new_sum,last_document_at")
                 .eq("scope_key", scope_key)
                 .gte("bucket_hour", (now - timedelta(days=56)).isoformat())
                 .lte("bucket_hour", now.isoformat())
@@ -255,7 +255,7 @@ class DarkWebScheduler:
             if len(buckets) == 1000:
                 next_response = await (
                     client.table("dw_source_silence_buckets")
-                    .select("bucket_hour,complete_poll_count,failed_poll_count,documents_new_sum,last_document_at")
+                    .select("bucket_hour,poll_count,complete_poll_count,failed_poll_count,documents_new_sum,last_document_at")
                     .eq("scope_key", scope_key)
                     .gte("bucket_hour", (now - timedelta(days=56)).isoformat())
                     .lte("bucket_hour", now.isoformat())
