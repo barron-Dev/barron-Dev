@@ -194,12 +194,12 @@ def evaluate_silence(
             "hour_of_week_slots_ready": sum(len(slots.get(slot, [])) >= MIN_VALID_HOURS_PER_SLOT for slot in range(168)),
         }
 
-    # Winsorize the upper 5% to keep one burst from dominating global or
-    # seasonal rates. Shrink each hour-of-week slot toward the global robust rate.
+    # Estimate the global rate from the 168 seasonal slot means, not the
+    # pooled 95th percentile: pooled clipping would erase legitimate activity
+    # from low-volume sources whose publishing is concentrated in a few slots.
     counts = sorted(count for _, count in valid)
-    cap_index = min(len(counts) - 1, int(0.95 * (len(counts) - 1)))
-    cap = counts[cap_index]
-    robust_rate = mean(min(count, cap) for count in counts)
+    slot_means = {slot: mean(values) for slot, values in slots.items()}
+    robust_rate = mean(slot_means.values()) if slot_means else 0.0
     if robust_rate <= 0:
         return {
             "state": "no_expected_activity",
@@ -211,9 +211,7 @@ def evaluate_silence(
 
     slot_rates: dict[int, float] = {}
     for slot, values in slots.items():
-        ordered = sorted(values)
-        slot_cap = ordered[min(len(ordered) - 1, int(0.95 * (len(ordered) - 1)))]
-        slot_rate = mean(min(value, slot_cap) for value in ordered)
+        slot_rate = slot_means[slot]
         weight = len(values) / (len(values) + MIN_VALID_HOURS_PER_SLOT)
         slot_rates[slot] = weight * slot_rate + (1.0 - weight) * robust_rate
 
