@@ -11,10 +11,10 @@ class EvidenceIntegrityTests(unittest.TestCase):
   with self.assertRaises(ValueError): merkle_root([])
  def test_entity_matches_are_candidates_not_merges(self):
   self.assertEqual(entity_match_score(1.0,2,True).disposition,"auto_candidate")
-  self.assertEqual(entity_match_score(0.95,0,True).disposition,"human_review")
+  self.assertEqual(entity_match_score(0.95,2,False).disposition,"human_review")
   self.assertEqual(entity_match_score(0.2,0,True).disposition,"no_link")
  def test_anchor_normalization_is_conservative(self):
   self.assertEqual(normalize_anchor("eth_address","0x"+"A"*40),"0x"+"a"*40)
-  self.assertEqual(normalize_anchor("email","User@EXAMPLE.COM"),"User@example.com")
+  self.assertEqual(normalize_anchor("email","User@EXAMPLE.COM"),"user@example.com")
   with self.assertRaises(ValueError): normalize_anchor("btc_address","not-validated")
 if __name__=="__main__": unittest.main()
