@@ -114,6 +114,10 @@ class TelegramPublicMonitor:
         self.channel_observations: dict[str, dict] = {}
 
     async def pull(self, target_type: str | None = None, target: str | None = None) -> list[Finding]:
+        if not self.channels:
+            self.channel_status = {}
+            self.channel_observations = {}
+            raise RuntimeError("no Telegram public channels configured")
         semaphore = asyncio.Semaphore(5)
         target = normalize(target) if target else None
         target_kind = {"email": "email", "domain": "domain", "url": "domain"}.get(target_type or "")
