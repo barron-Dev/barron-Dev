@@ -8,7 +8,8 @@ from __future__ import annotations
 import base64, gzip, hashlib, os, re, uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterable\nfrom urllib.parse import urlsplit
+from typing import Iterable
+from urllib.parse import urlsplit
 
 def sha256_hex(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
