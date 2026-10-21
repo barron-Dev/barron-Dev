@@ -67,8 +67,8 @@ ALTER TABLE public.dw_source_silence_buckets ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.dw_source_silence_scores ENABLE ROW LEVEL SECURITY;
 
 REVOKE ALL ON public.dw_source_observations, public.dw_source_silence_buckets, public.dw_source_silence_scores FROM PUBLIC, anon, authenticated;
-GRANT SELECT, INSERT ON public.dw_source_observations TO service_role;
-GRANT SELECT, INSERT, UPDATE ON public.dw_source_silence_buckets TO service_role;
+GRANT SELECT ON public.dw_source_observations TO service_role;
+GRANT SELECT ON public.dw_source_silence_buckets TO service_role;
 GRANT SELECT, INSERT ON public.dw_source_silence_scores TO service_role;
 GRANT USAGE, SELECT ON SEQUENCE public.dw_source_observations_id_seq TO service_role;
 GRANT USAGE, SELECT ON SEQUENCE public.dw_source_silence_scores_id_seq TO service_role;
