@@ -76,8 +76,9 @@ def test_visible_cursor_with_no_new_posts_is_a_complete_zero():
     assert result["error_code"] is None
 
 
-def test_missing_previous_cursor_is_unknown_not_silence():
+def test_missing_previous_cursor_is_unknown_and_does_not_advance_cursor():
     result = derive_cursor_delta([30, 31, 32], 12)
+    assert result["cursor_value"] == 12
     assert result["documents_new"] is None
     assert result["count_complete"] is False
     assert result["error_code"] == "cursor_not_visible"
