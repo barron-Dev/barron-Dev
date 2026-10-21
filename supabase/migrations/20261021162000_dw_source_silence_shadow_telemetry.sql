@@ -15,7 +15,10 @@ CREATE TABLE IF NOT EXISTS public.dw_source_observations (
     error_code text,
     metadata jsonb NOT NULL DEFAULT '{}'::jsonb CHECK (jsonb_typeof(metadata) = 'object' AND octet_length(metadata::text) <= 8192),
     created_at timestamptz NOT NULL DEFAULT now(),
-    CHECK (NOT count_complete OR (outcome = 'checked' AND documents_new IS NOT NULL))
+    CHECK (NOT count_complete OR (outcome = 'checked' AND documents_new IS NOT NULL)),
+    CHECK (count_complete OR documents_new IS NULL),
+    CHECK (cursor_value IS NULL OR cursor_value >= 0),
+    CHECK (latest_document_at IS NULL OR latest_document_at <= observed_at + interval '5 minutes')
 );
 
 CREATE INDEX IF NOT EXISTS idx_dw_source_observations_scope_time
@@ -116,17 +119,38 @@ DECLARE
     v_id bigint;
     v_hour timestamptz;
 BEGIN
+    IF p_source_id IS NULL OR length(p_source_id) = 0 THEN
+        RAISE EXCEPTION 'invalid source identifier';
+    END IF;
+    IF p_observed_at IS NULL OR p_observed_at > now() + interval '5 minutes'
+       OR p_observed_at < now() - interval '24 hours' THEN
+        RAISE EXCEPTION 'observation timestamp outside accepted window';
+    END IF;
     IF p_outcome IS NULL OR p_outcome NOT IN ('checked', 'failed', 'unavailable') THEN
         RAISE EXCEPTION 'invalid source observation outcome';
     END IF;
-    IF p_scope_key IS NULL OR length(p_scope_key) NOT BETWEEN 1 AND 240 OR left(p_scope_key, length(p_source_id) + 1) <> (p_source_id || ':') THEN
+    IF p_scope_key IS NULL OR length(p_scope_key) NOT BETWEEN 1 AND 240
+       OR length(p_scope_key) <= length(p_source_id) + 1
+       OR left(p_scope_key, length(p_source_id) + 1) <> (p_source_id || ':') THEN
         RAISE EXCEPTION 'invalid source observation scope';
+    END IF;
+    IF p_cursor_value IS NOT NULL AND p_cursor_value < 0 THEN
+        RAISE EXCEPTION 'invalid cursor value';
     END IF;
     IF p_documents_new IS NOT NULL AND p_documents_new < 0 THEN
         RAISE EXCEPTION 'invalid document count';
     END IF;
+    IF p_count_complete IS NULL THEN
+        RAISE EXCEPTION 'count completeness is required';
+    END IF;
     IF p_count_complete AND (p_outcome <> 'checked' OR p_documents_new IS NULL) THEN
         RAISE EXCEPTION 'complete counts require checked outcome and a count';
+    END IF;
+    IF NOT p_count_complete AND p_documents_new IS NOT NULL THEN
+        RAISE EXCEPTION 'incomplete counts must remain unknown';
+    END IF;
+    IF p_latest_document_at IS NOT NULL AND p_latest_document_at > p_observed_at + interval '5 minutes' THEN
+        RAISE EXCEPTION 'latest document timestamp is implausibly in the future';
     END IF;
     IF p_response_sha256 IS NOT NULL AND p_response_sha256 !~ '^[0-9a-f]{64}$' THEN
         RAISE EXCEPTION 'invalid response digest';
