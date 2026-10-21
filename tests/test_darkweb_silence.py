@@ -180,3 +180,24 @@ def test_sparse_weekly_publishing_does_not_collapse_to_zero_rate():
     )
     assert result["state"] != "no_expected_activity"
     assert result["expected_rate_per_hour"] > 0
+
+
+
+def test_incomplete_cursor_poll_during_gap_blocks_silence_candidate():
+    now = datetime(2026, 10, 21, 12, tzinfo=UTC)
+    buckets = _eight_week_hourly_buckets(now)
+    target_hour = now - timedelta(hours=2)
+    target_hour = target_hour.replace(minute=0, second=0, microsecond=0)
+    for bucket in buckets:
+        if datetime.fromisoformat(bucket["bucket_hour"]) == target_hour:
+            bucket["poll_count"] = 4
+            bucket["complete_poll_count"] = 3
+            break
+    result = evaluate_silence(
+        buckets,
+        now=now,
+        last_document_at=now - timedelta(hours=5),
+        monitoring_healthy=True,
+    )
+    assert result["state"] == "monitoring_unavailable"
+    assert result.get("reason") == "gap_collection_not_continuously_healthy"
