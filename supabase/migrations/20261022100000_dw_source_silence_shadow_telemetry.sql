@@ -116,10 +116,10 @@ DECLARE
     v_id bigint;
     v_hour timestamptz;
 BEGIN
-    IF p_outcome NOT IN ('checked', 'failed', 'unavailable') THEN
+    IF p_outcome IS NULL OR p_outcome NOT IN ('checked', 'failed', 'unavailable') THEN
         RAISE EXCEPTION 'invalid source observation outcome';
     END IF;
-    IF p_scope_key IS NULL OR length(p_scope_key) NOT BETWEEN 1 AND 240 THEN
+    IF p_scope_key IS NULL OR length(p_scope_key) NOT BETWEEN 1 AND 240 OR p_scope_key NOT LIKE p_source_id || ':%' THEN
         RAISE EXCEPTION 'invalid source observation scope';
     END IF;
     IF p_documents_new IS NOT NULL AND p_documents_new < 0 THEN
@@ -146,7 +146,7 @@ BEGIN
         p_response_sha256, p_collector_version, p_error_code, p_metadata
     ) RETURNING id INTO v_id;
 
-    INSERT INTO public.dw_source_silence_buckets (
+    INSERT INTO public.dw_source_silence_buckets AS existing (
         source_id, scope_key, bucket_hour, poll_count, complete_poll_count,
         failed_poll_count, documents_new_sum, last_document_at, last_observed_at, updated_at
     ) VALUES (
@@ -157,19 +157,19 @@ BEGIN
         p_latest_document_at, p_observed_at, now()
     )
     ON CONFLICT (scope_key, bucket_hour) DO UPDATE SET
-        poll_count = public.dw_source_silence_buckets.poll_count + 1,
-        complete_poll_count = public.dw_source_silence_buckets.complete_poll_count
+        poll_count = existing.poll_count + 1,
+        complete_poll_count = existing.complete_poll_count
             + CASE WHEN p_count_complete THEN 1 ELSE 0 END,
-        failed_poll_count = public.dw_source_silence_buckets.failed_poll_count
+        failed_poll_count = existing.failed_poll_count
             + CASE WHEN p_outcome IN ('failed', 'unavailable') THEN 1 ELSE 0 END,
-        documents_new_sum = public.dw_source_silence_buckets.documents_new_sum
+        documents_new_sum = existing.documents_new_sum
             + CASE WHEN p_count_complete THEN p_documents_new ELSE 0 END,
         last_document_at = COALESCE(
-            GREATEST(public.dw_source_silence_buckets.last_document_at, p_latest_document_at),
+            GREATEST(existing.last_document_at, p_latest_document_at),
             public.dw_source_silence_buckets.last_document_at,
             p_latest_document_at
         ),
-        last_observed_at = GREATEST(public.dw_source_silence_buckets.last_observed_at, p_observed_at),
+        last_observed_at = GREATEST(existing.last_observed_at, p_observed_at),
         updated_at = now();
 
     RETURN v_id;
