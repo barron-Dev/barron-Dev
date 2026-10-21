@@ -126,3 +126,28 @@ def test_failed_collection_hour_blocks_silence_candidate():
     )
     assert result["state"] == "monitoring_unavailable"
     assert result.get("reason") == "gap_collection_not_continuously_healthy"
+
+
+
+def test_any_incomplete_poll_invalidates_that_hour_for_baseline():
+    now = datetime(2026, 10, 21, 12, tzinfo=UTC)
+    start = now - timedelta(days=56)
+    buckets = []
+    for week in range(8):
+        for slot in range(168):
+            stamp = start + timedelta(days=week * 7, hours=slot)
+            buckets.append({
+                "bucket_hour": stamp.isoformat(),
+                "documents_new_sum": 1,
+                "poll_count": 4,
+                "complete_poll_count": 4,
+                "failed_poll_count": 0,
+            })
+    # A checked response with an unparseable cursor is unknown, not a zero.
+    buckets[0]["poll_count"] = 4
+    buckets[0]["complete_poll_count"] = 3
+    result = evaluate_silence(
+        buckets, now=now, last_document_at=now - timedelta(days=2),
+        monitoring_healthy=True,
+    )
+    assert result["state"] == "insufficient_baseline"
