@@ -267,7 +267,8 @@ class DarkWebScheduler:
                 and len(digest) == 64
                 and response_bytes > 0
             )
-            outcome = "reachable_unverified" if has_http_content else "unreachable"
+            http_response_received = isinstance(http_status, int) and 200 <= http_status < 300
+            outcome = "reachable_unverified" if http_response_received else "unreachable"
             error_code = probe.get("error_code")
             metadata = {
                 "collector": "native_onion",
