@@ -20,6 +20,7 @@ MAX_PAGES_PER_SEED = 20
 MAX_TOTAL_PAGES = 100
 MAX_BODY_BYTES = 512_000
 ONION_SUFFIX = ".onion"
+ONION_V3_HOST = re.compile(r"^[a-z2-7]{56}\\.onion$")
 
 
 def configured_onion_seeds() -> list[str]:
@@ -48,9 +49,9 @@ def _safe_onion_url(value: str):
     try:
         parsed = urlsplit(value)
         host = (parsed.hostname or "").lower().rstrip(".")
-        if parsed.scheme not in {"http", "https"} or not host.endswith(ONION_SUFFIX):
+        if parsed.scheme not in {"http", "https"} or not ONION_V3_HOST.fullmatch(host):
             return None
-        if parsed.username or parsed.password or not host[:-len(ONION_SUFFIX)]:
+        if parsed.username or parsed.password:
             return None
         if parsed.port and parsed.port not in {80, 443}:
             return None
@@ -256,10 +257,9 @@ class NativeOnionCrawler:
                                     if link_host == host:
                                         if clean not in visited and len(queue) < MAX_PAGES_PER_SEED:
                                             queue.append((clean, depth + 1))
-                                    elif link_host not in scheduled_hosts and len(roots) < MAX_SEEDS:
-                                        # Discover only public onion links; never follow clearnet hosts.
+                                    elif link_host not in scheduled_hosts and len(self.discovered_seeds) < MAX_SEEDS:
+                                        # Inventory the link as a candidate; do not probe it in this run.
                                         scheduled_hosts.add(link_host)
-                                        roots.append(clean)
                                         self.seed_origin[clean] = "discovered"
                                         self.discovered_from[clean] = url
                                         self.discovered_seeds.append({"url": clean, "discovered_from": url})

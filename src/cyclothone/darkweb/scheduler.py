@@ -200,7 +200,11 @@ class DarkWebScheduler:
             return
 
         client = await supabase._ensure()
-        urls = list(crawler.seed_status)
+        # Persist discovered links as candidate inventory without treating them as probed seeds.
+        urls = list(dict.fromkeys(
+            list(crawler.seed_status)
+            + [row["url"] for row in crawler.discovered_seeds if row.get("url")]
+        ))
         hosts = sorted({
             (urlsplit(url).hostname or "").lower()
             for url in urls
