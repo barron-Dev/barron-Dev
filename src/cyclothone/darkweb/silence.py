@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from math import exp, isfinite
-from statistics import mean
+from statistics import mean, median
 
 
 BASELINE_DAYS = 56
@@ -199,7 +199,15 @@ def evaluate_silence(
     # pooled 95th percentile: pooled clipping would erase legitimate activity
     # from low-volume sources whose publishing is concentrated in a few slots.
     counts = sorted(count for _, count in valid)
-    slot_means = {slot: mean(values) for slot, values in slots.items()}
+    slot_means: dict[int, float] = {}
+    for slot, values in slots.items():
+        slot_median = median(values)
+        slot_mad = median(abs(value - slot_median) for value in values)
+        # A single isolated spike with otherwise-zero history is not a rate.
+        # Stable recurring low-volume publishing is retained because its median
+        # is positive; MAD limits outlier influence within each seasonal slot.
+        cap = slot_median + 3.0 * slot_mad
+        slot_means[slot] = mean(min(value, cap) for value in values)
     robust_rate = mean(slot_means.values()) if slot_means else 0.0
     if robust_rate <= 0:
         return {
