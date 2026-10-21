@@ -279,7 +279,6 @@ class DarkWebScheduler:
                 outcome == "checked"
                 and bool(delta.get("count_complete"))
                 and latest_document_dt is not None
-                and now - datetime.fromisoformat(str(now.isoformat())) <= timedelta(minutes=35)
             )
             score = evaluate_silence(
                 buckets,
