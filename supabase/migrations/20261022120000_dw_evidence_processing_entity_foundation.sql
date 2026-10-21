@@ -165,6 +165,8 @@ create table if not exists public.dw_entity_mentions (
 );
 drop trigger if exists dw_entity_mentions_tenant_guard on public.dw_entity_mentions;
 create trigger dw_entity_mentions_tenant_guard before insert or update on public.dw_entity_mentions for each row execute function public.dw_entity_tenant_guard();
+drop trigger if exists dw_entity_mentions_tenant_guard on public.dw_entity_mentions;
+create trigger dw_entity_mentions_tenant_guard before insert or update on public.dw_entity_mentions for each row execute function public.dw_entity_tenant_guard();
 create table if not exists public.dw_content_translations (
  id uuid primary key default gen_random_uuid(), evidence_seq bigint not null references public.dw_evidence_log(seq) on delete restrict,
  source_lang text not null check(source_lang ~ '^[a-z]{2,3}(-[A-Za-z0-9]{2,8})?$'),
