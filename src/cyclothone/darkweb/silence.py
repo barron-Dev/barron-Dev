@@ -10,8 +10,6 @@ MIN_VALID_HOURS_PER_SLOT = 4
 MIN_COMPLETE_POLLS_PER_HOUR = 3
 MIN_SILENCE_GAP_HOURS = 2.0
 SILENCE_PVALUE_THRESHOLD = 0.01
-COLLECTOR_FRESHNESS = timedelta(minutes=35)
-
 
 def _as_utc(value: datetime | str) -> datetime:
     if isinstance(value, str):
