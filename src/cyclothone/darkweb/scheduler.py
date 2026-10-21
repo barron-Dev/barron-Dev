@@ -222,12 +222,39 @@ class DarkWebScheduler:
                 delta = derive_cursor_delta(observation.get("post_ids") or [], previous_cursor)
                 raw_latest = observation.get("latest_document_at")
                 if delta["documents_new"] == 0:
-                    latest_document_at = raw_latest or previous_document_at
+                    # The page's latest parsed publication time must never move the
+                    # stored last-seen time backwards.
+                    candidates = [value for value in (raw_latest, previous_document_at) if value]
+                    parsed_candidates = []
+                    for value in candidates:
+                        try:
+                            parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+                            if parsed.tzinfo is not None:
+                                parsed_candidates.append(parsed.astimezone(UTC))
+                        except ValueError:
+                            continue
+                    latest_document_at = max(parsed_candidates).isoformat() if parsed_candidates else None
                 else:
-                    # If new posts are visible but their publication timestamp cannot
-                    # be parsed, keep the event timestamp unknown; never reuse an old
-                    # timestamp to claim the source has gone quiet.
-                    latest_document_at = raw_latest if delta["documents_new"] else (raw_latest or previous_document_at)
+                    # If new posts are visible but their publication timestamp is
+                    # missing or fails to advance beyond the previous event time,
+                    # keep it unknown. Reusing an old timestamp could manufacture
+                    # a silence interval despite evidence of newer posts.
+                    try:
+                        parsed_latest = datetime.fromisoformat(str(raw_latest).replace("Z", "+00:00"))
+                        parsed_previous = (
+                            datetime.fromisoformat(str(previous_document_at).replace("Z", "+00:00"))
+                            if previous_document_at else None
+                        )
+                        if parsed_latest.tzinfo is None or (
+                            parsed_previous is not None and parsed_previous.tzinfo is None
+                        ):
+                            latest_document_at = None
+                        elif parsed_previous is not None and parsed_latest <= parsed_previous:
+                            latest_document_at = None
+                        else:
+                            latest_document_at = parsed_latest.astimezone(UTC).isoformat()
+                    except (TypeError, ValueError):
+                        latest_document_at = None
 
             response_sha256 = observation.get("response_sha256")
             metadata = {
