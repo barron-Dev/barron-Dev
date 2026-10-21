@@ -133,7 +133,13 @@ def evaluate_silence(
         bucket_time = _as_utc(row["bucket_hour"])
         if bucket_time > current or bucket_time < current - timedelta(days=BASELINE_DAYS):
             continue
-        if int(row.get("complete_poll_count") or 0) < MIN_COMPLETE_POLLS_PER_HOUR:
+        poll_count = int(row.get("poll_count") or 0)
+        complete_poll_count = int(row.get("complete_poll_count") or 0)
+        if complete_poll_count < MIN_COMPLETE_POLLS_PER_HOUR:
+            continue
+        # Unknown/failed polls invalidate the entire hour; partial counts must not
+        # silently lower the baseline and manufacture a quiet-source signal.
+        if poll_count != complete_poll_count:
             continue
         if int(row.get("failed_poll_count") or 0) != 0:
             continue
