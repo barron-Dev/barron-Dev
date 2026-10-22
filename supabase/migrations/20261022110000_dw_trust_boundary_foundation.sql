@@ -204,31 +204,3 @@ UPDATE public.dw_sources
  WHERE id = 'ransomwatch';
 
 COMMIT;
- AND l.inspected_items > 0
-         AND (NOT r.requires_route_verified OR l.route_verified)
-         AND (NOT r.requires_hs_desc_content OR l.hs_desc_content_received)
-         AND (NOT r.requires_descriptor_fetch OR l.descriptor_fetched)
-         AND (NOT r.requires_rendezvous_hop OR l.rendezvous_hop_verified)
-         AND (NOT r.requires_stream_circuit_binding OR l.stream_circuit_bound)
-         AND (NOT r.requires_auth OR l.auth_ok) THEN 'available'
-    WHEN l.status = 'ok' THEN 'unverified_success'
-    ELSE 'unavailable'
-  END AS effective_state
-FROM public.dw_sources s
-LEFT JOIN latest l ON l.source_id = s.id
-LEFT JOIN public.dw_source_type_requirements r ON r.source_class = s.source_class;
-
--- This view is only an operational read surface for the privileged service role.
-REVOKE ALL ON TABLE public.dw_source_effective_state FROM PUBLIC, anon, authenticated, service_role;
-GRANT SELECT ON TABLE public.dw_source_effective_state TO service_role;
-
--- Archived ransomware feed is never an active live check. Preserve rows and
--- provenance; this only disables future polling and corrects source taxonomy.
-UPDATE public.dw_sources
-   SET enabled = false,
-       source_class = 'historical_archive',
-       last_status = 'historical_only_archived_feed',
-       poll_interval_seconds = 604800
- WHERE id = 'ransomwatch';
-
-COMMIT;
