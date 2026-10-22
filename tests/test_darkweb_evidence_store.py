@@ -124,6 +124,8 @@ class _ServiceClient:
                 "organization_id": "org-1",
                 "service_key": "dark_web_monitoring",
                 "processing_state": "running",
+                "target": "owned-example.com",
+                "target_type": "domain",
             }
         if table == "customer_organizations":
             assert filters == {"id": "org-1"}
