@@ -249,6 +249,40 @@ class DarkWebRequestWorker:
             return await client.table("dw_onion_seeds").upsert(rows, on_conflict="url").execute()
         await supabase._retry(_do, attempts=2)
 
+    async def _persist_native_onion_evidence(
+        self,
+        finding,
+        *,
+        tenant_id: str,
+        watchlist_id: str,
+        service_request_id: str,
+        metadata: dict,
+    ) -> dict | None:
+        """Persist a sanitized native-onion content match before finding success."""
+        if finding.source_id != "native_onion" or metadata.get("target_match_in_content") is not True:
+            return None
+        excerpt = getattr(finding, "evidence_excerpt", None)
+        if not excerpt:
+            raise RuntimeError("native_onion_matched_content_without_safe_evidence_excerpt")
+        if not finding.source_url:
+            raise RuntimeError("native_onion_matched_content_without_source_url")
+        result = await record_target_matched_onion_evidence(
+            supabase,
+            tenant_id=tenant_id,
+            watchlist_id=watchlist_id,
+            service_request_id=service_request_id,
+            source_url=finding.source_url,
+            sanitized_page_text=excerpt,
+            observed_at=str(metadata.get("observed_at") or datetime.now(UTC).isoformat()),
+        )
+        metadata["durable_evidence"] = {
+            "content_uri": result["content_uri"],
+            "content_sha256": result["content_sha256"],
+            "readback_sha256_verified": result["readback_sha256_verified"],
+            "classification": result["finding_class"],
+        }
+        return result
+
     async def _process(self, request: dict) -> None:
         request_id = str(request["id"])
         target_type = str(request.get("target_type") or "domain")
@@ -529,30 +563,13 @@ class DarkWebRequestWorker:
             tenant_hash = hashlib.sha256(f"{getattr(finding, 'source_id', '')}:{hashlib.sha256((str(finding.matched_value).strip().lower()).encode()).hexdigest()}:{watch_id}".encode()).hexdigest()
             trust_evidence = None
             try:
-                if (
-                    finding.source_id == "native_onion"
-                    and meta.get("target_match_in_content") is True
-                ):
-                    excerpt = getattr(finding, "evidence_excerpt", None)
-                    if not excerpt:
-                        raise RuntimeError("native_onion_matched_content_without_safe_evidence_excerpt")
-                    if not finding.source_url:
-                        raise RuntimeError("native_onion_matched_content_without_source_url")
-                    trust_evidence = await record_target_matched_onion_evidence(
-                        supabase,
-                        tenant_id=tenant_id,
-                        watchlist_id=watch_id,
-                        service_request_id=request_id,
-                        source_url=finding.source_url,
-                        sanitized_page_text=excerpt,
-                        observed_at=str(meta.get("observed_at") or datetime.now(UTC).isoformat()),
-                    )
-                    meta["durable_evidence"] = {
-                        "content_uri": trust_evidence["content_uri"],
-                        "content_sha256": trust_evidence["content_sha256"],
-                        "readback_sha256_verified": trust_evidence["readback_sha256_verified"],
-                        "classification": trust_evidence["finding_class"],
-                    }
+                trust_evidence = await self._persist_native_onion_evidence(
+                    finding,
+                    tenant_id=tenant_id,
+                    watchlist_id=watch_id,
+                    service_request_id=request_id,
+                    metadata=meta,
+                )
                 recorded = await supabase.rpc("record_dw_finding", {
                     "p_source_id": finding.source_id, "p_content_hash": tenant_hash,
                     "p_kind": finding.kind, "p_matched_value": str(finding.matched_value).strip().lower(),
