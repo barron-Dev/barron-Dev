@@ -23,6 +23,8 @@ class Finding:
     severity: str
     source_url: str | None
     metadata: dict
+    # Bounded, sanitized content excerpt kept out of general-purpose metadata.
+    evidence_excerpt: str | None = None
 
 
 def normalize(value: str) -> str:
