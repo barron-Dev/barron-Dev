@@ -115,6 +115,34 @@ async def record_target_matched_onion_evidence(
     the caller cannot supply or override the target value.
     """
     _validate_public_onion_url(source_url)
+
+    # Resolve the request's tenant through the live organization relationship;
+    # a caller-supplied tenant UUID alone is not authorization.
+    request = await service_client.select_one(
+        "service_requests",
+        "id,organization_id,service_key,processing_state",
+        id=service_request_id,
+    )
+    if (
+        not request
+        or str(request.get("id")) != str(service_request_id)
+        or request.get("service_key") != "dark_web_monitoring"
+        or request.get("processing_state") != "running"
+    ):
+        raise RuntimeError("dw_evidence_authorized_running_request_not_found")
+
+    organization = await service_client.select_one(
+        "customer_organizations",
+        "id,tenant_id,admission_status",
+        id=str(request.get("organization_id") or ""),
+    )
+    if (
+        not organization
+        or organization.get("admission_status") != "approved"
+        or str(organization.get("tenant_id")) != str(tenant_id)
+    ):
+        raise RuntimeError("dw_evidence_request_tenant_authorization_failed")
+
     target = await service_client.select_one(
         "dw_watchlist", "id,tenant_id,kind,value,value_hash,label",
         id=watchlist_id, tenant_id=tenant_id,
