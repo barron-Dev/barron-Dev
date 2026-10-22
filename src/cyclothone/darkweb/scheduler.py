@@ -2,13 +2,15 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import time
 from urllib.parse import urlsplit
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from cyclothone.darkweb.matcher import DarkWebMatcher
 from cyclothone.darkweb.native_onion import NativeOnionCrawler, configured_onion_seeds
 from cyclothone.darkweb.pullers import PastePublicMonitor, TelegramPublicMonitor
+from cyclothone.darkweb.silence import derive_cursor_delta, evaluate_silence
 from cyclothone.darkweb.telegram_config import (
     DEFAULT_PUBLIC_TELEGRAM_CHANNELS,  # noqa: F401 — compatibility export
     configured_telegram_channels,
@@ -22,6 +24,12 @@ def _configured_telegram_channels() -> list[str]:
     return configured_telegram_channels()
 
 
+def _source_silence_enabled() -> bool:
+    return os.getenv("CYCLOTHONE_DW_SOURCE_SILENCE_ENABLED", "false").strip().lower() in {
+        "1", "true", "yes"
+    }
+
+
 class DarkWebScheduler:
     GLOBAL_INTERVAL = 15 * 60
     DOMAIN_INTERVAL = 6 * 3600
@@ -29,6 +37,7 @@ class DarkWebScheduler:
 
     def __init__(self) -> None:
         self.matcher = DarkWebMatcher()
+        self.source_silence_enabled = _source_silence_enabled()
         self._task: asyncio.Task | None = None
         self._stop = asyncio.Event()
         self._last_domain = 0.0
@@ -135,29 +144,199 @@ class DarkWebScheduler:
 
     async def _run_pull(self, source_id: str, pull, *, monitor=None) -> None:
         started = time.monotonic()
+        resolved_monitor = monitor or getattr(pull, "__self__", None)
+        telemetry_attempted = False
         try:
             findings = await pull()
-            monitor = monitor or getattr(pull, "__self__", None)
-            if source_id == "native_onion" and monitor is not None:
-                await self._persist_onion_seed_state(monitor)
+            resolved_monitor = monitor or getattr(pull, "__self__", None)
+            if source_id == "native_onion" and resolved_monitor is not None:
+                await self._persist_onion_seed_state(resolved_monitor)
+            telemetry_ok = True
+            if self.source_silence_enabled and source_id == "telegram_public" and getattr(resolved_monitor, "channel_observations", None) is not None:
+                telemetry_attempted = True
+                try:
+                    await self._record_telegram_observations(resolved_monitor)
+                except Exception:
+                    telemetry_ok = False
+                    logger.exception("Telegram source silence telemetry persistence failed")
             result = await self._ingest(findings)
-            channel_status = getattr(monitor, "channel_status", {})
+            channel_status = getattr(resolved_monitor, "channel_status", {})
             failed_channels = [channel for channel, state in channel_status.items() if state != "checked"]
-            source_status = "degraded" if result["errors"] or failed_channels else "ok"
+            source_status = "degraded" if result["errors"] or failed_channels or not telemetry_ok else "ok"
             for channel, state in channel_status.items():
                 logger.info("dark web source=%s channel=%s state=%s", source_id, channel, state)
             await self._mark_source(source_id, source_status)
             logger.info(
-                "dark web source=%s completed findings=%d matched=%d alerts=%d errors=%d channels_checked=%d channels_failed=%d duration_ms=%d",
+                "dark web source=%s completed findings=%d matched=%d alerts=%d errors=%d channels_checked=%d channels_failed=%d telemetry_ok=%s duration_ms=%d",
                 source_id, len(findings), result["matched"], result["alerts"], result["errors"],
                 sum(state == "checked" for state in channel_status.values()), len(failed_channels),
-                int((time.monotonic() - started) * 1000),
+                telemetry_ok, int((time.monotonic() - started) * 1000),
             )
         except asyncio.CancelledError:
             raise
         except Exception:
+            if (
+                self.source_silence_enabled
+                and source_id == "telegram_public"
+                and not telemetry_attempted
+                and getattr(resolved_monitor, "channel_observations", None) is not None
+            ):
+                try:
+                    await self._record_telegram_observations(resolved_monitor)
+                except Exception:
+                    logger.exception("Telegram failed-poll telemetry persistence failed")
             await self._mark_source(source_id, "failed")
             logger.exception("dark web source failed: %s", source_id)
+
+    async def _record_telegram_observations(self, monitor: TelegramPublicMonitor) -> None:
+        """Persist source-level cursor telemetry and shadow scores, never customer alerts."""
+        client = await supabase._ensure()
+        now = datetime.now(UTC)
+        for channel, observation in monitor.channel_observations.items():
+            scope_key = f"telegram_public:{channel}"
+            previous_response = await (
+                client.table("dw_source_observations")
+                .select("cursor_value,latest_document_at")
+                .eq("scope_key", scope_key)
+                .order("observed_at", desc=True)
+                .limit(1)
+                .execute()
+            )
+            previous_rows = previous_response.data or []
+            previous = previous_rows[0] if previous_rows else {}
+            previous_cursor = previous.get("cursor_value")
+            previous_cursor = int(previous_cursor) if previous_cursor is not None else None
+            previous_document_at = previous.get("latest_document_at")
+
+            if observation.get("state") != "checked":
+                outcome = "failed"
+                delta = {
+                    "cursor_value": previous_cursor,
+                    "documents_new": None,
+                    "count_complete": False,
+                    "error_code": "telegram_channel_fetch_failed",
+                }
+                latest_document_at = previous_document_at
+            else:
+                outcome = "checked"
+                delta = derive_cursor_delta(observation.get("post_ids") or [], previous_cursor)
+                raw_latest = observation.get("latest_document_at")
+                if delta["documents_new"] == 0:
+                    # The page's latest parsed publication time must never move the
+                    # stored last-seen time backwards.
+                    candidates = [value for value in (raw_latest, previous_document_at) if value]
+                    parsed_candidates = []
+                    for value in candidates:
+                        try:
+                            parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+                            if parsed.tzinfo is not None:
+                                parsed_candidates.append(parsed.astimezone(UTC))
+                        except ValueError:
+                            continue
+                    latest_document_at = max(parsed_candidates).isoformat() if parsed_candidates else None
+                else:
+                    # If new posts are visible but their publication timestamp is
+                    # missing or fails to advance beyond the previous event time,
+                    # keep it unknown. Reusing an old timestamp could manufacture
+                    # a silence interval despite evidence of newer posts.
+                    try:
+                        parsed_latest = datetime.fromisoformat(str(raw_latest).replace("Z", "+00:00"))
+                        parsed_previous = (
+                            datetime.fromisoformat(str(previous_document_at).replace("Z", "+00:00"))
+                            if previous_document_at else None
+                        )
+                        if parsed_latest.tzinfo is None or (
+                            parsed_previous is not None and parsed_previous.tzinfo is None
+                        ):
+                            latest_document_at = None
+                        elif parsed_previous is not None and parsed_latest <= parsed_previous:
+                            latest_document_at = None
+                        else:
+                            latest_document_at = parsed_latest.astimezone(UTC).isoformat()
+                    except (TypeError, ValueError):
+                        latest_document_at = None
+
+            response_sha256 = observation.get("response_sha256")
+            metadata = {
+                "channel": channel,
+                "visible_post_count": len(observation.get("post_ids") or []),
+                "cursor_error": delta.get("error_code"),
+            }
+            await client.rpc("record_dw_source_observation", {
+                "p_source_id": "telegram_public",
+                "p_scope_key": scope_key,
+                "p_observed_at": now.isoformat(),
+                "p_outcome": outcome,
+                "p_cursor_value": delta.get("cursor_value"),
+                "p_documents_new": delta.get("documents_new"),
+                "p_latest_document_at": latest_document_at,
+                "p_count_complete": bool(delta.get("count_complete")),
+                "p_response_sha256": response_sha256,
+                "p_collector_version": observation.get("collector_version", "telegram-html-v1"),
+                "p_error_code": delta.get("error_code"),
+                "p_metadata": metadata,
+            })
+
+            bucket_response = await (
+                client.table("dw_source_silence_buckets")
+                .select("bucket_hour,poll_count,complete_poll_count,failed_poll_count,documents_new_sum,last_document_at")
+                .eq("scope_key", scope_key)
+                .gte("bucket_hour", (now - timedelta(days=56)).isoformat())
+                .lte("bucket_hour", now.isoformat())
+                .order("bucket_hour", desc=True)
+                .range(0, 999)
+                .execute()
+            )
+            buckets = list(bucket_response.data or [])
+            if len(buckets) == 1000:
+                next_response = await (
+                    client.table("dw_source_silence_buckets")
+                    .select("bucket_hour,poll_count,complete_poll_count,failed_poll_count,documents_new_sum,last_document_at")
+                    .eq("scope_key", scope_key)
+                    .gte("bucket_hour", (now - timedelta(days=56)).isoformat())
+                    .lte("bucket_hour", now.isoformat())
+                    .order("bucket_hour", desc=True)
+                    .range(1000, 1999)
+                    .execute()
+                )
+                buckets.extend(next_response.data or [])
+
+            latest_document_dt = None
+            if latest_document_at:
+                try:
+                    latest_document_dt = datetime.fromisoformat(str(latest_document_at).replace("Z", "+00:00"))
+                    if latest_document_dt.tzinfo is not None:
+                        latest_document_dt = latest_document_dt.astimezone(UTC)
+                    else:
+                        latest_document_dt = None
+                except ValueError:
+                    latest_document_dt = None
+            monitoring_healthy = (
+                outcome == "checked"
+                and bool(delta.get("count_complete"))
+                and latest_document_dt is not None
+            )
+            score = evaluate_silence(
+                buckets,
+                now=now,
+                last_document_at=latest_document_dt,
+                monitoring_healthy=monitoring_healthy,
+            )
+            await client.rpc("record_dw_source_silence_score", {
+                "p_source_id": "telegram_public",
+                "p_scope_key": scope_key,
+                "p_evaluated_at": now.isoformat(),
+                "p_last_document_at": latest_document_dt.isoformat() if latest_document_dt else None,
+                "p_baseline_start": score.get("baseline_start"),
+                "p_baseline_end": score.get("baseline_end"),
+                "p_baseline_bucket_count": int(score.get("baseline_bucket_count") or 0),
+                "p_expected_rate_per_hour": score.get("expected_rate_per_hour"),
+                "p_dispersion_size": score.get("dispersion_size"),
+                "p_gap_hours": score.get("gap_hours"),
+                "p_p_value": score.get("p_value"),
+                "p_state": score["state"],
+                "p_details": score,
+            })
 
     async def _ingest(self, findings: list) -> dict[str, int]:
         matched = alerts = errors = 0

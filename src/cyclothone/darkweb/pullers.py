@@ -5,6 +5,7 @@ import hashlib
 import json
 import logging
 import re
+from datetime import UTC, datetime
 from dataclasses import dataclass
 from urllib.parse import urlsplit
 
@@ -104,18 +105,24 @@ class RansomwatchPuller:
 
 class TelegramPublicMonitor:
     SOURCE = "telegram_public"
+    COLLECTOR_VERSION = "telegram-html-v1"
 
     def __init__(self, channels: list[str]) -> None:
         self.channels = list(dict.fromkeys(c.strip().lstrip("@") for c in channels if c.strip()))
-        # Per-channel outcomes remain available to the scheduler for honest coverage.
+        # Per-channel outcomes and bounded cursor metadata; never retain page bodies.
         self.channel_status: dict[str, str] = {}
+        self.channel_observations: dict[str, dict] = {}
 
     async def pull(self, target_type: str | None = None, target: str | None = None) -> list[Finding]:
+        if not self.channels:
+            self.channel_status = {}
+            self.channel_observations = {}
+            raise RuntimeError("no Telegram public channels configured")
         semaphore = asyncio.Semaphore(5)
         target = normalize(target) if target else None
         target_kind = {"email": "email", "domain": "domain", "url": "domain"}.get(target_type or "")
 
-        async def pull_channel(channel: str) -> tuple[str, list[Finding] | None]:
+        async def pull_channel(channel: str) -> tuple[str, list[Finding] | None, dict | None]:
             try:
                 async with semaphore:
                     async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
@@ -125,6 +132,29 @@ class TelegramPublicMonitor:
                         )
                         response.raise_for_status()
                         html = response.text
+
+                post_ids = sorted({
+                    int(value) for value in re.findall(
+                        r"data-post=[\"'][^/\"']+/([0-9]+)[\"']", html, flags=re.IGNORECASE
+                    )
+                })
+                published_at = []
+                for raw_time in re.findall(
+                    r"<time[^>]*datetime=[\"']([^\"']+)[\"']", html, flags=re.IGNORECASE
+                ):
+                    try:
+                        parsed_time = datetime.fromisoformat(raw_time.replace("Z", "+00:00"))
+                        if parsed_time.tzinfo is not None:
+                            published_at.append(parsed_time.astimezone(UTC))
+                    except ValueError:
+                        continue
+                observation = {
+                    "post_ids": post_ids[-100:],
+                    "latest_document_at": max(published_at).isoformat() if published_at else None,
+                    "response_sha256": hashlib.sha256(html.encode()).hexdigest(),
+                    "collector_version": self.COLLECTOR_VERSION,
+                }
+
                 if target and target_kind:
                     haystack = html.casefold()
                     matched = target.casefold() in haystack
@@ -133,7 +163,7 @@ class TelegramPublicMonitor:
                     findings = ([Finding(
                         self.SOURCE, target_kind, target,
                         "Requested identifier observed in a public Telegram web preview; page content is not retained.",
-                        "high", f"https://t.me/s/{channel}", {"channel": channel, "observed_text_sha256": hashlib.sha256(html.encode()).hexdigest()},
+                        "high", f"https://t.me/s/{channel}", {"channel": channel, "observed_text_sha256": observation["response_sha256"]},
                     )] if matched else [])
                 else:
                     findings = [
@@ -144,17 +174,21 @@ class TelegramPublicMonitor:
                         )
                         for email in dict.fromkeys(EMAIL_RE.findall(html))
                     ]
-                return channel, findings
+                return channel, findings, observation
             except Exception as exc:
                 logger.warning("Telegram channel failed channel=%s error=%s", channel, type(exc).__name__)
-                return channel, None
+                return channel, None, None
 
         results = await asyncio.gather(*(pull_channel(channel) for channel in self.channels))
         self.channel_status = {
             channel: "checked" if findings is not None else "failed"
-            for channel, findings in results
+            for channel, findings, _ in results
         }
-        successful = [findings for _, findings in results if findings is not None]
+        self.channel_observations = {
+            channel: ({"state": "checked", **observation} if observation is not None else {"state": "failed"})
+            for channel, _, observation in results
+        }
+        successful = [findings for _, findings, _ in results if findings is not None]
         if self.channels and not successful:
             raise RuntimeError("all configured Telegram public channels failed")
         return [finding for batch in successful for finding in batch]
