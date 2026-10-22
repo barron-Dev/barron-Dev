@@ -173,7 +173,15 @@ SELECT
     WHEN r.requires_rendezvous_hop AND NOT coalesce(l.rendezvous_hop_verified, false) THEN 'rendezvous_hop_unverified'
     WHEN r.requires_stream_circuit_binding AND NOT coalesce(l.stream_circuit_bound, false) THEN 'stream_circuit_unbound'
     WHEN r.requires_auth AND NOT coalesce(l.auth_ok, false) THEN 'auth_unverified'
-    WHEN l.status = 'ok' AND l.content_sha256 ~ '^[0-9a-f]{64}
+    WHEN l.status = 'ok'
+         AND l.content_sha256 ~ '^[0-9a-f]{64}$'
+         AND l.inspected_items > 0
+         AND (NOT r.requires_route_verified OR l.route_verified)
+         AND (NOT r.requires_hs_desc_content OR l.hs_desc_content_received)
+         AND (NOT r.requires_descriptor_fetch OR l.descriptor_fetched)
+         AND (NOT r.requires_rendezvous_hop OR l.rendezvous_hop_verified)
+         AND (NOT r.requires_stream_circuit_binding OR l.stream_circuit_bound)
+         AND (NOT r.requires_auth OR l.auth_ok) THEN 'available'
     WHEN l.status = 'ok' THEN 'unverified_success'
     ELSE 'unavailable'
   END AS effective_state
