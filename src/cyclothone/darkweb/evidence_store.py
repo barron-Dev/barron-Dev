@@ -9,7 +9,7 @@ from urllib.parse import urlsplit
 MAX_EVIDENCE_BYTES = 512_000
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _BUCKET = "dw-evidence-private"
-_ONION_V3 = re.compile(r"^[a-z2-7]{56}\\.onion$", re.IGNORECASE)
+_ONION_V3 = re.compile(r"^[a-z2-7]{56}\.onion$", re.IGNORECASE)
 
 
 @dataclass(frozen=True, slots=True)
