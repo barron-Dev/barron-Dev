@@ -62,11 +62,22 @@ async def store_and_verify_evidence(
         raise ValueError("dw_evidence_content_too_large")
     digest = hashlib.sha256(content).hexdigest()
     bucket = storage_client.from_(_BUCKET)
-    await bucket.upload(
-        object_path,
-        content,
-        file_options={"content-type": "text/plain", "upsert": "false"},
-    )
+    try:
+        await bucket.upload(
+            object_path,
+            content,
+            file_options={"content-type": "text/plain", "upsert": "false"},
+        )
+    except Exception as upload_error:
+        # A timeout can happen after the object was committed. Treat that as a
+        # retry only when the deterministic key already contains the exact bytes.
+        try:
+            existing = await bucket.download(object_path)
+        except Exception:
+            raise upload_error
+        if not isinstance(existing, (bytes, bytearray)) or bytes(existing) != content:
+            raise RuntimeError("dw_evidence_existing_object_conflicts_with_content") from upload_error
+
     response = await bucket.download(object_path)
     if not isinstance(response, (bytes, bytearray)):
         raise RuntimeError("dw_evidence_readback_invalid_type")
@@ -207,5 +218,5 @@ async def record_target_matched_onion_evidence(
         "content_uri": uri,
         "content_sha256": stored.sha256,
         "readback_sha256_verified": True,
-        "finding_class": "historical_archive",
+        "finding_class": "candidate_evidence_not_verified",
     }
