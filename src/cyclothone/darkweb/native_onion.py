@@ -113,6 +113,48 @@ def _target_pattern(kind: str, target: str) -> re.Pattern[str]:
     raise ValueError("native_onion_unsupported_target_kind")
 
 
+def sanitize_target_matched_excerpt(
+    page_text: str,
+    pattern: re.Pattern[str],
+    *,
+    max_context_chars: int = 240,
+    max_chars: int = 1200,
+) -> str | None:
+    """Return a small match-centered excerpt with common secret material redacted."""
+    match = pattern.search(page_text)
+    if not match:
+        return None
+    start = max(0, match.start() - max_context_chars)
+    end = min(len(page_text), match.end() + max_context_chars)
+    excerpt = page_text[start:end]
+    relative_start = match.start() - start
+    relative_end = match.end() - start
+    sentinel = "ZZTARGETZZ"
+    excerpt = excerpt[:relative_start] + sentinel + excerpt[relative_end:]
+
+    # Remove private-key blocks, credential assignments, bearer/JWT material,
+    # cloud access-key identifiers, email addresses, and long opaque tokens.
+    excerpt = re.sub(
+        r"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----.*?-----END [A-Z0-9 ]*PRIVATE KEY-----",
+        "[redacted-private-key]",
+        excerpt,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    excerpt = re.sub(
+        r"(?i)\\b(password|passwd|secret|api[_-]?key|access[_-]?token|refresh[_-]?token|authorization|bearer)\\s*[:=]\\s*(?!ZZTARGETZZ)[^\\s,;]+",
+        r"\\1=[redacted]",
+        excerpt,
+    )
+    excerpt = re.sub(r"\\beyJ[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{8,}\\b", "[redacted-jwt]", excerpt)
+    excerpt = re.sub(r"\\bAKIA[0-9A-Z]{16}\\b", "[redacted-cloud-key]", excerpt)
+    excerpt = re.sub(r"(?<!\\w)[A-Za-z0-9._%+\\-]+@[A-Za-z0-9.\\-]+\\.[A-Za-z]{2,}(?!\\w)", "[redacted-email]", excerpt)
+    excerpt = re.sub(r"\\b[A-Za-z0-9_+/=-]{32,}\\b", "[redacted-token]", excerpt)
+    excerpt = " ".join(excerpt.split()).replace(sentinel, match.group(0))[:max_chars]
+    if not pattern.search(excerpt):
+        return None
+    return excerpt
+
+
 class NativeOnionCrawler:
     """Bounded, deterministic crawler for explicitly configured public .onion pages.
 
@@ -250,24 +292,33 @@ class NativeOnionCrawler:
                             seed_pages += 1
                             self.pages_checked += 1
                             seed_success = True
-                            if pattern.search(page_text) or pattern.search(url):
+                            content_match = pattern.search(page_text)
+                            url_match = pattern.search(url)
+                            if content_match or url_match:
                                 self.matches += 1
+                                evidence_excerpt = (
+                                    sanitize_target_matched_excerpt(page_text, pattern)
+                                    if content_match else None
+                                )
                                 findings.append(Finding(
                                     source_id=self.SOURCE,
                                     kind=target_kind,
                                     matched_value=normalize(target_value),
-                                    context="Exact monitored identifier observed on a public onion page; page contents were not retained.",
+                                    context="Exact monitored identifier observed on a public onion page; bounded evidence excerpt is stored separately when safe.",
                                     severity="critical",
                                     source_url=url,
                                     metadata={
                                         "exposure_layer": "dark",
                                         "access_mode": "tor_public_onion",
                                         "match_method": "deterministic_exact_token",
+                                        "target_match_in_content": bool(content_match),
+                                        "target_match_in_url": bool(url_match),
                                         "seed_host": host,
                                         "crawl_depth": depth,
                                         "content_sha256": body_hash,
                                         "observed_at": datetime.now(UTC).isoformat(),
                                     },
+                                    evidence_excerpt=evidence_excerpt,
                                 ))
                             if depth < 1:
                                 for href in parser.links:
