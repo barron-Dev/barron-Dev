@@ -66,3 +66,90 @@ def test_finding_persistence_rejects_unconfirmed_rpc_results(response):
 
     with pytest.raises(RuntimeError, match="finding_persistence_unconfirmed"):
         _require_recorded_finding(response)
+
+
+
+@pytest.mark.asyncio
+async def test_native_onion_content_match_persists_trust_evidence_before_finding_write(monkeypatch):
+    from cyclothone.darkweb.pullers import Finding
+
+    persisted = {
+        "content_uri": "supabase://dw-evidence-private/tenant/subject/request/evidence.txt",
+        "content_sha256": "a" * 64,
+        "readback_sha256_verified": True,
+        "finding_class": "candidate_evidence_not_verified",
+    }
+    persist = AsyncMock(return_value=persisted)
+    monkeypatch.setattr("cyclothone.darkweb.request_worker.record_target_matched_onion_evidence", persist)
+    worker = DarkWebRequestWorker()
+    finding = Finding(
+        "native_onion", "domain", "owned-example.com", "exact public onion match",
+        "critical", "http://" + "a" * 56 + ".onion/leak",
+        {"target_match_in_content": True, "observed_at": "2026-10-22T00:00:00+00:00"},
+        evidence_excerpt="Page says owned-example.com was exposed.",
+    )
+    metadata = dict(finding.metadata)
+
+    result = await worker._persist_native_onion_evidence(
+        finding,
+        tenant_id="tenant-1",
+        watchlist_id="watchlist-1",
+        service_request_id="request-1",
+        metadata=metadata,
+    )
+
+    assert result == persisted
+    persist.assert_awaited_once()
+    assert metadata["durable_evidence"]["content_sha256"] == "a" * 64
+    assert metadata["durable_evidence"]["classification"] == "candidate_evidence_not_verified"
+
+
+@pytest.mark.asyncio
+async def test_native_onion_url_only_match_does_not_create_content_evidence(monkeypatch):
+    from cyclothone.darkweb.pullers import Finding
+
+    persist = AsyncMock()
+    monkeypatch.setattr("cyclothone.darkweb.request_worker.record_target_matched_onion_evidence", persist)
+    worker = DarkWebRequestWorker()
+    finding = Finding(
+        "native_onion", "domain", "owned-example.com", "URL-only match",
+        "critical", "http://" + "a" * 56 + ".onion/owned-example.com",
+        {"target_match_in_content": False, "target_match_in_url": True},
+    )
+    metadata = dict(finding.metadata)
+
+    result = await worker._persist_native_onion_evidence(
+        finding,
+        tenant_id="tenant-1",
+        watchlist_id="watchlist-1",
+        service_request_id="request-1",
+        metadata=metadata,
+    )
+
+    assert result is None
+    persist.assert_not_awaited()
+    assert "durable_evidence" not in metadata
+
+
+@pytest.mark.asyncio
+async def test_native_onion_content_match_without_safe_excerpt_fails_closed(monkeypatch):
+    from cyclothone.darkweb.pullers import Finding
+
+    persist = AsyncMock()
+    monkeypatch.setattr("cyclothone.darkweb.request_worker.record_target_matched_onion_evidence", persist)
+    worker = DarkWebRequestWorker()
+    finding = Finding(
+        "native_onion", "domain", "owned-example.com", "match without excerpt",
+        "critical", "http://" + "a" * 56 + ".onion/leak",
+        {"target_match_in_content": True},
+    )
+
+    with pytest.raises(RuntimeError, match="native_onion_matched_content_without_safe_evidence_excerpt"):
+        await worker._persist_native_onion_evidence(
+            finding,
+            tenant_id="tenant-1",
+            watchlist_id="watchlist-1",
+            service_request_id="request-1",
+            metadata=dict(finding.metadata),
+        )
+    persist.assert_not_awaited()
