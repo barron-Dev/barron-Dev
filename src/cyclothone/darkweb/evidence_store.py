@@ -139,12 +139,11 @@ async def record_target_matched_onion_evidence(
 
     organization = await service_client.select_one(
         "customer_organizations",
-        "id,tenant_id,admission_status",
+        "id,tenant_id",
         id=str(request.get("organization_id") or ""),
     )
     if (
         not organization
-        or organization.get("admission_status") != "approved"
         or str(organization.get("tenant_id")) != str(tenant_id)
     ):
         raise RuntimeError("dw_evidence_request_tenant_authorization_failed")
