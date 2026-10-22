@@ -91,8 +91,7 @@ CREATE TABLE IF NOT EXISTS public.dw_source_attempts (
   source_id text NOT NULL REFERENCES public.dw_sources(id),
   attempted_at timestamptz NOT NULL DEFAULT now(),
   status text NOT NULL CHECK (status IN (
-    'ok','unavailable_403','unavailable_missing_creds','unavailable_missing_seeds',
-    'failed','timeout','disabled','historical_only'
+    'ok','unavailable','failed','timeout','disabled','historical_only'
   )),
   route_verified boolean NOT NULL DEFAULT false,
   hs_desc_content_received boolean NOT NULL DEFAULT false,
