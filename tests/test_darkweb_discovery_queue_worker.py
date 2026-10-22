@@ -12,6 +12,21 @@ from cyclothone.darkweb.discovery_queue_worker import (
 )
 
 
+@pytest.mark.parametrize("value", [None, "", "flase", "enabled", "0", "false", "no", "off"])
+def test_worker_feature_gate_fails_closed_unless_explicitly_true(monkeypatch, value):
+    if value is None:
+        monkeypatch.delenv("CYCLOTHONE_DW_DISCOVERY_WORKER_ENABLED", raising=False)
+    else:
+        monkeypatch.setenv("CYCLOTHONE_DW_DISCOVERY_WORKER_ENABLED", value)
+    assert DWDiscoveryQueueWorker()._enabled is False
+
+
+@pytest.mark.parametrize("value", ["1", "true", "TRUE", "yes", "on"])
+def test_worker_feature_gate_accepts_explicit_truthy_values(monkeypatch, value):
+    monkeypatch.setenv("CYCLOTHONE_DW_DISCOVERY_WORKER_ENABLED", value)
+    assert DWDiscoveryQueueWorker()._enabled is True
+
+
 def test_candidate_onion_requires_v3_host_and_web_port():
     host = "a" * 56 + ".onion"
     assert _candidate_onion_url(f"http://{host}/listing") == f"http://{host}/"
