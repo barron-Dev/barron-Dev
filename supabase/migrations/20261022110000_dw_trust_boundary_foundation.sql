@@ -40,6 +40,7 @@ UPDATE public.dw_sources
      WHEN 'github_code_search' THEN 'github_code_search'
      WHEN 'tiktok_commercial' THEN 'tiktok_commercial'
      WHEN 'ransomwatch' THEN 'historical_archive'
+     WHEN 'reddit_public' THEN 'excluded'
      WHEN 'reddit' THEN 'excluded'
      WHEN 'hibp' THEN 'excluded'
      ELSE coalesce(source_class, 'unclassified')
@@ -92,6 +93,12 @@ CREATE TABLE IF NOT EXISTS public.dw_source_attempts (
 CREATE INDEX IF NOT EXISTS dw_source_attempts_latest_idx
   ON public.dw_source_attempts(source_id, attempted_at DESC, id DESC);
 
+-- Keep the ledger private until a reviewed writer RPC is added. The worker must
+-- not gain direct table-write privileges as a side effect of this foundation.
+ALTER TABLE public.dw_source_attempts ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE public.dw_source_attempts FROM PUBLIC, anon, authenticated, service_role;
+GRANT SELECT ON TABLE public.dw_source_attempts TO service_role;
+
 CREATE TABLE IF NOT EXISTS public.dw_source_type_requirements (
   source_class text PRIMARY KEY CHECK (source_class IN (
     'native_onion','telegram_public','pastebin_public','bluesky_public',
@@ -117,6 +124,10 @@ VALUES
   ('excluded', false, false, false, 0),
   ('unclassified', false, false, false, 0)
 ON CONFLICT (source_class) DO NOTHING;
+
+ALTER TABLE public.dw_source_type_requirements ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE public.dw_source_type_requirements FROM PUBLIC, anon, authenticated, service_role;
+GRANT SELECT ON TABLE public.dw_source_type_requirements TO service_role;
 
 CREATE OR REPLACE VIEW public.dw_source_effective_state AS
 WITH latest AS (
@@ -158,6 +169,10 @@ SELECT
 FROM public.dw_sources s
 LEFT JOIN latest l ON l.source_id = s.id
 LEFT JOIN public.dw_source_type_requirements r ON r.source_class = s.source_class;
+
+-- This view is only an operational read surface for the privileged service role.
+REVOKE ALL ON TABLE public.dw_source_effective_state FROM PUBLIC, anon, authenticated, service_role;
+GRANT SELECT ON TABLE public.dw_source_effective_state TO service_role;
 
 -- Archived ransomware feed is never an active live check. Preserve rows and
 -- provenance; this only disables future polling and corrects source taxonomy.
