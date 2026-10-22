@@ -294,12 +294,14 @@ class NativeOnionCrawler:
                             seed_success = True
                             content_match = pattern.search(page_text)
                             url_match = pattern.search(url)
-                            if content_match or url_match:
+                            # A target appearing only in a URL/path is not proof
+                            # of exposure. Keep crawling metadata, but do not emit
+                            # a customer finding without a body-content match.
+                            if content_match:
                                 self.matches += 1
-                                evidence_excerpt = (
-                                    sanitize_target_matched_excerpt(page_text, pattern)
-                                    if content_match else None
-                                )
+                                evidence_excerpt = sanitize_target_matched_excerpt(page_text, pattern)
+                                if not evidence_excerpt:
+                                    raise RuntimeError("native_onion_matched_content_without_safe_excerpt")
                                 findings.append(Finding(
                                     source_id=self.SOURCE,
                                     kind=target_kind,
