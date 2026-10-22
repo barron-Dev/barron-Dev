@@ -393,6 +393,7 @@ class DWDiscoveryQueueWorker:
 
         inserted = 0
         existing = 0
+        persistence_failures = 0
         for candidate in candidates:
             parsed = urlsplit(candidate)
             host = (parsed.hostname or "").lower()
@@ -430,10 +431,14 @@ class DWDiscoveryQueueWorker:
                 })
                 inserted += 1
             except Exception as exc:
-                # A concurrent insert or schema mismatch is not a verified source.
-                logger.info("DW onion candidate persistence skipped error=%s", type(exc).__name__)
+                # Partial persistence is retryable; never mark the job completed.
+                persistence_failures += 1
+                logger.warning(
+                    "DW onion candidate persistence failed error=%s",
+                    type(exc).__name__,
+                )
 
-        return "completed", {
+        metadata = {
             "index": "ahmia_public_search",
             "scope_key": scope,
             "category_slug": category,
@@ -441,7 +446,11 @@ class DWDiscoveryQueueWorker:
             "candidate_count": len(candidates),
             "inserted_candidate_count": inserted,
             "already_catalogued_count": existing,
+            "persistence_failure_count": persistence_failures,
             "candidates_are_unverified": True,
             "no_onion_hosts_probed": True,
             "no_page_content_inspected": True,
-        }, None, 0
+        }
+        if persistence_failures:
+            return "retry", metadata, "candidate_persistence_incomplete", 900
+        return "completed", metadata, None, 0
