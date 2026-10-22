@@ -115,3 +115,27 @@ async def test_native_crawler_fails_closed_without_seed_configuration():
     crawler = NativeOnionCrawler(seeds=[], proxy="socks5://127.0.0.1:9050")
     with pytest.raises(RuntimeError, match="native_onion_missing_seeds"):
         await crawler.pull("domain", "owned-example.com")
+
+
+
+def test_native_target_matcher_rejects_empty_normalized_value():
+    from cyclothone.darkweb.native_onion import _target_pattern
+
+    with pytest.raises(ValueError, match="native_onion_empty_normalized_target"):
+        _target_pattern("domain", " \t ")
+
+
+def test_native_target_matcher_uses_domain_boundaries():
+    from cyclothone.darkweb.native_onion import _target_pattern
+
+    pattern = _target_pattern("domain", "owned-example.com")
+    assert pattern.search("the domain owned-example.com was listed")
+    assert not pattern.search("notowned-example.com")
+    assert not pattern.search("owned-example.com.attacker.invalid")
+
+
+def test_native_target_matcher_rejects_unsupported_target_kind():
+    from cyclothone.darkweb.native_onion import _target_pattern
+
+    with pytest.raises(ValueError, match="native_onion_unsupported_target_kind"):
+        _target_pattern("unexpected_kind", "target-value")
