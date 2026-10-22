@@ -44,8 +44,7 @@ UPDATE public.dw_sources
      WHEN 'reddit' THEN 'excluded'
      WHEN 'hibp' THEN 'excluded'
      ELSE coalesce(source_class, 'unclassified')
-   END
- WHERE source_class IS NULL;
+   END;
 
 ALTER TABLE public.dw_sources
   ALTER COLUMN source_class SET NOT NULL;
