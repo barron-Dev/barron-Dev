@@ -38,13 +38,15 @@ def derive_cursor_delta(post_ids: list[int], previous_cursor: int | None) -> dic
             "error_code": "cursor_initialized",
         }
     if previous_cursor not in ids:
-        # Do not advance across an unobserved window: doing so would let the next
-        # poll count as complete after silently skipping unseen posts.
+        # Rebase to the newest visible post but mark this interval unknown. Keeping
+        # an expired cursor forever would permanently poison telemetry for busy
+        # channels. The rebase poll is never counted as zero; the next poll can
+        # resume complete deltas from a cursor known to be visible now.
         return {
-            "cursor_value": previous_cursor,
+            "cursor_value": current_cursor,
             "documents_new": None,
             "count_complete": False,
-            "error_code": "cursor_not_visible",
+            "error_code": "cursor_rebased_gap_unknown",
         }
     return {
         "cursor_value": current_cursor,
