@@ -176,6 +176,7 @@ async def test_native_crawler_does_not_emit_finding_for_url_only_target_match():
     class _UrlOnlyResponse:
         status_code = 200
         headers = {"content-type": "text/html"}
+        encoding = "utf-8"
         url = "http://" + "a" * 56 + ".onion/owned-example.com"
 
         async def aiter_bytes(self):
