@@ -75,13 +75,14 @@ REVOKE ALL ON public.dw_source_observations, public.dw_source_silence_buckets, p
     FROM PUBLIC, anon, authenticated, service_role;
 GRANT SELECT ON public.dw_source_observations TO service_role;
 GRANT SELECT ON public.dw_source_silence_buckets TO service_role;
-GRANT SELECT, INSERT ON public.dw_source_silence_scores TO service_role;
+GRANT SELECT ON public.dw_source_silence_scores TO service_role;
 
 -- The SECURITY DEFINER RPC owner uses the observation identity sequence; service_role
 -- only needs the score identity sequence for its permitted INSERT.
 REVOKE ALL ON SEQUENCE public.dw_source_observations_id_seq, public.dw_source_silence_scores_id_seq
     FROM PUBLIC, anon, authenticated, service_role;
-GRANT USAGE, SELECT ON SEQUENCE public.dw_source_silence_scores_id_seq TO service_role;
+-- Score rows are inserted only through the restricted SECURITY DEFINER score RPC;
+-- service_role must not be able to manufacture arbitrary shadow score rows directly.
 
 CREATE OR REPLACE FUNCTION public.reject_dw_silence_ledger_mutation()
 RETURNS trigger
@@ -104,6 +105,15 @@ DROP TRIGGER IF EXISTS trg_dw_source_silence_scores_append_only ON public.dw_sou
 CREATE TRIGGER trg_dw_source_silence_scores_append_only
 BEFORE UPDATE OR DELETE ON public.dw_source_silence_scores
 FOR EACH ROW EXECUTE FUNCTION public.reject_dw_silence_ledger_mutation();
+
+-- UPDATE/DELETE row triggers do not protect against TRUNCATE. Block it explicitly
+-- on both append-only ledgers, including for accidental privileged operations.
+CREATE TRIGGER trg_dw_source_observations_no_truncate
+BEFORE TRUNCATE ON public.dw_source_observations
+FOR EACH STATEMENT EXECUTE FUNCTION public.reject_dw_silence_ledger_mutation();
+CREATE TRIGGER trg_dw_source_silence_scores_no_truncate
+BEFORE TRUNCATE ON public.dw_source_silence_scores
+FOR EACH STATEMENT EXECUTE FUNCTION public.reject_dw_silence_ledger_mutation();
 
 CREATE OR REPLACE FUNCTION public.record_dw_source_observation(
     p_source_id text,
@@ -225,3 +235,113 @@ $$;
 -- Explicitly clear any pre-existing grant to service_role before granting the intended RPC entry point.
 REVOKE ALL ON FUNCTION public.record_dw_source_observation(text, text, timestamptz, text, bigint, integer, timestamptz, boolean, text, text, text, jsonb) FROM PUBLIC, anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.record_dw_source_observation(text, text, timestamptz, text, bigint, integer, timestamptz, boolean, text, text, text, jsonb) TO service_role, postgres;
+
+
+-- Scores are security-relevant derived evidence. Do not let service_role insert
+-- arbitrary states/details directly; accept them only through this bounded RPC.
+CREATE OR REPLACE FUNCTION public.record_dw_source_silence_score(
+    p_source_id text,
+    p_scope_key text,
+    p_evaluated_at timestamptz,
+    p_last_document_at timestamptz,
+    p_baseline_start timestamptz,
+    p_baseline_end timestamptz,
+    p_baseline_bucket_count integer,
+    p_expected_rate_per_hour double precision,
+    p_dispersion_size double precision,
+    p_gap_hours double precision,
+    p_p_value double precision,
+    p_state text,
+    p_details jsonb
+)
+RETURNS bigint
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, public
+AS $$
+DECLARE
+    v_id bigint;
+BEGIN
+    IF p_source_id IS NULL OR NOT EXISTS (
+        SELECT 1 FROM public.dw_sources WHERE id = p_source_id
+    ) THEN
+        RAISE EXCEPTION 'source is not registered';
+    END IF;
+    IF p_scope_key IS NULL OR length(p_scope_key) NOT BETWEEN 1 AND 240
+       OR length(p_scope_key) <= length(p_source_id) + 1
+       OR left(p_scope_key, length(p_source_id) + 1) <> (p_source_id || ':') THEN
+        RAISE EXCEPTION 'invalid silence score scope';
+    END IF;
+    IF p_source_id = 'telegram_public'
+       AND (length(split_part(p_scope_key, ':', 2)) NOT BETWEEN 1 AND 200
+            OR p_scope_key NOT LIKE 'telegram_public:%') THEN
+        RAISE EXCEPTION 'invalid Telegram silence score scope';
+    END IF;
+    IF p_evaluated_at IS NULL OR p_evaluated_at > now() + interval '5 minutes'
+       OR p_evaluated_at < now() - interval '24 hours' THEN
+        RAISE EXCEPTION 'score timestamp outside accepted window';
+    END IF;
+    IF p_baseline_bucket_count IS NULL OR p_baseline_bucket_count < 0 THEN
+        RAISE EXCEPTION 'invalid baseline bucket count';
+    END IF;
+    IF p_baseline_start IS NOT NULL AND p_baseline_end IS NOT NULL
+       AND p_baseline_start > p_baseline_end THEN
+        RAISE EXCEPTION 'invalid baseline interval';
+    END IF;
+    IF p_baseline_end IS NOT NULL AND p_baseline_end > p_evaluated_at + interval '5 minutes' THEN
+        RAISE EXCEPTION 'baseline end is in the future';
+    END IF;
+    IF p_expected_rate_per_hour IS NOT NULL AND
+       (p_expected_rate_per_hour < 0 OR p_expected_rate_per_hour = 'Infinity'::double precision
+        OR p_expected_rate_per_hour = '-Infinity'::double precision
+        OR p_expected_rate_per_hour = 'NaN'::double precision) THEN
+        RAISE EXCEPTION 'invalid expected rate';
+    END IF;
+    IF p_dispersion_size IS NOT NULL AND
+       (p_dispersion_size <= 0 OR p_dispersion_size = 'Infinity'::double precision
+        OR p_dispersion_size = '-Infinity'::double precision
+        OR p_dispersion_size = 'NaN'::double precision) THEN
+        RAISE EXCEPTION 'invalid dispersion size';
+    END IF;
+    IF p_gap_hours IS NOT NULL AND
+       (p_gap_hours < 0 OR p_gap_hours = 'Infinity'::double precision
+        OR p_gap_hours = '-Infinity'::double precision
+        OR p_gap_hours = 'NaN'::double precision) THEN
+        RAISE EXCEPTION 'invalid gap duration';
+    END IF;
+    IF p_p_value IS NOT NULL AND
+       (p_p_value < 0 OR p_p_value > 1 OR p_p_value = 'NaN'::double precision) THEN
+        RAISE EXCEPTION 'invalid p-value';
+    END IF;
+    IF p_state IS NULL OR p_state NOT IN (
+        'monitoring_unavailable', 'insufficient_baseline', 'no_expected_activity',
+        'normal', 'silence_candidate'
+    ) THEN
+        RAISE EXCEPTION 'invalid silence score state';
+    END IF;
+    IF p_details IS NULL OR jsonb_typeof(p_details) <> 'object'
+       OR octet_length(p_details::text) > 8192 THEN
+        RAISE EXCEPTION 'invalid silence score details';
+    END IF;
+
+    INSERT INTO public.dw_source_silence_scores (
+        source_id, scope_key, evaluated_at, last_document_at, baseline_start,
+        baseline_end, baseline_bucket_count, expected_rate_per_hour,
+        dispersion_size, gap_hours, p_value, state, shadow_only, details
+    ) VALUES (
+        p_source_id, p_scope_key, p_evaluated_at, p_last_document_at, p_baseline_start,
+        p_baseline_end, p_baseline_bucket_count, p_expected_rate_per_hour,
+        p_dispersion_size, p_gap_hours, p_p_value, p_state, true, p_details
+    ) RETURNING id INTO v_id;
+    RETURN v_id;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.record_dw_source_silence_score(
+    text, text, timestamptz, timestamptz, timestamptz, timestamptz, integer,
+    double precision, double precision, double precision, double precision, text, jsonb
+) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.record_dw_source_silence_score(
+    text, text, timestamptz, timestamptz, timestamptz, timestamptz, integer,
+    double precision, double precision, double precision, double precision, text, jsonb
+) TO service_role, postgres;
