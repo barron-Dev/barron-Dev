@@ -76,12 +76,21 @@ def test_visible_cursor_with_no_new_posts_is_a_complete_zero():
     assert result["error_code"] is None
 
 
-def test_missing_previous_cursor_is_unknown_and_does_not_advance_cursor():
+def test_expired_previous_cursor_rebases_but_keeps_gap_unknown():
     result = derive_cursor_delta([30, 31, 32], 12)
-    assert result["cursor_value"] == 12
+    assert result["cursor_value"] == 32
     assert result["documents_new"] is None
     assert result["count_complete"] is False
-    assert result["error_code"] == "cursor_not_visible"
+    assert result["error_code"] == "cursor_rebased_gap_unknown"
+
+
+def test_rebased_cursor_recovers_on_next_visible_poll():
+    rebased = derive_cursor_delta([30, 31, 32], 12)
+    recovered = derive_cursor_delta([31, 32, 33], rebased["cursor_value"])
+    assert recovered["cursor_value"] == 33
+    assert recovered["documents_new"] == 1
+    assert recovered["count_complete"] is True
+    assert recovered["error_code"] is None
 
 
 
