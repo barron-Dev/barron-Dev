@@ -52,6 +52,10 @@ The read-only audit found `public.dw_sources` currently marks `native_onion` as 
 
 **Release rule:** leave the new flag unset/false until the authorized target, tenant scoping, Tor route and circuit isolation, WARC/evidence chain, and release approval are verified. The worker's separate `CYCLOTHONE_DW_DISCOVERY_WORKER_ENABLED` gate does not substitute for this native-onion scheduler gate.
 
+### Follow-up: partial candidate persistence must not complete a queue job
+
+Review of the public Ahmia candidate adapter found it could return `completed` after one or more database lookup/insert errors, even when candidate rows had not been persisted. The adapter now counts persistence failures and returns `retry` with `candidate_persistence_incomplete` when any candidate write fails. A regression test checks that a simulated insert failure does not become a completed job. The retry remains idempotent: on the next attempt, already-persisted candidates are treated as catalogued, while missing ones can be retried. CI must confirm this test on the latest branch head.
+
 ### Follow-up: discovery-worker flag parsing hardened
 
 A further code review found the discovery worker's flag parser used a denylist, so an empty or misspelled value such as `CYCLOTHONE_DW_DISCOVERY_WORKER_ENABLED=flase` would evaluate as enabled. This violated the documented default-off safety rule. The PR branch now uses a strict allowlist: only `1`, `true`, `yes`, or `on` (case-insensitive) enable the worker; missing, empty, false, and unknown values remain disabled. Parametrized regression tests cover both accepted and rejected values. These changes are branch-only and await CI; no production variable was inspected or changed.
