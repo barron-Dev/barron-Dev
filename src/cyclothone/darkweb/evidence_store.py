@@ -163,6 +163,19 @@ async def record_target_matched_onion_evidence(
         object_path=object_path,
         sanitized_text=evidence_text,
     )
+    # A separate retrieval repeats both integrity and target-match checks.
+    readback = await client.storage.from_(stored.bucket).download(stored.object_path)
+    if not isinstance(readback, (bytes, bytearray)):
+        raise RuntimeError("dw_evidence_independent_readback_invalid_type")
+    readback_bytes = bytes(readback)
+    if hashlib.sha256(readback_bytes).hexdigest() != stored.sha256:
+        raise RuntimeError("dw_evidence_independent_readback_hash_mismatch")
+    try:
+        readback_text = readback_bytes.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise RuntimeError("dw_evidence_independent_readback_not_utf8") from exc
+    if not pattern.search(readback_text):
+        raise RuntimeError("dw_evidence_independent_target_match_failed")
     uri = f"supabase://{stored.bucket}/{stored.object_path}"
     evidence = await service_client.rpc("trust_record_evidence", {
         "p_subject_id": subject_id,
