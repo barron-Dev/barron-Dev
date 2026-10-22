@@ -141,14 +141,14 @@ def sanitize_target_matched_excerpt(
         flags=re.IGNORECASE | re.DOTALL,
     )
     excerpt = re.sub(
-        r"(?i)\\b(password|passwd|secret|api[_-]?key|access[_-]?token|refresh[_-]?token|authorization|bearer)\\s*[:=]\\s*(?!ZZTARGETZZ)[^\\s,;]+",
-        r"\\1=[redacted]",
+        r"(?i)\b(password|passwd|secret|api[_-]?key|access[_-]?token|refresh[_-]?token|authorization|bearer)\s*[:=]\s*(?!ZZTARGETZZ)[^\s,;]+",
+        r"\1=[redacted]",
         excerpt,
     )
-    excerpt = re.sub(r"\\beyJ[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{8,}\\b", "[redacted-jwt]", excerpt)
-    excerpt = re.sub(r"\\bAKIA[0-9A-Z]{16}\\b", "[redacted-cloud-key]", excerpt)
-    excerpt = re.sub(r"(?<!\\w)[A-Za-z0-9._%+\\-]+@[A-Za-z0-9.\\-]+\\.[A-Za-z]{2,}(?!\\w)", "[redacted-email]", excerpt)
-    excerpt = re.sub(r"\\b[A-Za-z0-9_+/=-]{32,}\\b", "[redacted-token]", excerpt)
+    excerpt = re.sub(r"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b", "[redacted-jwt]", excerpt)
+    excerpt = re.sub(r"\bAKIA[0-9A-Z]{16}\b", "[redacted-cloud-key]", excerpt)
+    excerpt = re.sub(r"(?<!\w)[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}(?!\w)", "[redacted-email]", excerpt)
+    excerpt = re.sub(r"\b[A-Za-z0-9_+/=-]{32,}\b", "[redacted-token]", excerpt)
     excerpt = " ".join(excerpt.split()).replace(sentinel, match.group(0))[:max_chars]
     if not pattern.search(excerpt):
         return None
