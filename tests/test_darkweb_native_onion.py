@@ -2,7 +2,7 @@ from unittest.mock import patch
 
 import pytest
 
-from cyclothone.darkweb.native_onion import NativeOnionCrawler, configured_onion_seeds
+from cyclothone.darkweb.native_onion import MAX_BODY_BYTES, NativeOnionCrawler, configured_onion_seeds
 
 
 class _Response:
@@ -29,8 +29,11 @@ class _Stream:
 
 
 class _Client:
+    last_urls = []
+
     def __init__(self, *args, **kwargs):
         self.urls = []
+        type(self).last_urls = self.urls
 
     async def __aenter__(self):
         return self
@@ -57,7 +60,7 @@ def test_configured_onion_seeds_reject_non_onion_and_private_urls():
     with patch.dict("os.environ", {
         "CYCLOTHONE_DW_ONION_SEEDS":
             "https://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.onion/,"
-            "https://example.com/,http://user:pass@bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.onion/"
+            "https://example.com/,https://short.onion/,http://user:pass@bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.onion/"
     }):
         seeds = configured_onion_seeds()
     assert len(seeds) == 1
@@ -73,15 +76,38 @@ async def test_native_crawler_only_follows_same_onion_host_and_records_exact_evi
     with patch("cyclothone.darkweb.native_onion.httpx.AsyncClient", _Client):
         findings = await crawler.pull("domain", "owned-example.com")
 
-    assert crawler.pages_checked == 3
+    assert crawler.pages_checked == 2
     assert crawler.configured_seed_count == 1
     assert len(crawler.discovered_seeds) == 1
-    assert crawler.seed_status["http://bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.onion/"] == "checked"
-    assert len(findings) == 3
+    discovered_url = crawler.discovered_seeds[0]["url"]
+    assert discovered_url.endswith("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.onion/")
+    assert discovered_url not in crawler.seed_status
+    assert not any("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.onion" in url for url in _Client.last_urls)
+    assert len(findings) == 2
     assert all(f.kind == "domain" and f.matched_value == "owned-example.com" for f in findings)
     assert all(f.metadata["exposure_layer"] == "dark" for f in findings)
     assert all(f.metadata["access_mode"] == "tor_public_onion" for f in findings)
     assert all("outside" not in (f.source_url or "") for f in findings)
+
+
+@pytest.mark.asyncio
+async def test_native_crawler_rejects_oversized_response_without_hashing_partial_body():
+    class _LargeClient(_Client):
+        def stream(self, method, url):
+            self.urls.append(url)
+            return _Stream(_Response(b"x" * (MAX_BODY_BYTES + 1)))
+
+    seed = "http://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.onion/"
+    crawler = NativeOnionCrawler(seeds=[seed], proxy="socks5://127.0.0.1:9050")
+    with patch("cyclothone.darkweb.native_onion.httpx.AsyncClient", _LargeClient):
+        with pytest.raises(RuntimeError, match="native_onion_no_seed_reachable"):
+            await crawler.pull("domain", "owned-example.com")
+
+    evidence = crawler.seed_probe_evidence[seed]
+    assert evidence["http_status"] == 200
+    assert evidence["error_code"] == "response_body_too_large"
+    assert evidence["response_sha256"] is None
+    assert crawler.pages_checked == 0
 
 
 @pytest.mark.asyncio

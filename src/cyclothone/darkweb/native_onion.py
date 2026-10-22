@@ -20,6 +20,7 @@ MAX_PAGES_PER_SEED = 20
 MAX_TOTAL_PAGES = 100
 MAX_BODY_BYTES = 512_000
 ONION_SUFFIX = ".onion"
+ONION_V3_HOST = re.compile(r"^[a-z2-7]{56}\.onion$")
 
 
 def configured_onion_seeds() -> list[str]:
@@ -48,9 +49,9 @@ def _safe_onion_url(value: str):
     try:
         parsed = urlsplit(value)
         host = (parsed.hostname or "").lower().rstrip(".")
-        if parsed.scheme not in {"http", "https"} or not host.endswith(ONION_SUFFIX):
+        if parsed.scheme not in {"http", "https"} or not ONION_V3_HOST.fullmatch(host):
             return None
-        if parsed.username or parsed.password or not host[:-len(ONION_SUFFIX)]:
+        if parsed.username or parsed.password:
             return None
         if parsed.port and parsed.port not in {80, 443}:
             return None
@@ -125,6 +126,7 @@ class NativeOnionCrawler:
         self.discovered_from: dict[str, str] = dict(discovered_from or {})
         self.discovered_seeds: list[dict[str, str]] = []
         self.seed_content_hash: dict[str, str] = {}
+        self.seed_probe_evidence: dict[str, dict] = {}
         self.pages_checked = 0
         self.pages_failed = 0
         self.matches = 0
@@ -176,22 +178,40 @@ class NativeOnionCrawler:
                         visited.add(url)
                         try:
                             async with client.stream("GET", url) as response:
+                                content_type = response.headers.get("content-type", "").lower()
+                                if url == seed and seed not in self.seed_probe_evidence:
+                                    self.seed_probe_evidence[seed] = {
+                                        "http_status": response.status_code,
+                                        "content_type": content_type[:200] or None,
+                                        "response_bytes": 0,
+                                        "response_sha256": None,
+                                        "error_code": None if 200 <= response.status_code < 300 else f"http_status_{response.status_code}",
+                                    }
                                 if response.status_code < 200 or response.status_code >= 300:
                                     self.pages_failed += 1
                                     continue
-                                content_type = response.headers.get("content-type", "").lower()
                                 if content_type and not any(kind in content_type for kind in ("text/html", "text/plain", "application/xhtml")):
                                     continue
                                 chunks: list[bytes] = []
                                 body_size = 0
+                                oversized_body = False
                                 async for chunk in response.aiter_bytes():
-                                    remaining = MAX_BODY_BYTES - body_size
-                                    if remaining <= 0:
+                                    if body_size + len(chunk) > MAX_BODY_BYTES:
+                                        oversized_body = True
                                         break
-                                    chunks.append(chunk[:remaining])
-                                    body_size += min(len(chunk), remaining)
-                                    if body_size >= MAX_BODY_BYTES:
-                                        break
+                                    chunks.append(chunk)
+                                    body_size += len(chunk)
+                                if oversized_body:
+                                    if url == seed:
+                                        self.seed_probe_evidence[seed] = {
+                                            "http_status": response.status_code,
+                                            "content_type": content_type[:200] or None,
+                                            "response_bytes": body_size,
+                                            "response_sha256": None,
+                                            "error_code": "response_body_too_large",
+                                        }
+                                    self.pages_failed += 1
+                                    continue
                                 body = b"".join(chunks)
                                 text = body.decode(response.encoding or "utf-8", errors="replace")
                             if not body.strip():
@@ -205,6 +225,14 @@ class NativeOnionCrawler:
                                 continue
                             body_hash = hashlib.sha256(body).hexdigest()
                             self.seed_content_hash.setdefault(seed, body_hash)
+                            if url == seed:
+                                self.seed_probe_evidence[seed] = {
+                                    "http_status": response.status_code,
+                                    "content_type": content_type[:200] or None,
+                                    "response_bytes": len(body),
+                                    "response_sha256": body_hash,
+                                    "error_code": None,
+                                }
                             total_pages += 1
                             seed_pages += 1
                             self.pages_checked += 1
@@ -239,16 +267,23 @@ class NativeOnionCrawler:
                                     if link_host == host:
                                         if clean not in visited and len(queue) < MAX_PAGES_PER_SEED:
                                             queue.append((clean, depth + 1))
-                                    elif link_host not in scheduled_hosts and len(roots) < MAX_SEEDS:
-                                        # Discover only public onion links; never follow clearnet hosts.
+                                    elif link_host not in scheduled_hosts and len(self.discovered_seeds) < MAX_SEEDS:
+                                        # Inventory the link as a candidate; do not probe it in this run.
                                         scheduled_hosts.add(link_host)
-                                        roots.append(clean)
                                         self.seed_origin[clean] = "discovered"
                                         self.discovered_from[clean] = url
                                         self.discovered_seeds.append({"url": clean, "discovered_from": url})
                         except asyncio.CancelledError:
                             raise
                         except Exception as exc:
+                            if url == seed and seed not in self.seed_probe_evidence:
+                                self.seed_probe_evidence[seed] = {
+                                    "http_status": None,
+                                    "content_type": None,
+                                    "response_bytes": 0,
+                                    "response_sha256": None,
+                                    "error_code": type(exc).__name__[:120],
+                                }
                             self.pages_failed += 1
                             logger.info("native onion page failed host=%s error=%s", host, type(exc).__name__)
                     self.seed_status[seed] = "checked" if seed_success else "failed"
