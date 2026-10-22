@@ -19,6 +19,7 @@ from cyclothone.darkweb.pullers import (
 from cyclothone.darkweb.telegram_config import configured_telegram_channels
 from cyclothone.storage.supabase_client import supabase
 from cyclothone.darkweb.source_catalog import get_source, is_excluded_source
+from cyclothone.darkweb.evidence_store import record_target_matched_onion_evidence
 
 logger = logging.getLogger(__name__)
 ALLOWED_TYPES = {"domain", "url", "email", "brand", "username", "ip", "other"}
@@ -526,7 +527,32 @@ class DarkWebRequestWorker:
             meta = dict(finding.metadata or {})
             meta["customer_match"] = "exact"
             tenant_hash = hashlib.sha256(f"{getattr(finding, 'source_id', '')}:{hashlib.sha256((str(finding.matched_value).strip().lower()).encode()).hexdigest()}:{watch_id}".encode()).hexdigest()
+            trust_evidence = None
             try:
+                if (
+                    finding.source_id == "native_onion"
+                    and meta.get("target_match_in_content") is True
+                ):
+                    excerpt = getattr(finding, "evidence_excerpt", None)
+                    if not excerpt:
+                        raise RuntimeError("native_onion_matched_content_without_safe_evidence_excerpt")
+                    if not finding.source_url:
+                        raise RuntimeError("native_onion_matched_content_without_source_url")
+                    trust_evidence = await record_target_matched_onion_evidence(
+                        supabase,
+                        tenant_id=tenant_id,
+                        watchlist_id=watch_id,
+                        service_request_id=request_id,
+                        source_url=finding.source_url,
+                        sanitized_page_text=excerpt,
+                        observed_at=str(meta.get("observed_at") or datetime.now(UTC).isoformat()),
+                    )
+                    meta["durable_evidence"] = {
+                        "content_uri": trust_evidence["content_uri"],
+                        "content_sha256": trust_evidence["content_sha256"],
+                        "readback_sha256_verified": trust_evidence["readback_sha256_verified"],
+                        "classification": trust_evidence["finding_class"],
+                    }
                 recorded = await supabase.rpc("record_dw_finding", {
                     "p_source_id": finding.source_id, "p_content_hash": tenant_hash,
                     "p_kind": finding.kind, "p_matched_value": str(finding.matched_value).strip().lower(),
@@ -535,8 +561,17 @@ class DarkWebRequestWorker:
                     "p_tenant_id": tenant_id, "p_watchlist_id": watch_id,
                 })
                 _require_recorded_finding(recorded)
-                evidence.append({"source": finding.source_id, "collected_at": datetime.now(UTC).isoformat(),
-                                 "content_hash": tenant_hash, "source_url": finding.source_url})
+                evidence.append({
+                    "source": finding.source_id,
+                    "collected_at": datetime.now(UTC).isoformat(),
+                    "content_hash": tenant_hash,
+                    "source_url": finding.source_url,
+                    **({
+                        "trust_evidence_uri": trust_evidence["content_uri"],
+                        "trust_evidence_sha256": trust_evidence["content_sha256"],
+                        "trust_evidence_readback_verified": True,
+                    } if trust_evidence else {}),
+                })
             except Exception:
                 persistence_failures += 1
                 logger.warning("unable to persist customer dark-web match", exc_info=True)
