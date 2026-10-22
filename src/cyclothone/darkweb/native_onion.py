@@ -94,10 +94,23 @@ class _PageParser(HTMLParser):
 
 
 def _target_pattern(kind: str, target: str) -> re.Pattern[str]:
-    escaped = re.escape(normalize(target))
-    if kind in {"domain", "email", "username", "company_name", "ip"}:
+    normalized = normalize(target)
+    if not normalized:
+        raise ValueError("native_onion_empty_normalized_target")
+
+    escaped = re.escape(normalized)
+    if kind == "domain":
+        # A hostname must not match a larger hostname or a hostname suffix.
+        return re.compile(r"(?<![\w.-])" + escaped + r"(?![\w.-])", re.IGNORECASE)
+    if kind == "email":
         return re.compile(r"(?<![\w@.+-])" + escaped + r"(?![\w@.+-])", re.IGNORECASE)
-    return re.compile(escaped, re.IGNORECASE)
+    if kind == "ip":
+        return re.compile(r"(?<![0-9a-f:.])" + escaped + r"(?![0-9a-f:.])", re.IGNORECASE)
+    if kind == "phone":
+        return re.compile(r"(?<!\d)" + escaped + r"(?!\d)", re.IGNORECASE)
+    if kind in {"username", "company_name", "wallet", "api_key_hash", "employee_id", "customer_id", "other"}:
+        return re.compile(r"(?<!\w)" + escaped + r"(?!\w)", re.IGNORECASE)
+    raise ValueError("native_onion_unsupported_target_kind")
 
 
 class NativeOnionCrawler:
