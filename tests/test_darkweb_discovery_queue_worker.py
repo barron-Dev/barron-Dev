@@ -56,6 +56,70 @@ def test_search_term_is_bounded_and_strips_control_characters():
 
 
 @pytest.mark.asyncio
+async def test_ahmia_discovery_persists_candidates_as_explicitly_unmonitored(monkeypatch):
+    host = "a" * 56 + ".onion"
+
+    class Response:
+        status_code = 200
+        encoding = "utf-8"
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def aiter_bytes(self):
+            yield f'<html><a href="http://{host}/secret">candidate</a></html>'.encode()
+
+    class Client:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        def stream(self, method, url, params=None):
+            assert method == "GET"
+            assert url == "https://ahmia.fi/search/"
+            assert params and "q" in params
+            return Response()
+
+    inserted = AsyncMock(return_value={"id": "seed-id"})
+    monkeypatch.setattr(
+        "cyclothone.darkweb.discovery_queue_worker.httpx.AsyncClient", Client
+    )
+    monkeypatch.setattr(
+        "cyclothone.darkweb.discovery_queue_worker.supabase.select_one",
+        AsyncMock(return_value=None),
+    )
+    monkeypatch.setattr(
+        "cyclothone.darkweb.discovery_queue_worker.supabase.insert_one", inserted
+    )
+
+    outcome, metadata, error, _ = await DWDiscoveryQueueWorker()._process({
+        "job_id": 9,
+        "scope_key": "country:bj",
+        "category_slug": "onion_threat_intel_discovery",
+        "discovery_kind": "public_onion_threat_intel_candidate_discovery",
+    })
+
+    assert outcome == "completed"
+    assert error is None
+    assert metadata["candidate_count"] == 1
+    assert metadata["no_onion_hosts_probed"] is True
+    row = inserted.await_args.args[1]
+    assert row["status"] == "candidate"
+    assert row["monitoring_enabled"] is False
+    assert row["requires_tor_probe"] is True
+    assert row["probe_metadata"]["customer_matching_allowed"] is False
+    assert row["probe_metadata"]["publisher_identity_verified"] is False
+
+
+@pytest.mark.asyncio
 async def test_guarded_uses_job_id_and_lease_token_fencing(monkeypatch):
     worker = DWDiscoveryQueueWorker()
     worker._process = AsyncMock(return_value=("completed", {"candidate_count": 0}, None, 0))
