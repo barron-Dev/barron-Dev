@@ -222,5 +222,6 @@ BEGIN
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.record_dw_source_observation(text, text, timestamptz, text, bigint, integer, timestamptz, boolean, text, text, text, jsonb) FROM PUBLIC, anon, authenticated;
+-- Explicitly clear any pre-existing grant to service_role before granting the intended RPC entry point.
+REVOKE ALL ON FUNCTION public.record_dw_source_observation(text, text, timestamptz, text, bigint, integer, timestamptz, boolean, text, text, text, jsonb) FROM PUBLIC, anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.record_dw_source_observation(text, text, timestamptz, text, bigint, integer, timestamptz, boolean, text, text, text, jsonb) TO service_role, postgres;
