@@ -248,7 +248,7 @@ async def record_target_matched_onion_evidence(
             "content_bytes": stored.size_bytes,
             "evidence_scope": "bounded_match_excerpt",
             "readback_sha256_verified": True,
-            "classification": "candidate_evidence_not_verified_finding",
+            "classification": "candidate_evidence_not_verified",
         },
     })
     return {
