@@ -13,7 +13,7 @@ Production changes: none authorized by this document
 - A subsequent read-only queue snapshot in this review found **26,062 legacy jobs already in `deferred`**: 28 `feed_discovery`, 12,696 `official_source_discovery`, and 13,338 `onion_seed_discovery`; the query found no active leases for those rows. It also found 1,023 onion seed rows, all `candidate` with `monitoring_enabled=false`. This is a fresh read-only snapshot, not a worker test.
 - The live Supabase migration ledger records the earlier native-onion source, native honeytoken, Reddit-exclusion, discovery-queue lease/RPC, and legacy-backlog-quarantine migrations. Specifically, it contains migration entries for `dw_discovery_queue_lease_columns`, `dw_discovery_queue_claim_complete_rpc`, and `dw_discovery_queue_legacy_backlog_quarantine_forward`. Therefore the quarantine change is **already reflected in live migration history**; do not describe it as merely prepared. The source-silence telemetry migration is not present in the queried migration-name results, and its three telemetry tables were absent from the table inventory.
 - Supabase security advisors returned 39 informational `rls_enabled_no_policy` findings overall, including DW tables such as `dw_onion_seeds`, `dw_onion_probe_evidence`, `dw_source_discovery_queue`, `dw_source_discovery_registry`, `dw_source_health_events`, and `dw_canary_tokens`. This does **not alone prove exposure**—RLS with no policies normally denies client-role row access—but effective grants and service-role-only intent must be checked explicitly before release. The same advisor run also reported a `SECURITY DEFINER` function, `public.giril_start_customer_admission(uuid)`, executable by `authenticated`, plus leaked-password protection disabled; these are separate production security follow-ups, not proof of a DW exploit. See the [Supabase RLS advisor](https://supabase.com/docs/guides/database/database-linter?lint=0008_rls_enabled_no_policy), [SECURITY DEFINER advisor](https://supabase.com/docs/guides/database/database-linter?lint=0029_authenticated_security_definer_function_executable), and [password protection guidance](https://supabase.com/docs/guides/auth/password-security#password-strength-and-leaked-password-protection).
-- No migration, production write, worker activation, deployment, restart, source activation, or Tor probe was performed as part of this review.
+- No migration, production write, worker activation, deployment, restart, source activation, or Tor probe was performed as part of this review. The scheduler gate and its unit test were committed only to the open PR branch; CI for the new head must complete before claiming the test passes.
 
 ## 2. Secrets and trust-boundary matrix
 
@@ -43,6 +43,14 @@ Release tests must prove:
 - a compromised worker credential can be revoked without rotating every unrelated key.
 
 Do not rotate or modify production secrets as part of this review.
+
+## 2A. Additional release blocker found in the existing scheduler
+
+The read-only audit found `public.dw_sources` currently marks `native_onion` as enabled. In the PR #73 branch, the existing `DarkWebScheduler._domain_tick()` checked that registry flag and then combined environment-configured onion seeds with DB seeds whose `monitoring_enabled=true`. Before this review, the scheduler had no dedicated default-off environment gate around the native onion path. Therefore a future API restart could begin native onion requests if configured seeds were present and the source row remained enabled—even though every DB seed currently has monitoring disabled. The Railway outage prevents that runtime path from executing now, but does not remove the latent restart risk.
+
+**Change made on this PR branch only:** `src/cyclothone/darkweb/scheduler.py` now requires `CYCLOTHONE_DW_NATIVE_ONION_ENABLED=true` (case-insensitive accepted truthy values) before entering the native onion scheduler path; it defaults to false. Added `tests/test_darkweb_native_onion_feature_gate.py` to assert the disabled default does not proceed to tenant-domain retrieval. This is a code change, not a production configuration change; no Railway variable was read or changed, and no source was enabled or probed.
+
+**Release rule:** leave the new flag unset/false until the authorized target, tenant scoping, Tor route and circuit isolation, WARC/evidence chain, and release approval are verified. The worker's separate `CYCLOTHONE_DW_DISCOVERY_WORKER_ENABLED` gate does not substitute for this native-onion scheduler gate.
 
 ## 3. Evidence implementation gap review
 
