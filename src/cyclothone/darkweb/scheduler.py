@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import time
 from urllib.parse import urlsplit
 from datetime import UTC, datetime
@@ -115,6 +116,17 @@ class DarkWebScheduler:
         return seeds[:50], origins, discovered_from
 
     async def _domain_tick(self) -> None:
+        # Native onion polling must remain explicitly opt-in. The source registry's
+        # enabled flag and configured seed env var are not sufficient authorization
+        # to start probing; keep this disabled unless an operator deliberately sets
+        # the dedicated runtime flag after route, scope, and release checks.
+        native_onion_enabled = os.getenv("CYCLOTHONE_DW_NATIVE_ONION_ENABLED", "false").strip().lower() in {
+            "1", "true", "yes", "on"
+        }
+        if not native_onion_enabled:
+            logger.info("native onion monitoring disabled by CYCLOTHONE_DW_NATIVE_ONION_ENABLED")
+            return
+
         self._onion_evidence_persisted_this_tick = False
         domains = await self._tenant_domains()
         enabled = await self._enabled_sources()
