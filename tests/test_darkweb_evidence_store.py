@@ -261,3 +261,17 @@ async def test_request_watchlist_target_mismatch_fails_before_storage_or_evidenc
         )
     assert storage.bucket.stored is None
     assert service.rpc_calls == []
+
+
+@pytest.mark.asyncio
+async def test_existing_evidence_object_with_different_bytes_fails_closed():
+    storage = _Storage()
+    storage.bucket.path = "tenant/subject/request/evidence.txt"
+    storage.bucket.stored = b"evidence from a different request"
+    with pytest.raises(RuntimeError, match="dw_evidence_existing_object_conflicts_with_content"):
+        await store_and_verify_evidence(
+            storage,
+            object_path="tenant/subject/request/evidence.txt",
+            sanitized_text="Target example.test",
+        )
+    assert storage.bucket.stored == b"evidence from a different request"
