@@ -139,3 +139,33 @@ def test_native_target_matcher_rejects_unsupported_target_kind():
 
     with pytest.raises(ValueError, match="native_onion_unsupported_target_kind"):
         _target_pattern("unexpected_kind", "target-value")
+
+
+
+def test_native_evidence_excerpt_preserves_target_and_redacts_secrets():
+    from cyclothone.darkweb.native_onion import _target_pattern, sanitize_target_matched_excerpt
+
+    page = (
+        "owned-example.com was listed. "
+        "password=supersecret-value api_key=ABCDEFGHIJKLMNOPQRSTUVWX123456 "
+        "contact victim@example.net "
+        "jwt=eyJabcdefghijk.abcdefghijk.abcdefghijk "
+        "AKIA1234567890ABCDEF"
+    )
+    excerpt = sanitize_target_matched_excerpt(page, _target_pattern("domain", "owned-example.com"))
+    assert excerpt is not None
+    assert "owned-example.com" in excerpt
+    assert "supersecret-value" not in excerpt
+    assert "ABCDEFGHIJKLMNOPQRSTUVWX123456" not in excerpt
+    assert "victim@example.net" not in excerpt
+    assert "eyJabcdefghijk.abcdefghijk.abcdefghijk" not in excerpt
+    assert "AKIA1234567890ABCDEF" not in excerpt
+
+
+def test_native_evidence_excerpt_returns_none_without_exact_target():
+    from cyclothone.darkweb.native_onion import _target_pattern, sanitize_target_matched_excerpt
+
+    assert sanitize_target_matched_excerpt(
+        "attacker-owned-example.com.attacker.invalid",
+        _target_pattern("domain", "owned-example.com"),
+    ) is None
