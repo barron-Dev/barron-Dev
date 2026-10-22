@@ -70,6 +70,20 @@ END $$;
 ALTER TABLE public.dw_sources
   VALIDATE CONSTRAINT dw_sources_source_class_check;
 
+-- Historical rows are classified by the registered source, never promoted to
+-- verified_live_darkweb from URL/hash/metadata presence. Known public-source
+-- records are surface_public; Ransomwatch remains archived intelligence only.
+UPDATE public.dw_findings
+   SET finding_class = 'surface_public',
+       web_layer = 'surface'
+ WHERE source_id IN ('telegram_public', 'pastebin_public', 'bluesky_public', 'github_code', 'tiktok_commercial')
+   AND finding_class <> 'verified_live_darkweb';
+
+UPDATE public.dw_findings
+   SET finding_class = 'historical_archive',
+       web_layer = 'breach_intel'
+ WHERE source_id = 'ransomwatch';
+
 -- Source attempts are durable runtime outcomes, not configuration claims.
 -- This table intentionally does not assert that any source has succeeded.
 CREATE TABLE IF NOT EXISTS public.dw_source_attempts (
