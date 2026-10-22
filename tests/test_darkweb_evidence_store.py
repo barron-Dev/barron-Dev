@@ -208,6 +208,8 @@ async def test_request_tenant_mismatch_fails_before_storage_or_evidence_rpc():
                 "organization_id": "org-1",
                 "service_key": "dark_web_monitoring",
                 "processing_state": "running",
+                "target": "owned-example.com",
+                "target_type": "domain",
             }
         if table == "customer_organizations":
             return {
