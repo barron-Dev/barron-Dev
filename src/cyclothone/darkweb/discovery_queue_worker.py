@@ -421,6 +421,20 @@ class DWDiscoveryQueueWorker:
                         "criminality_attributed": False,
                     },
                     "candidate_trust": "unverified",
+                    # Explicit safety fields: discovery never authorizes probes,
+                    # tenant matching, or publisher attribution.
+                    "monitoring_enabled": False,
+                    "requires_tor_probe": True,
+                    "probe_metadata": {
+                        "index": "ahmia_public_search",
+                        "search_term_sha256": hashlib.sha256(term.encode()).hexdigest(),
+                        "candidate_only": True,
+                        "reachability_checked": False,
+                        "content_inspected": False,
+                        "criminality_attributed": False,
+                        "customer_matching_allowed": False,
+                        "publisher_identity_verified": False,
+                    },
                 })
                 inserted += 1
             except Exception as exc:
