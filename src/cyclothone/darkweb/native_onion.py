@@ -108,7 +108,7 @@ def _target_pattern(kind: str, target: str) -> re.Pattern[str]:
         return re.compile(r"(?<![0-9a-f:.])" + escaped + r"(?![0-9a-f:.])", re.IGNORECASE)
     if kind == "phone":
         return re.compile(r"(?<!\d)" + escaped + r"(?!\d)", re.IGNORECASE)
-    if kind in {"username", "company_name", "wallet", "api_key_hash", "employee_id", "customer_id", "other"}:
+    if kind in {"username", "company_name", "executive_name", "wallet", "api_key_hash", "employee_id", "customer_id", "other"}:
         return re.compile(r"(?<!\w)" + escaped + r"(?!\w)", re.IGNORECASE)
     raise ValueError("native_onion_unsupported_target_kind")
 
