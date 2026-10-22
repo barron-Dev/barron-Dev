@@ -83,3 +83,76 @@ def test_evidence_paths_require_opaque_safe_segments():
     ) == "tenant_1/subject-2/request3/evidence4.txt"
     with pytest.raises(ValueError, match="dw_evidence_invalid_path_segment"):
         evidence_object_path(tenant_id="../escape", subject_id="s", request_id="r", evidence_id="e")
+
+
+from types import SimpleNamespace
+
+from cyclothone.darkweb.evidence_store import record_target_matched_onion_evidence
+
+
+class _ServiceClient:
+    def __init__(self, storage):
+        self.storage = storage
+        self.rpc_calls = []
+
+    async def select_one(self, table, columns, **filters):
+        assert table == "dw_watchlist"
+        assert filters == {"id": "watchlist-1", "tenant_id": "tenant-1"}
+        return {
+            "id": "watchlist-1",
+            "tenant_id": "tenant-1",
+            "kind": "domain",
+            "value": "owned-example.com",
+            "value_hash": hashlib.sha256(b"owned-example.com").hexdigest(),
+            "label": "Authorized domain",
+        }
+
+    async def rpc(self, function, params):
+        self.rpc_calls.append((function, params))
+        if function == "trust_register_subject":
+            return {"id": "subject-1", "tenant_id": "tenant-1"}
+        if function == "trust_record_evidence":
+            return {"id": "evidence-1", "content_hash": params["p_content_hash"]}
+        raise AssertionError(function)
+
+    async def _ensure(self):
+        return SimpleNamespace(storage=self.storage)
+
+
+@pytest.mark.asyncio
+async def test_target_matched_onion_evidence_uses_tenant_scoped_subject_and_rpc():
+    storage = _Storage()
+    service = _ServiceClient(storage)
+    host = "a" * 56 + ".onion"
+    result = await record_target_matched_onion_evidence(
+        service,
+        tenant_id="tenant-1",
+        watchlist_id="watchlist-1",
+        service_request_id="request-1",
+        source_url=f"http://{host}/leak",
+        sanitized_page_text="Public page mentions owned-example.com in the body.",
+        observed_at="2026-10-22T00:00:00+00:00",
+    )
+    assert result["readback_sha256_verified"] is True
+    assert result["finding_class"] == "historical_archive"
+    assert [call[0] for call in service.rpc_calls] == [
+        "trust_register_subject", "trust_record_evidence"
+    ]
+    assert service.rpc_calls[-1][1]["p_content_hash"] == result["content_sha256"]
+
+
+@pytest.mark.asyncio
+async def test_target_match_must_be_reproducible_before_subject_creation():
+    service = _ServiceClient(_Storage())
+    host = "b" * 56 + ".onion"
+    with pytest.raises(RuntimeError, match="dw_evidence_target_match_not_reproducible"):
+        await record_target_matched_onion_evidence(
+            service,
+            tenant_id="tenant-1",
+            watchlist_id="watchlist-1",
+            service_request_id="request-1",
+            source_url=f"http://{host}/leak",
+            sanitized_page_text="No monitored target here.",
+            observed_at="2026-10-22T00:00:00+00:00",
+        )
+    assert service.rpc_calls == []
