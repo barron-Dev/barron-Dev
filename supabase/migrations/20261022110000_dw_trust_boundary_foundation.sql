@@ -81,7 +81,10 @@ CREATE TABLE IF NOT EXISTS public.dw_source_attempts (
     'failed','timeout','disabled','historical_only'
   )),
   route_verified boolean NOT NULL DEFAULT false,
+  hs_desc_content_received boolean NOT NULL DEFAULT false,
   descriptor_fetched boolean NOT NULL DEFAULT false,
+  rendezvous_hop_verified boolean NOT NULL DEFAULT false,
+  stream_circuit_bound boolean NOT NULL DEFAULT false,
   auth_ok boolean NOT NULL DEFAULT false,
   content_sha256 text,
   inspected_items integer NOT NULL DEFAULT 0 CHECK (inspected_items >= 0),
@@ -106,23 +109,27 @@ CREATE TABLE IF NOT EXISTS public.dw_source_type_requirements (
     'excluded','unclassified'
   )),
   requires_route_verified boolean NOT NULL,
+  requires_hs_desc_content boolean NOT NULL,
   requires_descriptor_fetch boolean NOT NULL,
+  requires_rendezvous_hop boolean NOT NULL,
+  requires_stream_circuit_binding boolean NOT NULL,
   requires_auth boolean NOT NULL,
   max_age_seconds integer NOT NULL CHECK (max_age_seconds >= 0)
 );
 
 INSERT INTO public.dw_source_type_requirements
-  (source_class, requires_route_verified, requires_descriptor_fetch, requires_auth, max_age_seconds)
+  (source_class, requires_route_verified, requires_hs_desc_content, requires_descriptor_fetch,
+   requires_rendezvous_hop, requires_stream_circuit_binding, requires_auth, max_age_seconds)
 VALUES
-  ('native_onion', true, true, false, 86400),
-  ('telegram_public', false, false, false, 86400),
-  ('pastebin_public', false, false, false, 86400),
-  ('bluesky_public', false, false, false, 86400),
-  ('github_code_search', false, false, true, 86400),
-  ('tiktok_commercial', false, false, true, 86400),
-  ('historical_archive', false, false, false, 0),
-  ('excluded', false, false, false, 0),
-  ('unclassified', false, false, false, 0)
+  ('native_onion', true, true, true, true, true, false, 86400),
+  ('telegram_public', false, false, false, false, false, false, 86400),
+  ('pastebin_public', false, false, false, false, false, false, 86400),
+  ('bluesky_public', false, false, false, false, false, false, 86400),
+  ('github_code_search', false, false, false, false, false, true, 86400),
+  ('tiktok_commercial', false, false, false, false, false, true, 86400),
+  ('historical_archive', false, false, false, false, false, false, 0),
+  ('excluded', false, false, false, false, false, false, 0),
+  ('unclassified', false, false, false, false, false, false, 0)
 ON CONFLICT (source_class) DO NOTHING;
 
 ALTER TABLE public.dw_source_type_requirements ENABLE ROW LEVEL SECURITY;
@@ -133,7 +140,8 @@ CREATE OR REPLACE VIEW public.dw_source_effective_state AS
 WITH latest AS (
   SELECT DISTINCT ON (a.source_id)
     a.source_id, a.attempted_at, a.status, a.route_verified,
-    a.descriptor_fetched, a.auth_ok, a.content_sha256, a.inspected_items
+    a.hs_desc_content_received, a.descriptor_fetched, a.rendezvous_hop_verified,
+    a.stream_circuit_bound, a.auth_ok, a.content_sha256, a.inspected_items
   FROM public.dw_source_attempts a
   ORDER BY a.source_id, a.attempted_at DESC, a.id DESC
 )
@@ -145,7 +153,10 @@ SELECT
   l.attempted_at AS last_attempt_at,
   l.status AS last_attempt_status,
   coalesce(l.route_verified, false) AS route_verified,
+  coalesce(l.hs_desc_content_received, false) AS hs_desc_content_received,
   coalesce(l.descriptor_fetched, false) AS descriptor_fetched,
+  coalesce(l.rendezvous_hop_verified, false) AS rendezvous_hop_verified,
+  coalesce(l.stream_circuit_bound, false) AS stream_circuit_bound,
   coalesce(l.auth_ok, false) AS auth_ok,
   coalesce(l.inspected_items, 0) AS inspected_items,
   CASE
@@ -157,11 +168,40 @@ SELECT
     WHEN l.attempted_at IS NULL THEN 'never_checked'
     WHEN l.attempted_at < now() - make_interval(secs => r.max_age_seconds) THEN 'stale'
     WHEN r.requires_route_verified AND NOT coalesce(l.route_verified, false) THEN 'unverified_route'
+    WHEN r.requires_hs_desc_content AND NOT coalesce(l.hs_desc_content_received, false) THEN 'hs_desc_content_unverified'
     WHEN r.requires_descriptor_fetch AND NOT coalesce(l.descriptor_fetched, false) THEN 'descriptor_unverified'
+    WHEN r.requires_rendezvous_hop AND NOT coalesce(l.rendezvous_hop_verified, false) THEN 'rendezvous_hop_unverified'
+    WHEN r.requires_stream_circuit_binding AND NOT coalesce(l.stream_circuit_bound, false) THEN 'stream_circuit_unbound'
     WHEN r.requires_auth AND NOT coalesce(l.auth_ok, false) THEN 'auth_unverified'
-    WHEN l.status = 'ok' AND l.content_sha256 ~ '^[0-9a-f]{64}$'
+    WHEN l.status = 'ok' AND l.content_sha256 ~ '^[0-9a-f]{64}
+    WHEN l.status = 'ok' THEN 'unverified_success'
+    ELSE 'unavailable'
+  END AS effective_state
+FROM public.dw_sources s
+LEFT JOIN latest l ON l.source_id = s.id
+LEFT JOIN public.dw_source_type_requirements r ON r.source_class = s.source_class;
+
+-- This view is only an operational read surface for the privileged service role.
+REVOKE ALL ON TABLE public.dw_source_effective_state FROM PUBLIC, anon, authenticated, service_role;
+GRANT SELECT ON TABLE public.dw_source_effective_state TO service_role;
+
+-- Archived ransomware feed is never an active live check. Preserve rows and
+-- provenance; this only disables future polling and corrects source taxonomy.
+UPDATE public.dw_sources
+   SET enabled = false,
+       source_class = 'historical_archive',
+       web_layer = 'breach_intel',
+       last_status = 'historical_only_archived_feed',
+       poll_interval_seconds = 604800
+ WHERE id = 'ransomwatch';
+
+COMMIT;
+ AND l.inspected_items > 0
          AND (NOT r.requires_route_verified OR l.route_verified)
+         AND (NOT r.requires_hs_desc_content OR l.hs_desc_content_received)
          AND (NOT r.requires_descriptor_fetch OR l.descriptor_fetched)
+         AND (NOT r.requires_rendezvous_hop OR l.rendezvous_hop_verified)
+         AND (NOT r.requires_stream_circuit_binding OR l.stream_circuit_bound)
          AND (NOT r.requires_auth OR l.auth_ok) THEN 'available'
     WHEN l.status = 'ok' THEN 'unverified_success'
     ELSE 'unavailable'
