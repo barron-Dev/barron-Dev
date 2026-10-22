@@ -120,6 +120,65 @@ async def test_ahmia_discovery_persists_candidates_as_explicitly_unmonitored(mon
 
 
 @pytest.mark.asyncio
+async def test_ahmia_discovery_retries_when_candidate_persistence_fails(monkeypatch):
+    host = "b" * 56 + ".onion"
+
+    class Response:
+        status_code = 200
+        encoding = "utf-8"
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def aiter_bytes(self):
+            yield f'<html><a href="http://{host}/">candidate</a></html>'.encode()
+
+    class Client:
+        def __init__(self, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        def stream(self, method, url, params=None):
+            return Response()
+
+    async def fail_insert(*args, **kwargs):
+        raise RuntimeError("simulated persistence failure")
+
+    monkeypatch.setattr(
+        "cyclothone.darkweb.discovery_queue_worker.httpx.AsyncClient", Client
+    )
+    monkeypatch.setattr(
+        "cyclothone.darkweb.discovery_queue_worker.supabase.select_one",
+        AsyncMock(return_value=None),
+    )
+    monkeypatch.setattr(
+        "cyclothone.darkweb.discovery_queue_worker.supabase.insert_one", AsyncMock(side_effect=fail_insert)
+    )
+
+    outcome, metadata, error, retry_after = await DWDiscoveryQueueWorker()._process({
+        "job_id": 10,
+        "scope_key": "country:bj",
+        "category_slug": "onion_threat_intel_discovery",
+        "discovery_kind": "public_onion_threat_intel_candidate_discovery",
+    })
+
+    assert outcome == "retry"
+    assert metadata["candidate_count"] == 1
+    assert metadata["inserted_candidate_count"] == 0
+    assert metadata["persistence_failure_count"] == 1
+    assert error == "candidate_persistence_incomplete"
+    assert retry_after == 900
+
+
+@pytest.mark.asyncio
 async def test_guarded_uses_job_id_and_lease_token_fencing(monkeypatch):
     worker = DWDiscoveryQueueWorker()
     worker._process = AsyncMock(return_value=("completed", {"candidate_count": 0}, None, 0))
