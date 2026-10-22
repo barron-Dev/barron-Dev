@@ -10,16 +10,24 @@ from cyclothone.darkweb.evidence_store import (
 
 
 class _Bucket:
-    def __init__(self, tamper=False):
+    def __init__(self, tamper=False, timeout_after_write=False):
         self.stored = None
         self.tamper = tamper
+        self.timeout_after_write = timeout_after_write
+        self.upload_calls = 0
         self.upload_options = None
         self.path = None
 
     async def upload(self, path, content, file_options=None):
+        self.upload_calls += 1
         self.path = path
+        if self.stored is not None:
+            raise RuntimeError("object already exists")
         self.stored = bytes(content)
         self.upload_options = file_options
+        if self.timeout_after_write:
+            self.timeout_after_write = False
+            raise TimeoutError("simulated timeout after storage commit")
 
     async def download(self, path):
         assert path == self.path
@@ -51,6 +59,19 @@ async def test_upload_reads_back_and_verifies_exact_sanitized_bytes():
     assert result.sha256 == hashlib.sha256(text.encode()).hexdigest()
     assert result.size_bytes == len(text.encode())
     assert storage.bucket.upload_options["upsert"] == "false"
+
+
+@pytest.mark.asyncio
+async def test_upload_timeout_after_commit_is_reconciled_by_exact_readback():
+    storage = _Storage()
+    storage.bucket.timeout_after_write = True
+    result = await store_and_verify_evidence(
+        storage,
+        object_path="tenant/subject/request/evidence.txt",
+        sanitized_text="Target example.test",
+    )
+    assert result.sha256 == hashlib.sha256(b"Target example.test").hexdigest()
+    assert storage.bucket.upload_calls == 1
 
 
 @pytest.mark.asyncio
@@ -134,7 +155,7 @@ async def test_target_matched_onion_evidence_uses_tenant_scoped_subject_and_rpc(
         observed_at="2026-10-22T00:00:00+00:00",
     )
     assert result["readback_sha256_verified"] is True
-    assert result["finding_class"] == "historical_archive"
+    assert result["finding_class"] == "candidate_evidence_not_verified"
     assert [call[0] for call in service.rpc_calls] == [
         "trust_register_subject", "trust_record_evidence"
     ]
