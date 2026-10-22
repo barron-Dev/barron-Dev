@@ -126,7 +126,7 @@ async def record_target_matched_onion_evidence(
     # a caller-supplied tenant UUID alone is not authorization.
     request = await service_client.select_one(
         "service_requests",
-        "id,organization_id,service_key,processing_state",
+        "id,organization_id,service_key,processing_state,target,target_type",
         id=service_request_id,
     )
     if (
@@ -158,8 +158,21 @@ async def record_target_matched_onion_evidence(
 
     from cyclothone.darkweb.native_onion import _target_pattern, normalize, sanitize_target_matched_excerpt
 
+    request_type = str(request.get("target_type") or "").strip().lower()
+    request_target = str(request.get("target") or "").strip()
+    expected_kind = {
+        "domain": "domain", "url": "domain", "email": "email", "brand": "company_name",
+        "username": "username", "ip": "ip", "other": "other",
+    }.get(request_type)
+    if request_type in {"domain", "url"}:
+        parsed_target = urlsplit(request_target if "://" in request_target else f"https://{request_target}")
+        expected_value = (parsed_target.hostname or "").lower().rstrip(".")
+    else:
+        expected_value = normalize(request_target)
     kind = str(target.get("kind") or "")
     value = str(target.get("value") or "")
+    if not expected_kind or kind != expected_kind or normalize(value) != expected_value:
+        raise RuntimeError("dw_evidence_request_watchlist_target_mismatch")
     pattern = _target_pattern(kind, value)
     evidence_text = sanitize_target_matched_excerpt(sanitized_page_text, pattern)
     if not evidence_text or not pattern.search(evidence_text):
