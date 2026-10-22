@@ -115,8 +115,17 @@ async def record_target_matched_onion_evidence(
 
     kind = str(target.get("kind") or "")
     value = str(target.get("value") or "")
-    if not _target_pattern(kind, value).search(sanitized_page_text):
+    pattern = _target_pattern(kind, value)
+    match = pattern.search(sanitized_page_text)
+    if not match:
         raise RuntimeError("dw_evidence_target_match_not_reproducible")
+
+    # Persist a bounded excerpt around the exact match, not the entire fetched page.
+    excerpt_start = max(0, match.start() - 240)
+    excerpt_end = min(len(sanitized_page_text), match.end() + 240)
+    evidence_text = " ".join(sanitized_page_text[excerpt_start:excerpt_end].split())[:1200]
+    if not pattern.search(evidence_text):
+        raise RuntimeError("dw_evidence_sanitized_excerpt_lost_target_match")
 
     subject = await service_client.rpc("trust_register_subject", {
         "p_tenant_id": tenant_id,
@@ -141,7 +150,7 @@ async def record_target_matched_onion_evidence(
         raise RuntimeError("dw_evidence_subject_registration_invalid")
 
     subject_id = str(subject["id"])
-    content_hash = hashlib.sha256(sanitized_page_text.encode("utf-8")).hexdigest()
+    content_hash = hashlib.sha256(evidence_text.encode("utf-8")).hexdigest()
     object_path = evidence_object_path(
         tenant_id=tenant_id,
         subject_id=subject_id,
@@ -152,7 +161,7 @@ async def record_target_matched_onion_evidence(
     stored = await store_and_verify_evidence(
         client.storage,
         object_path=object_path,
-        sanitized_text=sanitized_page_text,
+        sanitized_text=evidence_text,
     )
     uri = f"supabase://{stored.bucket}/{stored.object_path}"
     evidence = await service_client.rpc("trust_record_evidence", {
@@ -174,6 +183,7 @@ async def record_target_matched_onion_evidence(
             "service_request_id": str(service_request_id),
             "source_url": source_url,
             "content_bytes": stored.size_bytes,
+            "evidence_scope": "bounded_match_excerpt",
             "readback_sha256_verified": True,
             "classification": "candidate_evidence_not_verified_finding",
         },
