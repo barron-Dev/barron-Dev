@@ -233,3 +233,31 @@ async def test_request_tenant_mismatch_fails_before_storage_or_evidence_rpc():
         )
     assert storage.bucket.stored is None
     assert service.rpc_calls == []
+
+
+@pytest.mark.asyncio
+async def test_request_watchlist_target_mismatch_fails_before_storage_or_evidence_rpc():
+    storage = _Storage()
+    service = _ServiceClient(storage)
+    original_select_one = service.select_one
+
+    async def mismatched_target(table, columns, **filters):
+        row = await original_select_one(table, columns, **filters)
+        if table == "service_requests":
+            row["target"] = "attacker-example.net"
+        return row
+
+    service.select_one = mismatched_target
+    host = "d" * 56 + ".onion"
+    with pytest.raises(RuntimeError, match="dw_evidence_request_watchlist_target_mismatch"):
+        await record_target_matched_onion_evidence(
+            service,
+            tenant_id="tenant-1",
+            watchlist_id="watchlist-1",
+            service_request_id="request-1",
+            source_url=f"http://{host}/leak",
+            sanitized_page_text="Public page mentions owned-example.com in the body.",
+            observed_at="2026-10-22T00:00:00+00:00",
+        )
+    assert storage.bucket.stored is None
+    assert service.rpc_calls == []
