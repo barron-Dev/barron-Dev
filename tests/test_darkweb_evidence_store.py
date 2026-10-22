@@ -117,6 +117,21 @@ class _ServiceClient:
         self.rpc_calls = []
 
     async def select_one(self, table, columns, **filters):
+        if table == "service_requests":
+            assert filters == {"id": "request-1"}
+            return {
+                "id": "request-1",
+                "organization_id": "org-1",
+                "service_key": "dark_web_monitoring",
+                "processing_state": "running",
+            }
+        if table == "customer_organizations":
+            assert filters == {"id": "org-1"}
+            return {
+                "id": "org-1",
+                "tenant_id": "tenant-1",
+                "admission_status": "approved",
+            }
         assert table == "dw_watchlist"
         assert filters == {"id": "watchlist-1", "tenant_id": "tenant-1"}
         return {
@@ -176,4 +191,41 @@ async def test_target_match_must_be_reproducible_before_subject_creation():
             sanitized_page_text="No monitored target here.",
             observed_at="2026-10-22T00:00:00+00:00",
         )
+    assert service.rpc_calls == []
+
+
+@pytest.mark.asyncio
+async def test_request_tenant_mismatch_fails_before_storage_or_evidence_rpc():
+    storage = _Storage()
+    service = _ServiceClient(storage)
+
+    async def mismatched_org(table, columns, **filters):
+        if table == "service_requests":
+            return {
+                "id": "request-1",
+                "organization_id": "org-1",
+                "service_key": "dark_web_monitoring",
+                "processing_state": "running",
+            }
+        if table == "customer_organizations":
+            return {
+                "id": "org-1",
+                "tenant_id": "another-tenant",
+                "admission_status": "approved",
+            }
+        return None
+
+    service.select_one = mismatched_org
+    host = "c" * 56 + ".onion"
+    with pytest.raises(RuntimeError, match="dw_evidence_request_tenant_authorization_failed"):
+        await record_target_matched_onion_evidence(
+            service,
+            tenant_id="tenant-1",
+            watchlist_id="watchlist-1",
+            service_request_id="request-1",
+            source_url=f"http://{host}/leak",
+            sanitized_page_text="Public page mentions owned-example.com in the body.",
+            observed_at="2026-10-22T00:00:00+00:00",
+        )
+    assert storage.bucket.stored is None
     assert service.rpc_calls == []
