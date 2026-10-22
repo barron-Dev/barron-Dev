@@ -56,10 +56,10 @@ pytest -q tests/test_darkweb_discovery_queue_worker.py
 pytest -q tests/test_darkweb_native_onion.py
 pytest -q tests/test_darkweb_securedrop_directory.py
 pytest -q tests/dw_discovery/test_url_policy.py
-pytest -q tests/test_darkweb.py tests/test_darkweb_silence.py
+pytest -q tests/test_darkweb.py
 ```
 
-Record exit code, test count, skipped tests, commit SHA, and sanitized logs. A skipped integration test is not a pass for that integration. These commands validate only the named tests; they do not prove production readiness.
+Record exit code, test count, skipped tests, commit SHA, and sanitized logs. The `tests/test_darkweb_silence.py` suite belongs to PR #77 (`feat/dw-source-silence-shadow`) and must be run separately on that branch, not assumed to exist on this PR #73 branch. Record its results against PR #77's exact head SHA. A skipped integration test is not a pass for that integration. These commands validate only the named tests; they do not prove production readiness.
 
 ## Instrument each arrow
 
