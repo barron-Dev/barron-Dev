@@ -178,8 +178,8 @@ async def test_native_crawler_does_not_emit_finding_for_url_only_target_match():
         headers = {"content-type": "text/html"}
         url = "http://" + "a" * 56 + ".onion/owned-example.com"
 
-        async def aread(self):
-            return b"<html><body>No monitored identifier in this page.</body></html>"
+        async def aiter_bytes(self):
+            yield b"<html><body>No monitored identifier in this page.</body></html>"
 
     class _UrlOnlyStream:
         def __init__(self, response):
