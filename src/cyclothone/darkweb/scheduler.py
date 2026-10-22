@@ -322,22 +322,21 @@ class DarkWebScheduler:
                 last_document_at=latest_document_dt,
                 monitoring_healthy=monitoring_healthy,
             )
-            await client.table("dw_source_silence_scores").insert({
-                "source_id": "telegram_public",
-                "scope_key": scope_key,
-                "evaluated_at": now.isoformat(),
-                "last_document_at": latest_document_dt.isoformat() if latest_document_dt else None,
-                "baseline_start": score.get("baseline_start"),
-                "baseline_end": score.get("baseline_end"),
-                "baseline_bucket_count": int(score.get("baseline_bucket_count") or 0),
-                "expected_rate_per_hour": score.get("expected_rate_per_hour"),
-                "dispersion_size": score.get("dispersion_size"),
-                "gap_hours": score.get("gap_hours"),
-                "p_value": score.get("p_value"),
-                "state": score["state"],
-                "shadow_only": True,
-                "details": score,
-            }).execute()
+            await client.rpc("record_dw_source_silence_score", {
+                "p_source_id": "telegram_public",
+                "p_scope_key": scope_key,
+                "p_evaluated_at": now.isoformat(),
+                "p_last_document_at": latest_document_dt.isoformat() if latest_document_dt else None,
+                "p_baseline_start": score.get("baseline_start"),
+                "p_baseline_end": score.get("baseline_end"),
+                "p_baseline_bucket_count": int(score.get("baseline_bucket_count") or 0),
+                "p_expected_rate_per_hour": score.get("expected_rate_per_hour"),
+                "p_dispersion_size": score.get("dispersion_size"),
+                "p_gap_hours": score.get("gap_hours"),
+                "p_p_value": score.get("p_value"),
+                "p_state": score["state"],
+                "p_details": score,
+            })
 
     async def _ingest(self, findings: list) -> dict[str, int]:
         matched = alerts = errors = 0
