@@ -21,11 +21,25 @@ def test_native_onion_is_dark_and_public_telegram_is_surface():
     assert get_source("pastebin_public").layer == "surface"
 
 
-def test_historical_feed_never_counts_as_fresh_check():
+def test_historical_feed_is_not_classified_as_live_dark_web():
+    ransomwatch = get_source("ransomwatch")
+    assert ransomwatch is not None
+    assert ransomwatch.layer == "surface_historical"
+    assert ransomwatch.access_mode == "archived_feed"
+    assert ransomwatch.availability == "historical_only"
     assert not reportable_as_checked("ransomwatch", "checked")
     assert reportable_as_checked("native_onion", "checked")
     assert not reportable_as_checked("native_onion", "failed")
     assert not reportable_as_checked("reddit", "checked")
+
+
+def test_historical_feed_is_excluded_from_live_layer_lists():
+    dark_ids = {source.source_id for source in sources_for_layer("dark")}
+    surface_ids = {source.source_id for source in sources_for_layer("surface")}
+    historical_ids = {source.source_id for source in sources_for_layer("surface_historical")}
+    assert "ransomwatch" not in dark_ids
+    assert "ransomwatch" not in surface_ids
+    assert "ransomwatch" in historical_ids
 
 
 def test_layers_are_separate_and_planned_connectors_are_explicit():
