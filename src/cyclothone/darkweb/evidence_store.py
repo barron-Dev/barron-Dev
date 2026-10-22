@@ -4,10 +4,12 @@ import hashlib
 import re
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import urlsplit
 
 MAX_EVIDENCE_BYTES = 512_000
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _BUCKET = "dw-evidence-private"
+_ONION_V3 = re.compile(r"^[a-z2-7]{56}\\.onion$", re.IGNORECASE)
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,8 +48,7 @@ async def store_and_verify_evidence(
     """Upload sanitized UTF-8 evidence, read it back, and verify exact-byte integrity.
 
     The caller is responsible for sanitization, tenant authorization, and subject
-    resolution. This function deliberately does not create trust subjects or write
-    trust-evidence rows, and never treats a successful upload as a verified finding.
+    resolution. This function does not classify findings as verified.
     """
     if not object_path or object_path.startswith("/") or ".." in object_path.split("/"):
         raise ValueError("dw_evidence_invalid_object_path")
@@ -64,7 +65,7 @@ async def store_and_verify_evidence(
     await bucket.upload(
         object_path,
         content,
-        file_options={"content-type": "text/plain; charset=utf-8", "upsert": "false"},
+        file_options={"content-type": "text/plain", "upsert": "false"},
     )
     response = await bucket.download(object_path)
     if not isinstance(response, (bytes, bytearray)):
@@ -73,9 +74,115 @@ async def store_and_verify_evidence(
     readback_digest = hashlib.sha256(readback).hexdigest()
     if readback != content or not _SHA256_RE.fullmatch(readback_digest) or readback_digest != digest:
         raise RuntimeError("dw_evidence_readback_integrity_mismatch")
-    return StoredEvidence(
-        bucket=_BUCKET,
-        object_path=object_path,
-        sha256=digest,
-        size_bytes=len(content),
+    return StoredEvidence(_BUCKET, object_path, digest, len(content))
+
+
+def _validate_public_onion_url(source_url: str) -> str:
+    parsed = urlsplit(source_url)
+    host = (parsed.hostname or "").lower().rstrip(".")
+    if parsed.scheme not in {"http", "https"} or not _ONION_V3.fullmatch(host):
+        raise ValueError("dw_evidence_source_not_public_v3_onion")
+    if parsed.username or parsed.password or parsed.query or parsed.fragment:
+        raise ValueError("dw_evidence_source_url_invalid")
+    return source_url
+
+
+async def record_target_matched_onion_evidence(
+    service_client: Any,
+    *,
+    tenant_id: str,
+    watchlist_id: str,
+    service_request_id: str,
+    source_url: str,
+    sanitized_page_text: str,
+    observed_at: str,
+) -> dict[str, Any]:
+    """Persist matched page bytes and link them to existing tenant-scoped trust evidence.
+
+    The caller must invoke this only after the worker has authorized the request.
+    Target identity is reloaded from dw_watchlist under the supplied tenant ID;
+    the caller cannot supply or override the target value.
+    """
+    _validate_public_onion_url(source_url)
+    target = await service_client.select_one(
+        "dw_watchlist", "id,tenant_id,kind,value,value_hash,label",
+        id=watchlist_id, tenant_id=tenant_id,
     )
+    if not target or str(target.get("tenant_id")) != str(tenant_id):
+        raise RuntimeError("dw_evidence_authorized_watchlist_target_not_found")
+
+    from cyclothone.darkweb.native_onion import _target_pattern, normalize
+
+    kind = str(target.get("kind") or "")
+    value = str(target.get("value") or "")
+    if not _target_pattern(kind, value).search(sanitized_page_text):
+        raise RuntimeError("dw_evidence_target_match_not_reproducible")
+
+    subject = await service_client.rpc("trust_register_subject", {
+        "p_tenant_id": tenant_id,
+        "p_subject_kind": "dark_web_monitoring_target",
+        "p_external_ref": str(target["id"]),
+        "p_display_name": str(target.get("label") or target["id"])[:200],
+        "p_provider_id": "cyclothone",
+        "p_version": "dw-evidence-v1",
+        "p_identity_document": {
+            "watchlist_id": str(target["id"]),
+            "target_kind": kind,
+            "target_value_hash": str(target.get("value_hash") or hashlib.sha256(normalize(value).encode()).hexdigest()),
+        },
+        "p_public_key_algorithm": None,
+        "p_public_key": None,
+        "p_key_id": None,
+        "p_created_by": None,
+    })
+    if isinstance(subject, list):
+        subject = subject[0] if subject else None
+    if not isinstance(subject, dict) or not subject.get("id") or str(subject.get("tenant_id")) != str(tenant_id):
+        raise RuntimeError("dw_evidence_subject_registration_invalid")
+
+    subject_id = str(subject["id"])
+    content_hash = hashlib.sha256(sanitized_page_text.encode("utf-8")).hexdigest()
+    object_path = evidence_object_path(
+        tenant_id=tenant_id,
+        subject_id=subject_id,
+        request_id=service_request_id,
+        evidence_id=content_hash,
+    )
+    client = await service_client._ensure()
+    stored = await store_and_verify_evidence(
+        client.storage,
+        object_path=object_path,
+        sanitized_text=sanitized_page_text,
+    )
+    uri = f"supabase://{stored.bucket}/{stored.object_path}"
+    evidence = await service_client.rpc("trust_record_evidence", {
+        "p_subject_id": subject_id,
+        "p_evidence_type": "dark_web_page_match",
+        "p_source_type": "native_onion",
+        "p_source_id": source_url,
+        "p_content_type": stored.content_type,
+        "p_content_uri": uri,
+        "p_content_hash": stored.sha256,
+        "p_collected_at": observed_at,
+        "p_expires_at": None,
+        "p_signature_algorithm": None,
+        "p_signer_key_id": None,
+        "p_signature": None,
+        "p_metadata": {
+            "tenant_id": str(tenant_id),
+            "watchlist_id": str(target["id"]),
+            "service_request_id": str(service_request_id),
+            "source_url": source_url,
+            "content_bytes": stored.size_bytes,
+            "readback_sha256_verified": True,
+            "classification": "candidate_evidence_not_verified_finding",
+        },
+    })
+    return {
+        "subject_id": subject_id,
+        "evidence": evidence,
+        "content_uri": uri,
+        "content_sha256": stored.sha256,
+        "readback_sha256_verified": True,
+        "finding_class": "historical_archive",
+    }
