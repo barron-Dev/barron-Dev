@@ -156,21 +156,14 @@ async def record_target_matched_onion_evidence(
     if not target or str(target.get("tenant_id")) != str(tenant_id):
         raise RuntimeError("dw_evidence_authorized_watchlist_target_not_found")
 
-    from cyclothone.darkweb.native_onion import _target_pattern, normalize
+    from cyclothone.darkweb.native_onion import _target_pattern, normalize, sanitize_target_matched_excerpt
 
     kind = str(target.get("kind") or "")
     value = str(target.get("value") or "")
     pattern = _target_pattern(kind, value)
-    match = pattern.search(sanitized_page_text)
-    if not match:
+    evidence_text = sanitize_target_matched_excerpt(sanitized_page_text, pattern)
+    if not evidence_text or not pattern.search(evidence_text):
         raise RuntimeError("dw_evidence_target_match_not_reproducible")
-
-    # Persist a bounded excerpt around the exact match, not the entire fetched page.
-    excerpt_start = max(0, match.start() - 240)
-    excerpt_end = min(len(sanitized_page_text), match.end() + 240)
-    evidence_text = " ".join(sanitized_page_text[excerpt_start:excerpt_end].split())[:1200]
-    if not pattern.search(evidence_text):
-        raise RuntimeError("dw_evidence_sanitized_excerpt_lost_target_match")
 
     subject = await service_client.rpc("trust_register_subject", {
         "p_tenant_id": tenant_id,
