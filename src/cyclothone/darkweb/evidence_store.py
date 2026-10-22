@@ -93,7 +93,13 @@ def _validate_public_onion_url(source_url: str) -> str:
     host = (parsed.hostname or "").lower().rstrip(".")
     if parsed.scheme not in {"http", "https"} or not _ONION_V3.fullmatch(host):
         raise ValueError("dw_evidence_source_not_public_v3_onion")
+    try:
+        port = parsed.port
+    except ValueError as exc:
+        raise ValueError("dw_evidence_source_url_invalid") from exc
     if parsed.username or parsed.password or parsed.query or parsed.fragment:
+        raise ValueError("dw_evidence_source_url_invalid")
+    if port is not None and port not in {80, 443}:
         raise ValueError("dw_evidence_source_url_invalid")
     return source_url
 
