@@ -169,3 +169,47 @@ def test_native_evidence_excerpt_returns_none_without_exact_target():
         "attacker-owned-example.com.attacker.invalid",
         _target_pattern("domain", "owned-example.com"),
     ) is None
+
+
+@pytest.mark.asyncio
+async def test_native_crawler_does_not_emit_finding_for_url_only_target_match():
+    class _UrlOnlyResponse:
+        status_code = 200
+        headers = {"content-type": "text/html"}
+        url = "http://" + "a" * 56 + ".onion/owned-example.com"
+
+        async def aread(self):
+            return b"<html><body>No monitored identifier in this page.</body></html>"
+
+    class _UrlOnlyStream:
+        def __init__(self, response):
+            self.response = response
+
+        async def __aenter__(self):
+            return self.response
+
+        async def __aexit__(self, *args):
+            return False
+
+    class _UrlOnlyClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        def stream(self, method, url):
+            return _UrlOnlyStream(_UrlOnlyResponse())
+
+    crawler = NativeOnionCrawler(
+        seeds=["http://" + "a" * 56 + ".onion/owned-example.com"],
+        proxy="socks5://127.0.0.1:9050",
+    )
+    with patch("cyclothone.darkweb.native_onion.httpx.AsyncClient", _UrlOnlyClient):
+        findings = await crawler.pull("domain", "owned-example.com")
+
+    assert crawler.pages_checked == 1
+    assert findings == []
