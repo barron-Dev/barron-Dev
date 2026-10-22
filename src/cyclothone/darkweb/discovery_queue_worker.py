@@ -412,14 +412,6 @@ class DWDiscoveryQueueWorker:
                     "region_scope": scope,
                     "source_role": "public_index_candidate",
                     "provenance_url": AHMIA_SEARCH_URL,
-                    "probe_metadata": {
-                        "index": "ahmia_public_search",
-                        "search_term_sha256": hashlib.sha256(term.encode()).hexdigest(),
-                        "candidate_only": True,
-                        "reachability_checked": False,
-                        "content_inspected": False,
-                        "criminality_attributed": False,
-                    },
                     "candidate_trust": "unverified",
                     # Explicit safety fields: discovery never authorizes probes,
                     # tenant matching, or publisher attribution.
