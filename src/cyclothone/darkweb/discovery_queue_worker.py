@@ -116,8 +116,8 @@ class DWDiscoveryQueueWorker:
     def __init__(self) -> None:
         self._task: asyncio.Task | None = None
         self._stop = asyncio.Event()
-        self._enabled = os.getenv("CYCLOTHONE_DW_DISCOVERY_WORKER_ENABLED", "false").strip().lower() not in {
-            "0", "false", "no", "off"
+        self._enabled = os.getenv("CYCLOTHONE_DW_DISCOVERY_WORKER_ENABLED", "false").strip().lower() in {
+            "1", "true", "yes", "on"
         }
         self._last_securedrop_refresh = 0.0
 
