@@ -52,6 +52,7 @@ def test_ransomwatch_partition_requires_exact_customer_target_for_all_temporal_c
                 "published": "2026-10-22T00:00:00+00:00",
                 "feed_observed_at": "2026-10-23T08:00:00+00:00",
                 "feed_content_sha256": "a" * 64,
+                "feed_freshness_verified": True,
                 "temporal_class": temporal_class,
             },
         )
@@ -143,6 +144,7 @@ def test_current_ransomwatch_finding_requires_this_request_binding():
         "source_id": "ransomwatch",
         "source_metadata": {
             "temporal_class": "current_feed",
+            "feed_freshness_verified": True,
             "feed_observed_at": datetime.now(UTC).isoformat(),
             "published": datetime.now(UTC).isoformat(),
         },
