@@ -603,6 +603,7 @@ class DarkWebRequestWorker:
                         "state": "checked",
                         "coverage": "current_feed_plus_historical_records",
                         "feed_observed_at": getattr(monitor, "feed_observed_at", None),
+                        "content_sha256": getattr(monitor, "feed_content_sha256", None),
                         "feed_entries": getattr(monitor, "feed_entries_count", 0),
                         "posts_inspected": getattr(monitor, "posts_checked", 0),
                         "items_inspected": getattr(monitor, "posts_checked", 0),
