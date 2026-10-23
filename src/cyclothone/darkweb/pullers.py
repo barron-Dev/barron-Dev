@@ -90,6 +90,9 @@ class RansomwatchPuller:
         self.current_post_count = 0
         self.historical_post_count = 0
         self.future_dated_post_count = 0
+        # Bounded metadata-only ledger for all dated/undated feed entries. It
+        # contains no page bodies and can be reconciled with tenant matches.
+        self.temporal_records: list[dict] = []
         self.temporal_records: list[dict] = []
 
     @classmethod
@@ -148,6 +151,22 @@ class RansomwatchPuller:
             if not victim:
                 continue
             temporal_class, published = self._classify_published(post.get("discovered"), observed)
+            entry_key = hashlib.sha256("\x1f".join((
+                victim.strip().casefold(),
+                group.strip().casefold(),
+                str(published or ""),
+                raw_url.strip(),
+            )).encode("utf-8")).hexdigest()
+            self.temporal_records.append({
+                "record_key": entry_key,
+                "temporal_class": temporal_class,
+                "published": published,
+                "feed_observed_at": self.feed_observed_at,
+                "feed_content_sha256": self.feed_content_sha256,
+                "victim_name": victim,
+                "group": group,
+                "source_url": raw_url or None,
+            })
             if temporal_class == "current_feed":
                 self.current_post_count += 1
             elif temporal_class == "future_dated":
