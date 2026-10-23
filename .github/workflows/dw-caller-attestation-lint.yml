@@ -5,12 +5,14 @@ on:
       - "supabase/migrations/**"
       - "scripts/check_dw_caller_attestation.py"
       - "tests/test_dw_class_level_trust_controls.py"
+      - "tests/test_dw_class_level_trust_controls.py"
       - ".github/workflows/dw-caller-attestation-lint.yml"
   push:
     branches: [main]
     paths:
       - "supabase/migrations/**"
       - "scripts/check_dw_caller_attestation.py"
+      - "tests/test_dw_class_level_trust_controls.py"
       - ".github/workflows/dw-caller-attestation-lint.yml"
 permissions:
   contents: read
