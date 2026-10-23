@@ -1,6 +1,7 @@
 import pytest
 
 from datetime import UTC, datetime, timedelta
+from email.utils import format_datetime
 
 from cyclothone.darkweb.pullers import RansomwatchPuller
 
@@ -69,7 +70,7 @@ def test_global_ransomwatch_alert_pipeline_quarantines_historical_and_future_row
     def row(temporal_class):
         return Finding(
             "ransomwatch", "company_name", "example victim", "feed", "critical",
-            "https://feed.example/post", {"temporal_class": temporal_class},
+            "https://feed.example/post", {"temporal_class": temporal_class, "feed_freshness_verified": temporal_class == "current_feed"},
         )
 
     current = row("current_feed")
@@ -95,6 +96,7 @@ async def test_ransomwatch_pull_emits_durable_temporal_record(monkeypatch):
 
     class Response:
         content = body
+        headers = {"date": format_datetime(datetime.now(UTC)), "age": "0"}
 
         def raise_for_status(self):
             return None
@@ -112,7 +114,7 @@ async def test_ransomwatch_pull_emits_durable_temporal_record(monkeypatch):
         async def __aexit__(self, *args):
             return False
 
-        async def get(self, url):
+        async def get(self, url, **kwargs):
             assert url == RansomwatchPuller.FEED
             return Response()
 
@@ -184,6 +186,7 @@ async def test_ransomwatch_retains_current_historical_and_future_metadata(monkey
 
     class Response:
         content = body
+        headers = {"date": format_datetime(datetime.now(UTC)), "age": "0"}
         def raise_for_status(self):
             return None
         def json(self):
