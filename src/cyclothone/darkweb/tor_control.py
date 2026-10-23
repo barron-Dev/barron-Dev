@@ -60,12 +60,16 @@ class TorControlProofCollector:
         host = os.getenv("CYCLOTHONE_DW_TOR_CONTROL_HOST", "127.0.0.1").strip()
         if not _private_control_host(host):
             raise RuntimeError("tor_control_host_must_be_private")
+        password = os.getenv("CYCLOTHONE_DW_TOR_CONTROL_PASSWORD") or None
+        cookie_path = os.getenv("CYCLOTHONE_DW_TOR_CONTROL_COOKIE") or None
+        if not password and not cookie_path:
+            raise RuntimeError("tor_control_auth_material_required")
         return cls(
             request_id,
             host=host,
             port=int(os.getenv("CYCLOTHONE_DW_TOR_CONTROL_PORT", "9051")),
-            password=os.getenv("CYCLOTHONE_DW_TOR_CONTROL_PASSWORD") or None,
-            cookie_path=os.getenv("CYCLOTHONE_DW_TOR_CONTROL_COOKIE") or None,
+            password=password,
+            cookie_path=cookie_path,
         )
 
     def start(self) -> None:
