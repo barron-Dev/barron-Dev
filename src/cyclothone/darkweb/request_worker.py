@@ -622,7 +622,8 @@ class DarkWebRequestWorker:
                         "seed_state_persistence": getattr(monitor, "seed_state_persistence", "not_attempted"),
                         "matches": getattr(monitor, "matches", 0),
                         "content_sha256": _native_onion_content_sha256(monitor),
-                        **{field: getattr(monitor, field, False) is True for field in _REQUIRED_ONION_ROUTE_PROOFS},
+                        "tor_control_status": getattr(monitor, "tor_control_status", "disabled"),
+                        **_native_onion_route_proof_state(monitor),
                     }, findings
                 if source_id == "pastebin_public":
                     return {
