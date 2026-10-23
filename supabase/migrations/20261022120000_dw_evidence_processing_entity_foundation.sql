@@ -87,12 +87,28 @@ create table if not exists public.dw_evidence_ots_receipts (
  id uuid primary key default gen_random_uuid(),
  evidence_seq bigint references public.dw_evidence_log(seq) on delete restrict,
  anchor_id uuid references public.dw_merkle_anchors(id) on delete restrict,
- proof_uri text not null, proof_sha256 text not null check(proof_sha256 ~ '^[0-9a-f]{64}
- id uuid primary key default gen_random_uuid(), evidence_seq bigint references public.dw_evidence_log(seq) on delete restrict,
+ proof_uri text not null,
+ proof_sha256 text not null check(proof_sha256 ~ '^[0-9a-f]{64}$'),
+ verification_status text not null check(verification_status in ('pending','confirmed','verification_failed')),
+ bitcoin_block_height bigint,
+ verified_at timestamptz,
+ verifier_version text not null,
+ created_at timestamptz not null default now(),
+ check((evidence_seq is null) <> (anchor_id is null))
+);
+create table if not exists public.dw_evidence_tsa_receipts (
+ id uuid primary key default gen_random_uuid(),
+ evidence_seq bigint references public.dw_evidence_log(seq) on delete restrict,
  anchor_id uuid references public.dw_merkle_anchors(id) on delete restrict,
- request_sha256 text not null check(request_sha256 ~ '^[0-9a-f]{64}$'), token_uri text not null,
- token_sha256 text not null check(token_sha256 ~ '^[0-9a-f]{64}$'), serial_number text, policy_oid text,
- signer_fingerprint text, verified boolean not null default false, verification_error text, received_at timestamptz not null default now(),
+ request_sha256 text not null check(request_sha256 ~ '^[0-9a-f]{64}$'),
+ token_uri text not null,
+ token_sha256 text not null check(token_sha256 ~ '^[0-9a-f]{64}$'),
+ serial_number text,
+ policy_oid text,
+ signer_fingerprint text,
+ verified boolean not null default false,
+ verification_error text,
+ received_at timestamptz not null default now(),
  check((evidence_seq is null) <> (anchor_id is null))
 );
 create table if not exists public.dw_sanitized_content (
