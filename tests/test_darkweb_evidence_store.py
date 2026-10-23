@@ -153,7 +153,7 @@ class _ServiceClient:
         self.rpc_calls.append((function, params))
         if function == "trust_register_subject":
             return {"id": "subject-1", "tenant_id": "tenant-1"}
-        if function == "trust_record_evidence":
+        if function == "dw_record_evidence_if_current_attempt":
             return {
                 "id": "evidence-1",
                 "tenant_id": self.evidence_tenant,
@@ -187,7 +187,7 @@ async def test_target_matched_onion_evidence_uses_tenant_scoped_subject_and_rpc(
     assert result["readback_sha256_verified"] is True
     assert result["finding_class"] == "candidate_evidence_not_verified"
     assert [call[0] for call in service.rpc_calls] == [
-        "trust_register_subject", "trust_record_evidence"
+        "trust_register_subject", "dw_record_evidence_if_current_attempt"
     ]
     assert service.rpc_calls[-1][1]["p_content_hash"] == result["content_sha256"]
 
@@ -301,7 +301,7 @@ async def test_trust_evidence_rpc_return_for_wrong_tenant_fails_closed():
             observed_at="2026-10-22T00:00:00+00:00",
         )
     assert [call[0] for call in service.rpc_calls] == [
-        "trust_register_subject", "trust_record_evidence"
+        "trust_register_subject", "dw_record_evidence_if_current_attempt"
     ]
 
 
