@@ -68,6 +68,15 @@ class DwClassLevelTrustControlsTests(unittest.TestCase):
         )
         self.assertIn("revoke all on table public.%i from service_role", sql)
 
+
+    def test_caller_attestation_lint_is_blocking_in_ci(self):
+        workflow = (ROOT / ".github/workflows/dw-caller-attestation-lint.yml").read_text(encoding="utf-8")
+        lint = (ROOT / "scripts/check_dw_caller_attestation.py").read_text(encoding="utf-8")
+        self.assertIn("name: DW caller-attestation lint (blocking)", workflow)
+        self.assertNotIn("continue-on-error: true", workflow)
+        self.assertNotIn("warning-only", workflow.lower())
+        self.assertIn("return 1", lint)
+
     def test_findings_join_remains_explicitly_blocked_until_wired(self):
         docs = (ROOT / "docs/dark-web/class-level-trust-controls.md").read_text(encoding="utf-8").lower()
         self.assertIn("dw_verified_findings", docs)
