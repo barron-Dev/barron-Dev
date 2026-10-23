@@ -95,6 +95,8 @@ async def test_native_onion_content_match_persists_trust_evidence_before_finding
         tenant_id="tenant-1",
         watchlist_id="watchlist-1",
         service_request_id="request-1",
+
+        expected_attempt=1,
         metadata=metadata,
     )
 
@@ -123,6 +125,8 @@ async def test_native_onion_url_only_match_does_not_create_content_evidence(monk
         tenant_id="tenant-1",
         watchlist_id="watchlist-1",
         service_request_id="request-1",
+
+        expected_attempt=1,
         metadata=metadata,
     )
 
@@ -150,6 +154,8 @@ async def test_native_onion_content_match_without_safe_excerpt_fails_closed(monk
             tenant_id="tenant-1",
             watchlist_id="watchlist-1",
             service_request_id="request-1",
+
+            expected_attempt=1,
             metadata=dict(finding.metadata),
         )
     persist.assert_not_awaited()
