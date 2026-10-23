@@ -238,6 +238,8 @@ def test_native_onion_requires_per_seed_tor_protocol_proof():
 
     monitor.seed_route_proofs = {
         "seed-a": {
+            "service_request_id": "request-1",
+            "content_sha256": "a" * 64,
             "route_verified": True,
             "hs_desc_content_received": True,
             "descriptor_fetched": True,
