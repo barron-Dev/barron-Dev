@@ -215,6 +215,33 @@ def _native_onion_seed_route_proven(monitor: object, seed: str) -> bool:
     return all(proof.get(field) is True for field in _REQUIRED_ONION_ROUTE_PROOFS)
 
 
+def _native_onion_protocol_evidence(monitor: object) -> dict:
+    """Summarize request-scoped Tor control proof without retaining descriptor data."""
+    proofs = getattr(monitor, "seed_route_proofs", {})
+    per_seed = []
+    if isinstance(proofs, dict):
+        for seed_url, proof in proofs.items():
+            if not isinstance(proof, dict):
+                continue
+            per_seed.append({
+                "seed_host": (urlsplit(str(seed_url)).hostname or "").lower(),
+                "service_request_id": str(proof.get("service_request_id") or ""),
+                "content_sha256": str(proof.get("content_sha256") or "").lower() or None,
+                "descriptor_event_count": int(proof.get("descriptor_event_count") or 0),
+                "proof": {
+                    field: proof.get(field) is True
+                    for field in _REQUIRED_ONION_ROUTE_PROOFS
+                },
+            })
+    return {
+        "status": str(getattr(monitor, "tor_control_status", "disabled")),
+        "control_authenticated": getattr(monitor, "tor_control_authenticated", False) is True,
+        "bootstrap_complete": getattr(monitor, "tor_bootstrap_complete", False) is True,
+        "tor_version": getattr(monitor, "tor_version", None),
+        "seed_proofs": per_seed,
+    }
+
+
 def _native_onion_content_sha256(monitor: object) -> str | None:
     """Return a real response digest only when the collector recorded one."""
     for digest in getattr(monitor, "seed_content_hash", {}).values():
@@ -598,6 +625,10 @@ class DarkWebRequestWorker:
                             "content_proof_missing": missing_content_proof,
                             "unverified_page_responses": inspected_pages,
                             "seed_state_persistence": getattr(monitor, "seed_state_persistence", "not_attempted"),
+                            "tor_control_authenticated": getattr(monitor, "tor_control_authenticated", False) is True,
+                            "tor_bootstrap_complete": getattr(monitor, "tor_bootstrap_complete", False) is True,
+                            "tor_version": getattr(monitor, "tor_version", None),
+                            "tor_protocol_evidence": _native_onion_protocol_evidence(monitor),
                             **_native_onion_route_proof_state(monitor),
                         }, []
                 if source_id == "ransomwatch":
@@ -689,6 +720,10 @@ class DarkWebRequestWorker:
                         "matches": getattr(monitor, "matches", 0),
                         "content_sha256": _native_onion_content_sha256(monitor),
                         "tor_control_status": getattr(monitor, "tor_control_status", "disabled"),
+                        "tor_control_authenticated": getattr(monitor, "tor_control_authenticated", False) is True,
+                        "tor_bootstrap_complete": getattr(monitor, "tor_bootstrap_complete", False) is True,
+                        "tor_version": getattr(monitor, "tor_version", None),
+                        "tor_protocol_evidence": _native_onion_protocol_evidence(monitor),
                         **_native_onion_route_proof_state(monitor),
                     }, findings
                 if source_id == "pastebin_public":
@@ -837,12 +872,14 @@ class DarkWebRequestWorker:
                         "availability": str(source.get("availability") or ""),
                         "layer": str(source.get("layer") or ""),
                         "category": str(source.get("category") or ""),
+                        "tor_protocol_evidence": source.get("tor_protocol_evidence", {}),
                     },
                     "p_route_verified": source.get("route_verified") is True,
                     "p_hs_desc_content_received": source.get("hs_desc_content_received") is True,
                     "p_descriptor_fetched": source.get("descriptor_fetched") is True,
                     "p_rendezvous_hop_verified": source.get("rendezvous_hop_verified") is True,
                     "p_stream_circuit_bound": source.get("stream_circuit_bound") is True,
+                    "p_auth_ok": source.get("tor_control_authenticated") is True,
                 })
             except Exception as exc:
                 logger.warning(
