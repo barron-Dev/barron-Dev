@@ -162,6 +162,7 @@ class RansomwatchPuller:
                 "published": published,
                 "temporal_class": temporal_class,
                 "feed_observed_at": self.feed_observed_at,
+                "feed_content_sha256": self.feed_content_sha256,
                 "feed_source": "ransomwatch_public_aggregated_feed",
                 "direct_onion_access_verified": False,
             }
