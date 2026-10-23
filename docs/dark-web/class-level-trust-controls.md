@@ -4,7 +4,7 @@ This work is preview-branch only. It does not apply migrations, deploy services,
 
 ## Structural policies
 
-- Evidence-related tables must be listed in `dw_table_security_policy`; the migration aborts when a `dw_%evidence%` table is missing a policy or a registry row points to a missing table. The follow-on proof migration extends this fail-closed assertion to `dw_%proofs` tables.
+- Evidence, proof, trust, health, fingerprint, embedding, credential, assignment, pin, observation, and telemetry tables must be listed in `dw_table_security_policy`; migrations abort when a table in these classes is unregistered or a registry row points to a missing table. The follow-on proof migration extends the assertion to proof artifacts.
 - The existing PR #76 evidence migration had a malformed OTS/TSA table-definition block (unterminated hash check and duplicated columns). The branch repairs the DDL and requires both evidence and anchor references for each OTS receipt.
 - The migration derives RLS, grants, and append-only triggers from that registry. OTS and TSA receipts are explicitly mutable state machines, not append-only event logs.
 - The initial caller-attestation lint is warning-only. It scans all PostgreSQL function signatures (not only SECURITY DEFINER functions) because invoker RPCs can still trust forged boolean claims. It also flags evidence/proof tables created without a registry row.
