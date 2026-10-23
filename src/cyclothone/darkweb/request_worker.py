@@ -233,6 +233,11 @@ def _native_onion_protocol_evidence(monitor: object) -> dict:
                     field: proof.get(field) is True
                     for field in _REQUIRED_ONION_ROUTE_PROOFS
                 },
+                "control_assertions": {
+                    field: proof.get(field) is True
+                    for field in _REQUIRED_ONION_CONTROL_ASSERTIONS
+                },
+                "socks_auth_bound": proof.get("socks_auth_bound") is True,
             })
     return {
         "status": str(getattr(monitor, "tor_control_status", "disabled")),
