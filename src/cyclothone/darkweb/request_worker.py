@@ -327,6 +327,22 @@ def _finding_matches_target(finding: object, watch_kind: str, watch_value: str) 
     return False
 
 
+def _dedupe_temporal_candidates(candidates: list[dict]) -> list[dict]:
+    """Deduplicate archive candidates by stable feed-entry hash, preferring latest values."""
+    unique: dict[str, dict] = {}
+    for candidate in candidates:
+        key = str(candidate.get("entry_hash") or "")
+        if not key:
+            key = hashlib.sha256("\x1f".join((
+                str(candidate.get("victim_name") or "").casefold(),
+                str(candidate.get("group") or "").casefold(),
+                str(candidate.get("published") or ""),
+                str(candidate.get("source_url") or ""),
+            )).encode("utf-8")).hexdigest()
+        unique[key] = candidate
+    return list(unique.values())
+
+
 def _partition_ransomwatch_findings(findings: list, watch_kind: str, watch_value: str) -> tuple[list, list[dict], list[dict]]:
     """Separate current feed hits from historical review candidates and future quarantine."""
     current = []
@@ -951,7 +967,10 @@ class DarkWebRequestWorker:
                 "observation_count": 1,
                 **observation_values,
             })
-        historical_candidates = (feed_historical_candidates + historical_candidates)[:1000]
+        historical_candidates = _dedupe_temporal_candidates(
+            feed_historical_candidates + historical_candidates
+        )[:1000]
+        future_dated_candidates = _dedupe_temporal_candidates(future_dated_candidates)[:1000]
 
         sources = []
         for status, _ in provider_results:
