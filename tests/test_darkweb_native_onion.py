@@ -214,3 +214,13 @@ async def test_native_crawler_does_not_emit_finding_for_url_only_target_match():
 
     assert crawler.pages_checked == 1
     assert findings == []
+
+
+def test_native_crawler_does_not_infer_tor_protocol_proof_from_socks_proxy():
+    crawler = NativeOnionCrawler(
+        seeds=["http://" + "a" * 56 + ".onion/"],
+        proxy="socks5://127.0.0.1:9050",
+        service_request_id="request-1",
+    )
+    assert crawler.seed_route_proofs == {}
+    assert crawler.service_request_id == "request-1"
