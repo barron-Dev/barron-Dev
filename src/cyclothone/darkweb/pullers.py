@@ -65,8 +65,53 @@ def _domain_from_victim_title(title: str) -> str | None:
 
 
 class RansomwatchPuller:
+    """Inspect the current public Ransomwatch feed while preserving temporal classes.
+
+    This is an aggregator feed, not proof of direct live Tor access to a leak site.
+    Fresh, dated feed entries may appear as current feed intelligence; older or
+    undated entries remain historical, and future-dated entries are flagged.
+    """
     SOURCE = "ransomwatch"
     FEED = "https://raw.githubusercontent.com/joshhighet/ransomwatch/main/posts.json"
+    CURRENT_WINDOW_DAYS = 30
+    FUTURE_CLOCK_SKEW_SECONDS = 300
+
+    def __init__(self) -> None:
+        self.feed_checked = False
+        self.feed_observed_at: str | None = None
+        self.feed_entries_count = 0
+        self.posts_checked = 0
+        self.current_post_count = 0
+        self.historical_post_count = 0
+        self.future_dated_post_count = 0
+
+    @classmethod
+    def _classify_published(cls, value: object, observed_at: datetime) -> tuple[str, str | None]:
+        raw = str(value or "").strip()
+        if not raw:
+            return "historical_archive", None
+        parsed: datetime | None = None
+        candidate = raw.replace("Z", "+00:00")
+        try:
+            parsed = datetime.fromisoformat(candidate)
+        except ValueError:
+            for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%m/%d/%Y"):
+                try:
+                    parsed = datetime.strptime(raw, fmt)
+                    break
+                except ValueError:
+                    continue
+        if parsed is None:
+            return "historical_archive", None
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=UTC)
+        parsed = parsed.astimezone(UTC)
+        age_seconds = (observed_at - parsed).total_seconds()
+        if age_seconds < -cls.FUTURE_CLOCK_SKEW_SECONDS:
+            return "future_dated", parsed.isoformat()
+        if 0 <= age_seconds <= cls.CURRENT_WINDOW_DAYS * 86400:
+            return "current_feed", parsed.isoformat()
+        return "historical_archive", parsed.isoformat()
 
     async def pull(self) -> list[Finding]:
         try:
@@ -76,29 +121,49 @@ class RansomwatchPuller:
                 posts = response.json()
         except Exception as exc:
             raise RuntimeError("Ransomwatch pull failed") from exc
+        if not isinstance(posts, list):
+            raise RuntimeError("Ransomwatch feed schema invalid")
+        observed = datetime.now(UTC)
+        self.feed_checked = True
+        self.feed_observed_at = observed.isoformat()
+        self.feed_entries_count = len(posts)
         out: list[Finding] = []
-        for post in posts[:5000] if isinstance(posts, list) else []:
+        for post in posts[:5000]:
+            if not isinstance(post, dict):
+                continue
+            self.posts_checked += 1
             victim = normalize(str(post.get("post_title") or ""))
             raw_url = str(post.get("post_url") or "")
             group = normalize(str(post.get("group_name") or "unknown"))
             if not victim:
                 continue
+            temporal_class, published = self._classify_published(post.get("discovered"), observed)
+            if temporal_class == "current_feed":
+                self.current_post_count += 1
+            elif temporal_class == "future_dated":
+                self.future_dated_post_count += 1
+            else:
+                self.historical_post_count += 1
             victim_domain = _domain_from_victim_title(victim)
             metadata = {
                 "group": group,
                 "victim_name": victim,
                 "domain": victim_domain,
-                "published": post.get("discovered"),
+                "published": published,
+                "temporal_class": temporal_class,
+                "feed_observed_at": self.feed_observed_at,
+                "feed_source": "ransomwatch_public_aggregated_feed",
+                "direct_onion_access_verified": False,
             }
             if victim_domain:
                 out.append(Finding(
                     self.SOURCE, "domain", victim_domain,
-                    "Victim domain explicitly named in a ransomware leak feed.",
+                    "Victim domain named in the public Ransomwatch aggregated ransomware-leak feed; not direct onion-site verification.",
                     "critical", raw_url or None, metadata,
                 ))
             out.append(Finding(
                 self.SOURCE, "company_name", victim,
-                "Organization name listed on a ransomware leak feed.",
+                "Organization name listed in the public Ransomwatch aggregated ransomware-leak feed; not direct onion-site verification.",
                 "critical", raw_url or None, metadata,
             ))
         return out
