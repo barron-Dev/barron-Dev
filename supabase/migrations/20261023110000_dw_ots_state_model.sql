@@ -81,9 +81,14 @@ begin
   if new.state = 'failed' and new.failure_reason is null then
     raise exception 'failed OTS receipt requires a failure reason' using errcode='23514';
   end if;
+  new.verification_status := case
+    when new.state = 'pending' then 'pending'
+    when new.state = 'confirmed' then 'confirmed'
+    else 'verification_failed'
+  end;
   return new;
 end
-$$;
+$;
 
 drop trigger if exists dw_evidence_ots_state_guard on public.dw_evidence_ots_receipts;
 create trigger dw_evidence_ots_state_guard
