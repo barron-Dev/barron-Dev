@@ -157,6 +157,7 @@ _REQUIRED_ONION_CONTROL_ASSERTIONS = (
     "tor_control_authenticated",
     "tor_bootstrap_complete",
     "hsfetch_accepted",
+    "tor_socks_auth_isolation_configured",
 )
 
 
