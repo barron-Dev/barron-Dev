@@ -58,6 +58,8 @@ def test_ransomwatch_current_hits_are_separated_from_history_and_future():
     assert len(future) == 1
     assert historical[0]["label"].startswith("historical feed match")
     assert future[0]["label"].startswith("future-dated feed entry")
+    assert len(historical[0]["entry_hash"]) == 64
+    assert len(future[0]["entry_hash"]) == 64
 
 
 def test_global_ransomwatch_alert_pipeline_quarantines_historical_and_future_rows():
