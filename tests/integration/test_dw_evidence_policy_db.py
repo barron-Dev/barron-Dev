@@ -70,11 +70,18 @@ class DwEvidencePolicyDatabaseTests(unittest.TestCase):
                     )
                     for statement in statements:
                         with self.subTest(table=table, role=role, statement=statement.as_string(self.conn)):
-                            with self.assertRaises(InsufficientPrivilege):
+                            class UnexpectedWritePermission(Exception):
+                                pass
+                            try:
                                 with self.conn.transaction():
                                     with self.conn.cursor() as tx:
                                         tx.execute(sql.SQL("set local role {}").format(sql.Identifier(role)))
                                         tx.execute(statement)
+                                        raise UnexpectedWritePermission()
+                            except InsufficientPrivilege:
+                                pass
+                            except UnexpectedWritePermission:
+                                self.fail(f"{role} unexpectedly had write permission on {table}")
 
                 for privilege in ("SELECT", "INSERT", "UPDATE", "DELETE"):
                     with self.subTest(table=table, service_role_privilege=privilege):
@@ -119,7 +126,9 @@ class DwEvidencePolicyDatabaseTests(unittest.TestCase):
                 cur.execute("select count(*) from public.dw_source_health_events")
                 health_before = cur.fetchone()[0]
                 with self.subTest(rejected_proof=label):
-                    with self.assertRaises(psycopg.Error):
+                    class UnexpectedProofSuccess(Exception):
+                        pass
+                    try:
                         with self.conn.transaction():
                             with self.conn.cursor() as tx:
                                 tx.execute("set local role service_role")
@@ -133,6 +142,11 @@ class DwEvidencePolicyDatabaseTests(unittest.TestCase):
                                         "verified_publisher", None, "{}",
                                     ),
                                 )
+                                raise UnexpectedProofSuccess()
+                    except psycopg.Error:
+                        pass
+                    except UnexpectedProofSuccess:
+                        self.fail(f"{label} invalid proof was accepted")
                 cur.execute("select count(*) from public.dw_onion_probe_evidence")
                 self.assertEqual(cur.fetchone()[0], probe_before, f"{label} rejection wrote probe evidence")
                 cur.execute("select count(*) from public.dw_source_health_events")
