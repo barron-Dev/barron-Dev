@@ -236,14 +236,17 @@ begin
        and p_evidence_seq between from_seq and to_seq
        and ots_status = 'confirmed'
      for share;
-    if not found or not exists (
+    if not found then
+      raise exception 'corroboration anchor is missing, unconfirmed, or outside the evidence range' using errcode='42501';
+    end if;
+    if not exists (
       select 1 from public.dw_evidence_ots_receipts r
        where r.anchor_id = v_corroboration.anchor_id
          and r.evidence_seq = p_evidence_seq
          and r.state = 'confirmed'
          and r.bitcoin_block_height is not null
     ) then
-      raise exception 'corroboration anchor lacks confirmed OTS verification' using errcode='42501';
+      raise exception 'corroboration anchor lacks a confirmed OTS receipt for this evidence' using errcode='42501';
     end if;
     v_corroboration_verified := true;
   end if;
