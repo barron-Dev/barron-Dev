@@ -39,7 +39,7 @@ UPDATE public.dw_sources
      WHEN 'github_code' THEN 'github_code_search'
      WHEN 'github_code_search' THEN 'github_code_search'
      WHEN 'tiktok_commercial' THEN 'tiktok_commercial'
-     WHEN 'ransomwatch' THEN 'historical_archive'
+     WHEN 'ransomwatch' THEN 'ransomwatch_feed'
      WHEN 'reddit_public' THEN 'excluded'
      WHEN 'reddit' THEN 'excluded'
      WHEN 'hibp' THEN 'excluded'
@@ -60,7 +60,7 @@ BEGIN
       ADD CONSTRAINT dw_sources_source_class_check
       CHECK (source_class IN (
         'native_onion','telegram_public','pastebin_public','bluesky_public',
-        'github_code_search','tiktok_commercial','historical_archive',
+        'github_code_search','tiktok_commercial','ransomwatch_feed','historical_archive',
         'excluded','unclassified'
       )) NOT VALID;
   END IF;
@@ -71,7 +71,7 @@ ALTER TABLE public.dw_sources
 
 -- Historical rows are classified by the registered source, never promoted to
 -- verified_live_darkweb from URL/hash/metadata presence. Known public-source
--- records are surface_public; Ransomwatch remains archived intelligence only.
+-- records are surface_public; Ransomwatch feed records are temporally classified at collection.
 UPDATE public.dw_findings
    SET finding_class = 'surface_public',
        web_layer = 'surface'
@@ -117,7 +117,7 @@ GRANT SELECT ON TABLE public.dw_source_attempts TO service_role;
 CREATE TABLE IF NOT EXISTS public.dw_source_type_requirements (
   source_class text PRIMARY KEY CHECK (source_class IN (
     'native_onion','telegram_public','pastebin_public','bluesky_public',
-    'github_code_search','tiktok_commercial','historical_archive',
+    'github_code_search','tiktok_commercial','ransomwatch_feed','historical_archive',
     'excluded','unclassified'
   )),
   requires_route_verified boolean NOT NULL,
@@ -139,6 +139,7 @@ VALUES
   ('bluesky_public', false, false, false, false, false, false, 86400),
   ('github_code_search', false, false, false, false, false, true, 86400),
   ('tiktok_commercial', false, false, false, false, false, true, 86400),
+  ('ransomwatch_feed', false, false, false, false, false, false, 1800),
   ('historical_archive', false, false, false, false, false, false, 0),
   ('excluded', false, false, false, false, false, false, 0),
   ('unclassified', false, false, false, false, false, false, 0)
@@ -205,14 +206,17 @@ LEFT JOIN public.dw_source_type_requirements r ON r.source_class = s.source_clas
 REVOKE ALL ON TABLE public.dw_source_effective_state FROM PUBLIC, anon, authenticated, service_role;
 GRANT SELECT ON TABLE public.dw_source_effective_state TO service_role;
 
--- Archived ransomware feed is never an active live check. Preserve rows and
--- provenance; this only disables future polling and corrects source taxonomy.
+-- Ransomwatch is a live-polled public aggregator feed, not direct onion
+-- verification. Preserve the operator's enabled/disabled choice and all legacy
+-- finding classifications; only change source taxonomy and the poll cadence.
 UPDATE public.dw_sources
-   SET enabled = false,
-       source_class = 'historical_archive',
+   SET source_class = 'ransomwatch_feed',
        web_layer = 'breach_intel',
-       last_status = 'historical_only_archived_feed',
-       poll_interval_seconds = 604800
+       poll_interval_seconds = 1800,
+       last_status = CASE
+         WHEN last_status = 'historical_only_archived_feed' THEN 'not_checked_after_temporal_policy_update'
+         ELSE last_status
+       END
  WHERE id = 'ransomwatch';
 
 COMMIT;
