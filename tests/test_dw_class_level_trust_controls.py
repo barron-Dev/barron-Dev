@@ -47,7 +47,7 @@ class DwClassLevelTrustControlsTests(unittest.TestCase):
         self.assertIn("dw_evidence_ots_failed_has_reason", sql)
         self.assertIn("invalid ots state transition", sql)
         self.assertIn("legacy \"confirmed\" is only a caller-attested status", sql)
-        self.assertIn("where state is null and verification_status = 'confirmed'", sql.replace("\\n", " "))
+        self.assertRegex(sql, r"where state is null\\s+and verification_status = 'confirmed'")
         self.assertIn("demoted_at", sql)
         self.assertIn("demoted_from_state", sql)
         self.assertIn("demotion_reason", sql)
