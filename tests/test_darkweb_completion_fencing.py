@@ -481,3 +481,32 @@ def test_tor_control_proof_fails_closed_without_accepted_hsfetch():
     assert proof["route_verified"] is False
     assert proof["descriptor_fetched"] is False
     assert proof["hs_desc_content_received"] is False
+
+
+def test_native_onion_protocol_evidence_is_bounded_and_excludes_descriptor_content():
+    from types import SimpleNamespace
+    from cyclothone.darkweb.request_worker import _native_onion_protocol_evidence
+
+    monitor = SimpleNamespace(
+        tor_control_status="authenticated",
+        tor_control_authenticated=True,
+        tor_bootstrap_complete=True,
+        tor_version="0.4.x",
+        seed_route_proofs={
+            "http://" + "a" * 56 + ".onion/": {
+                "service_request_id": "request-1",
+                "content_sha256": "a" * 64,
+                "descriptor_event_count": 2,
+                "route_verified": True,
+                "hs_desc_content_received": True,
+                "descriptor_fetched": True,
+                "rendezvous_hop_verified": True,
+                "stream_circuit_bound": True,
+            }
+        },
+    )
+    evidence = _native_onion_protocol_evidence(monitor)
+    assert evidence["control_authenticated"] is True
+    assert evidence["bootstrap_complete"] is True
+    assert evidence["seed_proofs"][0]["proof"]["route_verified"] is True
+    assert "descriptor" not in str(evidence).lower() or "descriptor_event_count" in str(evidence)
