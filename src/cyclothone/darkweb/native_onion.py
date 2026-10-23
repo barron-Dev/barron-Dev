@@ -13,6 +13,7 @@ from urllib.parse import urljoin, urlsplit, urlunsplit
 import httpx
 
 from cyclothone.darkweb.pullers import Finding, normalize
+from cyclothone.darkweb.tor_control import TorControlProofCollector
 
 logger = logging.getLogger(__name__)
 MAX_SEEDS = 50
@@ -187,6 +188,7 @@ class NativeOnionCrawler:
         # hidden-service descriptor events, and this response digest per seed.
         # HTTPX/SOCKS reachability alone never populates this proof map.
         self.seed_route_proofs: dict[str, dict] = {}
+        self.tor_control_status = "disabled"
         self.seed_probe_evidence: dict[str, dict] = {}
         self.pages_checked = 0
         self.pages_failed = 0
@@ -202,7 +204,15 @@ class NativeOnionCrawler:
         total_pages = 0
         timeout = httpx.Timeout(15.0, connect=20.0)
         limits = httpx.Limits(max_connections=5, max_keepalive_connections=2)
+        collector: TorControlProofCollector | None = None
         try:
+            if TorControlProofCollector.enabled_from_env():
+                collector = TorControlProofCollector.from_env(self.service_request_id)
+                await asyncio.to_thread(collector.start)
+                self.tor_control_status = "authenticated"
+            else:
+                # Without explicit ControlPort configuration, no protocol proof is minted.
+                self.tor_control_status = "disabled"
             async with httpx.AsyncClient(
                 proxy=self.proxy,
                 timeout=timeout,
@@ -238,6 +248,8 @@ class NativeOnionCrawler:
                             continue
                         visited.add(url)
                         try:
+                            if collector is not None and url == seed:
+                                await asyncio.to_thread(collector.begin_seed, seed)
                             async with client.stream("GET", url) as response:
                                 content_type = response.headers.get("content-type", "").lower()
                                 if url == seed and seed not in self.seed_probe_evidence:
@@ -286,6 +298,8 @@ class NativeOnionCrawler:
                                 continue
                             body_hash = hashlib.sha256(body).hexdigest()
                             self.seed_content_hash.setdefault(seed, body_hash)
+                            if url == seed and collector is not None:
+                                self.seed_route_proofs[seed] = collector.proof_for(seed, body_hash)
                             if url == seed:
                                 self.seed_probe_evidence[seed] = {
                                     "http_status": response.status_code,
@@ -363,6 +377,9 @@ class NativeOnionCrawler:
             raise
         except Exception as exc:
             raise RuntimeError(f"native_onion_collection_failed:{type(exc).__name__}") from exc
+        finally:
+            if collector is not None:
+                await asyncio.to_thread(collector.close)
         if self.pages_checked == 0:
             raise RuntimeError("native_onion_no_seed_reachable")
         return findings
