@@ -1,0 +1,99 @@
+-- Class-level evidence table policy registry. Preview-only until isolated migration tests pass.
+-- Must run after the PR #76 trust and evidence foundations on a documented base.
+begin;
+
+create table if not exists public.dw_table_security_policy (
+  tablename text primary key check (tablename ~ '^dw_[a-z0-9_]+$'),
+  append_only boolean not null,
+  grants_to_service_role text[] not null,
+  notes text not null,
+  check (cardinality(grants_to_service_role) > 0),
+  check (grants_to_service_role <@ array['SELECT','INSERT','UPDATE','DELETE']::text[])
+);
+
+insert into public.dw_table_security_policy(tablename, append_only, grants_to_service_role, notes)
+values
+ ('dw_onion_probe_evidence', true, array['SELECT','INSERT'], 'Raw probe evidence is immutable'),
+ ('dw_source_health_events', true, array['SELECT','INSERT'], 'Source health observations are immutable'),
+ ('dw_evidence_log', true, array['SELECT','INSERT'], 'Hash-chained WARC evidence manifest'),
+ ('dw_evidence_ots_receipts', false, array['SELECT','INSERT','UPDATE'], 'Mutable verifier state machine; never delete receipts'),
+ ('dw_evidence_tsa_receipts', false, array['SELECT','INSERT','UPDATE'], 'Mutable timestamp-token verification state'),
+ ('dw_merkle_anchors', false, array['SELECT','INSERT','UPDATE'], 'Anchor state may advance after external verification'),
+ ('dw_sanitized_content', true, array['SELECT','INSERT'], 'Versioned derived content; replace by new version')
+on conflict (tablename) do update
+set append_only = excluded.append_only,
+    grants_to_service_role = excluded.grants_to_service_role,
+    notes = excluded.notes;
+
+do $$
+declare unregistered text;
+begin
+  select string_agg(t.tablename, ', ' order by t.tablename)
+    into unregistered
+    from pg_tables t
+   where t.schemaname = 'public'
+     and t.tablename like 'dw\_%evidence%' escape '\'
+     and not exists (
+       select 1 from public.dw_table_security_policy p
+        where p.tablename = t.tablename
+     );
+  if unregistered is not null then
+    raise exception 'unregistered evidence tables; add explicit policy before applying: %', unregistered;
+  end if;
+
+  -- A registered name must resolve to a real table. Fail closed on stale entries.
+  select string_agg(p.tablename, ', ' order by p.tablename)
+    into unregistered
+    from public.dw_table_security_policy p
+   where to_regclass(format('public.%I', p.tablename)) is null;
+  if unregistered is not null then
+    raise exception 'evidence policy registry references missing tables: %', unregistered;
+  end if;
+end $$;
+
+create or replace function public.dw_block_mutation()
+returns trigger
+language plpgsql
+set search_path = pg_catalog, public
+as $$
+begin
+  raise exception '% is append-only; write a new version instead', tg_table_name
+    using errcode = '55000';
+end
+$$;
+
+do $$
+declare r record;
+begin
+  for r in
+    select p.*
+      from public.dw_table_security_policy p
+     order by p.tablename
+  loop
+    execute format('alter table public.%I enable row level security', r.tablename);
+    execute format('revoke all on table public.%I from public, anon, authenticated', r.tablename);
+    execute format(
+      'grant %s on table public.%I to service_role',
+      array_to_string(r.grants_to_service_role, ', '),
+      r.tablename
+    );
+
+    if r.append_only then
+      execute format('revoke update, delete on table public.%I from service_role', r.tablename);
+      execute format('drop trigger if exists %I on public.%I', r.tablename || '_policy_no_mutate', r.tablename);
+      execute format(
+        'create trigger %I before update or delete on public.%I for each row execute function public.dw_block_mutation()',
+        r.tablename || '_policy_no_mutate', r.tablename
+      );
+    else
+      execute format('drop trigger if exists %I on public.%I', r.tablename || '_policy_no_mutate', r.tablename);
+    end if;
+  end loop;
+end $$;
+
+revoke all on public.dw_table_security_policy from public, anon, authenticated, service_role;
+alter table public.dw_table_security_policy enable row level security;
+comment on table public.dw_table_security_policy is
+  'Fail-closed registry for DW evidence table RLS, service-role grants, and mutability policy. Every dw_*evidence* table must be registered.';
+
+commit;
