@@ -126,7 +126,7 @@ BEGIN
     RAISE EXCEPTION 'dw_evidence_payload_policy_rejected';
   END IF;
 
-  SELECT * INTO v_request''()*+,;=:@%/-]*)?
+  SELECT * INTO v_request
     FROM public.service_requests
    WHERE id = p_service_request_id
    FOR UPDATE;
