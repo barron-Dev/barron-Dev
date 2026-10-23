@@ -219,12 +219,15 @@ def test_new_surface_finding_is_current_only_when_bound_to_this_request():
     )
 
 
-def test_native_onion_requires_every_tor_protocol_proof():
+def test_native_onion_requires_per_seed_tor_protocol_proof():
     from types import SimpleNamespace
     from cyclothone.darkweb.request_worker import _native_onion_route_proof_missing
 
-    missing = _native_onion_route_proof_missing(SimpleNamespace())
-    assert set(missing) == {
+    monitor = SimpleNamespace(
+        seed_content_hash={"seed-a": "a" * 64},
+        seed_route_proofs={},
+    )
+    assert set(_native_onion_route_proof_missing(monitor)) == {
         "route_verified",
         "hs_desc_content_received",
         "descriptor_fetched",
@@ -232,15 +235,32 @@ def test_native_onion_requires_every_tor_protocol_proof():
         "stream_circuit_bound",
     }
 
-    proven = SimpleNamespace(
+    monitor.seed_route_proofs = {
+        "seed-a": {
+            "route_verified": True,
+            "hs_desc_content_received": True,
+            "descriptor_fetched": True,
+            "rendezvous_hop_verified": True,
+            "stream_circuit_bound": True,
+        }
+    }
+    assert _native_onion_route_proof_missing(monitor) == []
+
+
+def test_global_tor_flags_cannot_substitute_for_per_seed_proof():
+    from types import SimpleNamespace
+    from cyclothone.darkweb.request_worker import _native_onion_route_proof_missing
+
+    monitor = SimpleNamespace(
         route_verified=True,
         hs_desc_content_received=True,
         descriptor_fetched=True,
         rendezvous_hop_verified=True,
         stream_circuit_bound=True,
+        seed_content_hash={"seed-a": "a" * 64},
+        seed_route_proofs={},
     )
-    assert _native_onion_route_proof_missing(proven) == []
-
+    assert len(_native_onion_route_proof_missing(monitor)) == 5
 
 def test_truthy_non_boolean_tor_proof_is_not_accepted():
     from types import SimpleNamespace
