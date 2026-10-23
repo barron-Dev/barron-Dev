@@ -55,7 +55,7 @@ class DwClassLevelTrustControlsTests(unittest.TestCase):
             sql,
             r"p_[a-z_]*(?:verified|proof|attested|corroborated|provenance_match|route_verified)[a-z_]*\s+boolean",
         )
-        self.assertIn("revoke all on table public.dw_tor_route_proofs from service_role", sql)
+        self.assertIn("revoke all on table public.%i from service_role", sql)
 
     def test_findings_join_remains_explicitly_blocked_until_wired(self):
         docs = (ROOT / "docs/dark-web/class-level-trust-controls.md").read_text(encoding="utf-8").lower()
