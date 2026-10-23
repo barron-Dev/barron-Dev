@@ -78,11 +78,13 @@ class RansomwatchPuller:
     # not a direct live onion check. Keep this distinct from source availability.
     CURRENT_WINDOW_DAYS = 30
     FUTURE_CLOCK_SKEW_SECONDS = 300
+    MAX_FEED_BYTES = 10_000_000
     MAX_FEED_ENTRIES = 5000
 
     def __init__(self) -> None:
         self.feed_checked = False
         self.feed_observed_at: str | None = None
+        self.feed_content_sha256: str | None = None
         self.feed_entries_count = 0
         self.posts_checked = 0
         self.current_post_count = 0
@@ -122,6 +124,9 @@ class RansomwatchPuller:
             async with httpx.AsyncClient(timeout=30.0) as client:
                 response = await client.get(self.FEED)
                 response.raise_for_status()
+                if len(response.content) > self.MAX_FEED_BYTES:
+                    raise RuntimeError("Ransomwatch feed exceeded configured size limit")
+                self.feed_content_sha256 = hashlib.sha256(response.content).hexdigest()
                 posts = response.json()
         except Exception as exc:
             raise RuntimeError("Ransomwatch pull failed") from exc
