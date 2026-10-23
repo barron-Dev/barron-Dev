@@ -9,7 +9,7 @@ CREATE TABLE IF NOT EXISTS public.dw_feed_temporal_observations (
   service_request_id uuid NOT NULL REFERENCES public.service_requests(id) ON DELETE CASCADE,
   source_id text NOT NULL CHECK (source_id = 'ransomwatch'),
   entry_hash text NOT NULL CHECK (entry_hash ~ '^[0-9a-f]{64}$'),
-  temporal_class text NOT NULL CHECK (temporal_class IN ('historical_archive', 'future_dated')),
+  temporal_class text NOT NULL CHECK (temporal_class IN ('current_feed', 'historical_archive', 'future_dated')),
   published_at timestamptz,
   feed_observed_at timestamptz NOT NULL,
   feed_content_sha256 text CHECK (feed_content_sha256 IS NULL OR feed_content_sha256 ~ '^[0-9a-f]{64}$'),
@@ -17,6 +17,8 @@ CREATE TABLE IF NOT EXISTS public.dw_feed_temporal_observations (
   group_name text,
   source_url text,
   label text NOT NULL,
+  observation_count integer NOT NULL DEFAULT 1 CHECK (observation_count > 0),
+  last_seen_at timestamptz NOT NULL DEFAULT now(),
   created_at timestamptz NOT NULL DEFAULT now(),
   UNIQUE (tenant_id, watchlist_id, source_id, entry_hash)
 );
