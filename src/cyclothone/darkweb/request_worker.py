@@ -259,6 +259,40 @@ def _finding_matches_target(finding: object, watch_kind: str, watch_value: str) 
     return False
 
 
+def _partition_ransomwatch_findings(findings: list, watch_kind: str, watch_value: str) -> tuple[list, list[dict], list[dict]]:
+    """Separate current feed hits from historical review candidates and future quarantine."""
+    current = []
+    historical = []
+    future = []
+    for finding in findings:
+        metadata = finding.metadata if isinstance(getattr(finding, "metadata", None), dict) else {}
+        temporal_class = str(metadata.get("temporal_class") or "historical_archive")
+        if temporal_class == "current_feed":
+            current.append(finding)
+            continue
+        if temporal_class not in {"historical_archive", "future_dated"}:
+            # Unknown classes are fail-closed and never enter the alert path.
+            continue
+        if not _finding_matches_target(finding, watch_kind, watch_value):
+            continue
+        candidate = {
+            "source": "ransomwatch",
+            "source_url": finding.source_url,
+            "published": metadata.get("published"),
+            "feed_observed_at": metadata.get("feed_observed_at"),
+            "victim_name": metadata.get("victim_name") or finding.matched_value,
+            "group": metadata.get("group"),
+            "temporal_class": temporal_class,
+            "label": (
+                "future-dated feed entry — quarantined, not an alert"
+                if temporal_class == "future_dated"
+                else "historical feed match — review; not a current exposure alert"
+            ),
+        }
+        (future if temporal_class == "future_dated" else historical).append(candidate)
+    return current, historical, future
+
+
 class DarkWebRequestWorker:
     """Leased worker for customer requests; uses the existing dark-web engine."""
 
@@ -719,8 +753,8 @@ class DarkWebRequestWorker:
         ))
 
         # Keep the feed's three time classes distinct. Current dated records may
-        # enter the current finding/alert path; historical records are returned as
-        # review-only candidates; future-dated records are quarantined from alerts.
+        # enter the current finding/alert path; historical records are review-only;
+        # future-dated records are quarantined from alerts.
         future_dated_candidates = []
         feed_historical_candidates = []
         normalized_provider_results = []
@@ -728,33 +762,11 @@ class DarkWebRequestWorker:
             if str(status.get("source") or "") != "ransomwatch":
                 normalized_provider_results.append((status, batch))
                 continue
-            current_batch = []
-            for finding in batch:
-                metadata = finding.metadata if isinstance(finding.metadata, dict) else {}
-                temporal_class = str(metadata.get("temporal_class") or "historical_archive")
-                if temporal_class in {"historical_archive", "future_dated"} and _finding_matches_target(
-                    finding, watch_kind, watch_value
-                ):
-                    candidate = {
-                        "source": "ransomwatch",
-                        "source_url": finding.source_url,
-                        "published": metadata.get("published"),
-                        "feed_observed_at": metadata.get("feed_observed_at"),
-                        "victim_name": metadata.get("victim_name") or finding.matched_value,
-                        "group": metadata.get("group"),
-                        "temporal_class": temporal_class,
-                        "label": (
-                            "future-dated feed entry — quarantined, not an alert"
-                            if temporal_class == "future_dated"
-                            else "historical feed match — review; not a current exposure alert"
-                        ),
-                    }
-                    if temporal_class == "future_dated":
-                        future_dated_candidates.append(candidate)
-                    else:
-                        feed_historical_candidates.append(candidate)
-                if temporal_class == "current_feed":
-                    current_batch.append(finding)
+            current_batch, historical_batch, future_batch = _partition_ransomwatch_findings(
+                batch, watch_kind, watch_value
+            )
+            feed_historical_candidates.extend(historical_batch)
+            future_dated_candidates.extend(future_batch)
             normalized_provider_results.append((status, current_batch))
         provider_results = normalized_provider_results
         historical_candidates = (feed_historical_candidates + historical_candidates)[:1000]
