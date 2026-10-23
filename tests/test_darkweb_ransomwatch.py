@@ -124,5 +124,5 @@ async def test_ransomwatch_pull_emits_durable_temporal_record(monkeypatch):
     assert len(record["record_key"]) == 64
     assert record["temporal_class"] == "current_feed"
     assert record["feed_content_sha256"] == __import__("hashlib").sha256(body).hexdigest()
-    assert record["victim_name"] == "Example Corporation"
+    assert record["victim_name"] == "example corporation"
     assert findings
