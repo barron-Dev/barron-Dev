@@ -2,6 +2,16 @@
 
 This work is preview-branch only. It does not apply migrations, deploy services, enable collectors, or write production data.
 
+## Finding classes (root cause, not isolated instances)
+
+| Class | Root cause | Structural control | Status |
+|---|---|---|---|
+| **DW-04 — caller-attested trust facts** | A caller can submit a boolean/status saying Tor routing, publisher identity, corroboration, provenance, or signature verification succeeded. The probe RPC is one instance; the evidence writer and canary/mirror paths share the same failure mode. | Replace success booleans with proof references; validate source/content/expiry/pin/anchor/evidence linkage inside one transaction; deny application-role writes to proof artifacts; lint function signatures before merge. | Legacy probe signature removed in preview migration. Trusted proof writers and end-to-end verification remain blocked. |
+| **DW-POLICY-01 — evidence-policy drift** | Hand-maintained table lists and uniform grants silently omit new tables or grant mutable state to an application role. | Registry-driven grants/RLS/mutability, fail-closed table discovery, plus CI drift lint. Mutable OTS receipts are not treated as append-only logs, and direct application writes remain disabled until trusted writers exist. | Implemented in preview migrations; database execution tests pending. |
+| **DW-OTS-01 — receipt presence mistaken for confirmation** | Existence or a caller-set `verified` flag is treated as proof, without explicit pending/confirmed/failure semantics. | Five-state OTS model; new receipts start pending; legacy confirmed claims are demoted to pending; confirmed requires block height and verifier timestamp; finding visibility must join only confirmed receipt state. | State model drafted. Finding-view/customer-path integration remains blocked. |
+| **DW-BASE-01 — migration base is not reproducible** | Migration filenames and status checks do not establish that the live DDL, ACLs, extensions, functions, and RLS match the preview assumptions. The prior OTS/TSA DDL was also malformed. | Repair DDL and reconcile the live schema into a reproducible disposable base before migration-ordering tests. | DDL repair and inventory documented; isolated schema snapshot and DB test run remain blocked. |
+| **DW-FINDING-01 — evidence is not linked to customer findings** | Legacy `dw_findings` has no `evidence_seq`, and live has no `dw_verified_findings` view/table. OTS state therefore cannot yet gate the customer-visible finding path. | Introduce and wire an evidence-linked finding materializer/view, then test customer/API/history paths against all five OTS states. | Release blocker; deliberately not papered over with a synthetic view or guessed join. |
+
 ## Structural policies
 
 - Evidence, proof, trust, health, fingerprint, embedding, credential, assignment, pin, observation, and telemetry tables must be listed in `dw_table_security_policy`; migrations abort when a table in these classes is unregistered or a registry row points to a missing table. The follow-on proof migration extends the assertion to proof artifacts.
