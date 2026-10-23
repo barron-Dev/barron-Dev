@@ -103,6 +103,302 @@ BEGIN
     RAISE EXCEPTION 'dw_evidence_service_role_required';
   END IF;
 
+  -- The privileged writer may only register bounded, read-back-verified
+  -- native-onion candidate evidence. It cannot mint verified findings.
+  IF p_evidence_type <> 'dark_web_page_match'
+     OR p_source_type <> 'native_onion'
+     OR p_content_type <> 'text/plain'
+     OR p_content_uri !~ '^supabase://dw-evidence-private/[A-Za-z0-9_-]+/[A-Za-z0-9_-]+/[A-Za-z0-9_-]+/[A-Za-z0-9_-]+
+    FROM public.service_requests
+   WHERE id = p_service_request_id
+   FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'dw_evidence_attempt_fence_rejected';
+  END IF;
+  IF v_request.service_key <> 'dark_web_monitoring'
+     OR v_request.processing_state <> 'running'
+     OR v_request.attempts <> p_expected_attempt
+     OR v_request.locked_until IS NULL
+     OR v_request.locked_until <= clock_timestamp() THEN
+    RAISE EXCEPTION 'dw_evidence_attempt_fence_rejected';
+  END IF;
+
+  SELECT tenant_id INTO v_org_tenant
+    FROM public.customer_organizations
+   WHERE id = v_request.organization_id;
+  IF v_org_tenant IS NULL OR v_org_tenant <> p_tenant_id THEN
+    RAISE EXCEPTION 'dw_evidence_tenant_fence_rejected';
+  END IF;
+
+  SELECT * INTO v_watch
+    FROM public.dw_watchlist
+   WHERE id = p_watchlist_id AND tenant_id = p_tenant_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'dw_evidence_watchlist_fence_rejected';
+  END IF;
+
+  v_expected_kind := CASE lower(coalesce(v_request.target_type, ''))
+    WHEN 'domain' THEN 'domain'
+    WHEN 'url' THEN 'domain'
+    WHEN 'email' THEN 'email'
+    WHEN 'brand' THEN 'company_name'
+    WHEN 'username' THEN 'username'
+    WHEN 'ip' THEN 'ip'
+    WHEN 'other' THEN 'other'
+    ELSE NULL
+  END;
+  IF lower(coalesce(v_request.target_type, '')) IN ('domain','url') THEN
+    v_request_value := lower(regexp_replace(
+      regexp_replace(trim(coalesce(v_request.target, '')), '^https?://', '', 'i'),
+      '[/#?].*$', ''
+    ));
+    v_request_value := regexp_replace(v_request_value, ':[0-9]+$', '');
+    v_request_value := rtrim(v_request_value, '.');
+  ELSE
+    v_request_value := lower(trim(coalesce(v_request.target, '')));
+  END IF;
+  v_watch_value := lower(trim(coalesce(v_watch.value, '')));
+  IF v_expected_kind IS NULL OR v_watch.kind <> v_expected_kind
+     OR v_watch_value <> v_request_value THEN
+    RAISE EXCEPTION 'dw_evidence_target_fence_rejected';
+  END IF;
+
+  SELECT * INTO v_subject
+    FROM public.trust_subjects
+   WHERE id = p_subject_id
+   FOR SHARE;
+  IF NOT FOUND OR v_subject.tenant_id IS NULL
+     OR v_subject.tenant_id <> p_tenant_id
+     OR v_subject.subject_kind <> 'dark_web_monitoring_target'
+     OR v_subject.external_ref <> p_watchlist_id::text THEN
+    RAISE EXCEPTION 'dw_evidence_subject_fence_rejected';
+  END IF;
+
+  v_evidence := public.trust_record_evidence(
+    p_subject_id, p_evidence_type, p_source_type, p_source_id,
+    p_content_type, p_content_uri, p_content_hash, p_collected_at,
+    p_expires_at, p_signature_algorithm, p_signer_key_id, p_signature,
+    coalesce(p_metadata, '{}'::jsonb)
+  );
+  IF v_evidence.tenant_id <> p_tenant_id
+     OR v_evidence.subject_id <> p_subject_id
+     OR v_evidence.content_uri <> p_content_uri
+     OR v_evidence.content_hash <> p_content_hash
+     OR v_evidence.source_id <> p_source_id THEN
+    RAISE EXCEPTION 'dw_evidence_return_binding_failed';
+  END IF;
+  RETURN v_evidence;
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.dw_record_evidence_if_current_attempt(
+  uuid,integer,uuid,uuid,uuid,text,text,text,text,text,text,timestamptz,timestamptz,text,text,text,jsonb
+) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.dw_record_evidence_if_current_attempt(
+  uuid,integer,uuid,uuid,uuid,text,text,text,text,text,text,timestamptz,timestamptz,text,text,text,jsonb
+) TO service_role;
+
+COMMIT;
+
+     OR p_content_hash !~ '^[0-9a-f]{64}
+    FROM public.service_requests
+   WHERE id = p_service_request_id
+   FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'dw_evidence_attempt_fence_rejected';
+  END IF;
+  IF v_request.service_key <> 'dark_web_monitoring'
+     OR v_request.processing_state <> 'running'
+     OR v_request.attempts <> p_expected_attempt
+     OR v_request.locked_until IS NULL
+     OR v_request.locked_until <= clock_timestamp() THEN
+    RAISE EXCEPTION 'dw_evidence_attempt_fence_rejected';
+  END IF;
+
+  SELECT tenant_id INTO v_org_tenant
+    FROM public.customer_organizations
+   WHERE id = v_request.organization_id;
+  IF v_org_tenant IS NULL OR v_org_tenant <> p_tenant_id THEN
+    RAISE EXCEPTION 'dw_evidence_tenant_fence_rejected';
+  END IF;
+
+  SELECT * INTO v_watch
+    FROM public.dw_watchlist
+   WHERE id = p_watchlist_id AND tenant_id = p_tenant_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'dw_evidence_watchlist_fence_rejected';
+  END IF;
+
+  v_expected_kind := CASE lower(coalesce(v_request.target_type, ''))
+    WHEN 'domain' THEN 'domain'
+    WHEN 'url' THEN 'domain'
+    WHEN 'email' THEN 'email'
+    WHEN 'brand' THEN 'company_name'
+    WHEN 'username' THEN 'username'
+    WHEN 'ip' THEN 'ip'
+    WHEN 'other' THEN 'other'
+    ELSE NULL
+  END;
+  IF lower(coalesce(v_request.target_type, '')) IN ('domain','url') THEN
+    v_request_value := lower(regexp_replace(
+      regexp_replace(trim(coalesce(v_request.target, '')), '^https?://', '', 'i'),
+      '[/#?].*$', ''
+    ));
+    v_request_value := regexp_replace(v_request_value, ':[0-9]+$', '');
+    v_request_value := rtrim(v_request_value, '.');
+  ELSE
+    v_request_value := lower(trim(coalesce(v_request.target, '')));
+  END IF;
+  v_watch_value := lower(trim(coalesce(v_watch.value, '')));
+  IF v_expected_kind IS NULL OR v_watch.kind <> v_expected_kind
+     OR v_watch_value <> v_request_value THEN
+    RAISE EXCEPTION 'dw_evidence_target_fence_rejected';
+  END IF;
+
+  SELECT * INTO v_subject
+    FROM public.trust_subjects
+   WHERE id = p_subject_id
+   FOR SHARE;
+  IF NOT FOUND OR v_subject.tenant_id IS NULL
+     OR v_subject.tenant_id <> p_tenant_id
+     OR v_subject.subject_kind <> 'dark_web_monitoring_target'
+     OR v_subject.external_ref <> p_watchlist_id::text THEN
+    RAISE EXCEPTION 'dw_evidence_subject_fence_rejected';
+  END IF;
+
+  v_evidence := public.trust_record_evidence(
+    p_subject_id, p_evidence_type, p_source_type, p_source_id,
+    p_content_type, p_content_uri, p_content_hash, p_collected_at,
+    p_expires_at, p_signature_algorithm, p_signer_key_id, p_signature,
+    coalesce(p_metadata, '{}'::jsonb)
+  );
+  IF v_evidence.tenant_id <> p_tenant_id
+     OR v_evidence.subject_id <> p_subject_id
+     OR v_evidence.content_uri <> p_content_uri
+     OR v_evidence.content_hash <> p_content_hash
+     OR v_evidence.source_id <> p_source_id THEN
+    RAISE EXCEPTION 'dw_evidence_return_binding_failed';
+  END IF;
+  RETURN v_evidence;
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.dw_record_evidence_if_current_attempt(
+  uuid,integer,uuid,uuid,uuid,text,text,text,text,text,text,timestamptz,timestamptz,text,text,text,jsonb
+) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.dw_record_evidence_if_current_attempt(
+  uuid,integer,uuid,uuid,uuid,text,text,text,text,text,text,timestamptz,timestamptz,text,text,text,jsonb
+) TO service_role;
+
+COMMIT;
+
+     OR p_source_id !~ '^https?://[a-z2-7]{56}\.onion(:(80|443))?(/[A-Za-z0-9._~!  IF coalesce(auth.role(), '') <> 'service_role' THEN
+    RAISE EXCEPTION 'dw_evidence_service_role_required';
+  END IF;
+
+  SELECT * INTO v_request''()*+,;=:@%/-]*)?
+    FROM public.service_requests
+   WHERE id = p_service_request_id
+   FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'dw_evidence_attempt_fence_rejected';
+  END IF;
+  IF v_request.service_key <> 'dark_web_monitoring'
+     OR v_request.processing_state <> 'running'
+     OR v_request.attempts <> p_expected_attempt
+     OR v_request.locked_until IS NULL
+     OR v_request.locked_until <= clock_timestamp() THEN
+    RAISE EXCEPTION 'dw_evidence_attempt_fence_rejected';
+  END IF;
+
+  SELECT tenant_id INTO v_org_tenant
+    FROM public.customer_organizations
+   WHERE id = v_request.organization_id;
+  IF v_org_tenant IS NULL OR v_org_tenant <> p_tenant_id THEN
+    RAISE EXCEPTION 'dw_evidence_tenant_fence_rejected';
+  END IF;
+
+  SELECT * INTO v_watch
+    FROM public.dw_watchlist
+   WHERE id = p_watchlist_id AND tenant_id = p_tenant_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'dw_evidence_watchlist_fence_rejected';
+  END IF;
+
+  v_expected_kind := CASE lower(coalesce(v_request.target_type, ''))
+    WHEN 'domain' THEN 'domain'
+    WHEN 'url' THEN 'domain'
+    WHEN 'email' THEN 'email'
+    WHEN 'brand' THEN 'company_name'
+    WHEN 'username' THEN 'username'
+    WHEN 'ip' THEN 'ip'
+    WHEN 'other' THEN 'other'
+    ELSE NULL
+  END;
+  IF lower(coalesce(v_request.target_type, '')) IN ('domain','url') THEN
+    v_request_value := lower(regexp_replace(
+      regexp_replace(trim(coalesce(v_request.target, '')), '^https?://', '', 'i'),
+      '[/#?].*$', ''
+    ));
+    v_request_value := regexp_replace(v_request_value, ':[0-9]+$', '');
+    v_request_value := rtrim(v_request_value, '.');
+  ELSE
+    v_request_value := lower(trim(coalesce(v_request.target, '')));
+  END IF;
+  v_watch_value := lower(trim(coalesce(v_watch.value, '')));
+  IF v_expected_kind IS NULL OR v_watch.kind <> v_expected_kind
+     OR v_watch_value <> v_request_value THEN
+    RAISE EXCEPTION 'dw_evidence_target_fence_rejected';
+  END IF;
+
+  SELECT * INTO v_subject
+    FROM public.trust_subjects
+   WHERE id = p_subject_id
+   FOR SHARE;
+  IF NOT FOUND OR v_subject.tenant_id IS NULL
+     OR v_subject.tenant_id <> p_tenant_id
+     OR v_subject.subject_kind <> 'dark_web_monitoring_target'
+     OR v_subject.external_ref <> p_watchlist_id::text THEN
+    RAISE EXCEPTION 'dw_evidence_subject_fence_rejected';
+  END IF;
+
+  v_evidence := public.trust_record_evidence(
+    p_subject_id, p_evidence_type, p_source_type, p_source_id,
+    p_content_type, p_content_uri, p_content_hash, p_collected_at,
+    p_expires_at, p_signature_algorithm, p_signer_key_id, p_signature,
+    coalesce(p_metadata, '{}'::jsonb)
+  );
+  IF v_evidence.tenant_id <> p_tenant_id
+     OR v_evidence.subject_id <> p_subject_id
+     OR v_evidence.content_uri <> p_content_uri
+     OR v_evidence.content_hash <> p_content_hash
+     OR v_evidence.source_id <> p_source_id THEN
+    RAISE EXCEPTION 'dw_evidence_return_binding_failed';
+  END IF;
+  RETURN v_evidence;
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.dw_record_evidence_if_current_attempt(
+  uuid,integer,uuid,uuid,uuid,text,text,text,text,text,text,timestamptz,timestamptz,text,text,text,jsonb
+) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.dw_record_evidence_if_current_attempt(
+  uuid,integer,uuid,uuid,uuid,text,text,text,text,text,text,timestamptz,timestamptz,text,text,text,jsonb
+) TO service_role;
+
+COMMIT;
+
+     OR coalesce(p_metadata->>'readback_sha256_verified', 'false') <> 'true'
+     OR coalesce(p_metadata->>'classification', '') <> 'candidate_evidence_not_verified'
+     OR coalesce(p_metadata->>'service_request_id', '') <> p_service_request_id::text
+     OR coalesce(p_metadata->>'tenant_id', '') <> p_tenant_id::text
+     OR coalesce(p_metadata->>'watchlist_id', '') <> p_watchlist_id::text THEN
+    RAISE EXCEPTION 'dw_evidence_payload_policy_rejected';
+  END IF;
+
   SELECT * INTO v_request
     FROM public.service_requests
    WHERE id = p_service_request_id
