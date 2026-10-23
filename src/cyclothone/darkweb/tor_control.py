@@ -10,15 +10,6 @@ from urllib.parse import urlsplit
 
 logger = logging.getLogger(__name__)
 _ONION_HOST = re.compile(r"^[a-z2-7]{56}\\.onion$", re.IGNORECASE)
-_REQUIRED = (
-    "route_verified",
-    "hs_desc_content_received",
-    "descriptor_fetched",
-    "rendezvous_hop_verified",
-    "stream_circuit_bound",
-)
-
-
 def _private_control_host(host: str) -> bool:
     value = host.strip().lower().rstrip(".")
     if value in {"localhost", "tor"} or value.endswith((".internal", ".local", ".railway.internal")):
@@ -38,13 +29,12 @@ class TorControlProofCollector:
     """
 
     def __init__(self, request_id: str, *, host: str, port: int, password: str | None = None,
-                 cookie_path: str | None = None, descriptor_timeout: float = 25.0) -> None:
+                 cookie_path: str | None = None) -> None:
         self.request_id = str(request_id)
         self.host = host
         self.port = int(port)
         self.password = password
         self.cookie_path = cookie_path
-        self.descriptor_timeout = max(1.0, min(float(descriptor_timeout), 60.0))
         self.controller = None
         self.bootstrapped = False
         self.tor_version: str | None = None
@@ -70,7 +60,6 @@ class TorControlProofCollector:
             port=int(os.getenv("CYCLOTHONE_DW_TOR_CONTROL_PORT", "9051")),
             password=os.getenv("CYCLOTHONE_DW_TOR_CONTROL_PASSWORD") or None,
             cookie_path=os.getenv("CYCLOTHONE_DW_TOR_CONTROL_COOKIE") or None,
-            descriptor_timeout=float(os.getenv("CYCLOTHONE_DW_TOR_DESCRIPTOR_TIMEOUT_SECONDS", "25")),
         )
 
     def start(self) -> None:
@@ -81,7 +70,6 @@ class TorControlProofCollector:
         except ImportError as exc:
             raise RuntimeError("tor_control_stem_dependency_missing") from exc
         controller = Controller.from_port(address=self.host, port=self.port)
-        controller.set_socket_timeout(5.0)
         try:
             if self.cookie_path:
                 controller.authenticate(cookie_path=self.cookie_path)
