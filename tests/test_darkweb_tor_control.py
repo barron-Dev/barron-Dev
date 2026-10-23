@@ -109,3 +109,53 @@ def test_tor_control_environment_requires_explicit_auth_material(monkeypatch):
     monkeypatch.delenv("CYCLOTHONE_DW_TOR_CONTROL_COOKIE", raising=False)
     with pytest.raises(RuntimeError, match="tor_control_auth_material_required"):
         TorControlProofCollector.from_env("request-1")
+
+
+
+def test_request_proxy_uses_unique_request_scoped_socks_credentials():
+    from urllib.parse import urlsplit, unquote
+
+    collector = TorControlProofCollector("request-1", host="127.0.0.1", port=9051)
+    proxy = collector.proxy_for_request("socks5h://127.0.0.1:9050")
+    parsed = urlsplit(proxy)
+    assert parsed.scheme == "socks5h"
+    assert parsed.hostname == "127.0.0.1"
+    assert unquote(parsed.username) == collector._socks_username
+    assert unquote(parsed.password) == collector._socks_password
+    assert collector._socks_username not in {"", "default", "cyclothone"}
+
+
+def test_tor_route_proof_fails_when_socks_auth_isolation_is_not_configured():
+    collector, seed = _collector()
+    collector.socks_auth_isolation_configured = False
+    host = "a" * 56 + ".onion"
+    now = time.monotonic()
+    collector._descriptor_events[host] = [
+        (now, "RECEIVED", True),
+        (now, "CONTENT", True),
+    ]
+    collector._circuits = [(now, "17", "BUILT", "HS_CLIENT_REND")]
+    collector._streams = [(now, host, "SUCCEEDED", "17", collector._socks_username)]
+
+    proof = collector.proof_for(seed, "d" * 64)
+    assert proof["tor_socks_auth_isolation_configured"] is False
+    assert proof["route_verified"] is False
+
+
+def test_tor_route_proof_is_bound_to_each_request_and_response_digest():
+    collector, seed = _collector()
+    host = "a" * 56 + ".onion"
+    now = time.monotonic()
+    collector._descriptor_events[host] = [
+        (now, "RECEIVED", True),
+        (now, "CONTENT", True),
+    ]
+    collector._circuits = [(now, "17", "BUILT", "HS_CLIENT_REND")]
+    collector._streams = [(now, host, "SUCCEEDED", "17", collector._socks_username)]
+
+    proof = collector.proof_for(seed, "E" * 64)
+    assert proof["service_request_id"] == "request-1"
+    assert proof["content_sha256"] == "e" * 64
+    assert proof["tor_control_authenticated"] is True
+    assert proof["tor_bootstrap_complete"] is True
+    assert proof["hsfetch_accepted"] is True
