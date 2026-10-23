@@ -30,7 +30,15 @@ values
  ('dw_descriptor_health', true, array['SELECT'], 'Descriptor observations; trusted Tor collector is not yet wired'),
  ('dw_trust_honeypot_observations', true, array['SELECT'], 'Deception telemetry is append-only and isolated from findings'),
  ('dw_trust_canary_events', true, array['SELECT'], 'Signed-provider canary ingest; direct caller attestations disabled'),
- ('dw_source_health', false, array['SELECT'], 'Source health state is written only by trusted workers')
+ ('dw_source_health', false, array['SELECT'], 'Source health state is written only by trusted workers'),
+ ('dw_discovery_job_runs', false, array['SELECT'], 'Worker state is read-only until the fenced writer is integrated'),
+ ('dw_discovery_dead_letters', false, array['SELECT'], 'Dead-letter state is read-only until the review workflow is authorized'),
+ ('dw_entities', false, array['SELECT'], 'Entity resolution is read-only until tenant-authorized writer is integrated'),
+ ('dw_entity_aliases', true, array['SELECT'], 'Entity aliases are immutable evidence derivatives'),
+ ('dw_entity_links', false, array['SELECT'], 'Entity-link review state is read-only until authorized workflow exists'),
+ ('dw_entity_mentions', true, array['SELECT'], 'Evidence mentions are immutable derivatives'),
+ ('dw_content_translations', true, array['SELECT'], 'Translations are immutable, provenance-linked derivatives'),
+ ('dw_ner_extractions', true, array['SELECT'], 'NER extractions are immutable, provenance-linked derivatives')
 on conflict (tablename) do update
 set append_only = excluded.append_only,
     grants_to_service_role = excluded.grants_to_service_role,
@@ -56,6 +64,14 @@ begin
        or t.tablename like 'dw\_%\_assignments' escape '\'
        or t.tablename like 'dw\_%\_pins' escape '\'
        or t.tablename like 'dw\_%\_observations' escape '\'
+       or t.tablename like 'dw\_discovery\_%' escape '\'
+       or t.tablename like 'dw\_entity\_%' escape '\'
+       or t.tablename = 'dw_entities'
+       or t.tablename like 'dw\_content\_%' escape '\'
+       or t.tablename like 'dw\_%\_translations' escape '\'
+       or t.tablename like 'dw\_%\_extractions' escape '\'
+       or t.tablename like 'dw\_sanitized\_%' escape '\'
+       or t.tablename like 'dw\_merkle\_%' escape '\'
      )
      and not exists (
        select 1 from public.dw_table_security_policy p
