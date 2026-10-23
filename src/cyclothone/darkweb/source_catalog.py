@@ -31,7 +31,7 @@ SOURCE_CATALOG: dict[str, SourceDefinition] = {
     "pastebin_public": SourceDefinition("pastebin_public", "paste_site", "surface", "public_web", "implemented", False, "Public paste content reachable through the configured public collector."),
     "bluesky_public": SourceDefinition("bluesky_public", "social_media", "surface", "public_api", "implemented", False, "Public Bluesky records through the configured public collector."),
     "github_code": SourceDefinition("github_code", "code_repository", "surface", "public_api", "planned", True, "Optional public code-search connector; not counted unless an actual supported collector succeeds."),
-    "ransomwatch": SourceDefinition("ransomwatch", "ransomware_leak_feed", "surface_historical", "archived_feed", "historical_only", False, "Archived/historical data only; never counts as a live check or current dark-web reachability."),
+    "ransomwatch": SourceDefinition("ransomwatch", "ransomware_leak_feed", "surface_historical", "public_feed", "implemented", False, "Current public aggregated ransomware-leak feed with dated current entries and separately classified historical records; not direct onion-site verification."),
 }
 
 # Explicit exclusion: Reddit is not a source and must not be registered, polled,
