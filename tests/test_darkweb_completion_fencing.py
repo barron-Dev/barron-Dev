@@ -240,6 +240,7 @@ def test_native_onion_requires_per_seed_tor_protocol_proof():
         "seed-a": {
             "service_request_id": "request-1",
             "content_sha256": "a" * 64,
+            "descriptor_sha256": "c" * 64,
             "tor_control_authenticated": True,
             "tor_bootstrap_complete": True,
             "tor_socks_auth_isolation_configured": True,
@@ -281,6 +282,7 @@ def test_truthy_non_boolean_tor_proof_is_not_accepted():
             "seed-a": {
                 "service_request_id": "request-1",
                 "content_sha256": "a" * 64,
+                "descriptor_sha256": "c" * 64,
                 "route_verified": 1,
                 "hs_desc_content_received": "true",
                 "descriptor_fetched": True,
@@ -337,6 +339,7 @@ def test_native_onion_route_proof_without_inspected_content_is_unavailable():
             "seed-a": {
                 "service_request_id": "request-1",
                 "content_sha256": "a" * 64,
+                "descriptor_sha256": "c" * 64,
                 "tor_control_authenticated": True,
                 "tor_bootstrap_complete": True,
                 "tor_socks_auth_isolation_configured": True,
@@ -506,6 +509,7 @@ def test_native_onion_protocol_evidence_is_bounded_and_excludes_descriptor_conte
             "http://" + "a" * 56 + ".onion/": {
                 "service_request_id": "request-1",
                 "content_sha256": "a" * 64,
+                "descriptor_sha256": "c" * 64,
                 "descriptor_event_count": 2,
                 "route_verified": True,
                 "hs_desc_content_received": True,
