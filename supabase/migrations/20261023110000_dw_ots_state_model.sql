@@ -7,7 +7,7 @@ begin
     select 1 from pg_type t join pg_namespace n on n.oid=t.typnamespace
      where n.nspname='public' and t.typname='dw_ots_state'
   ) then
-    create type public.dw_ots_state as enum ('pending','confirmed','failed','expired','invalid');
+    execute 'create type public.dw_ots_state as enum (''pending'',''confirmed'',''failed'',''expired'',''invalid'')';
   end if;
 end
 $$;
