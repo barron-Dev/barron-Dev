@@ -316,7 +316,12 @@ class NativeOnionCrawler:
                             body_hash = hashlib.sha256(body).hexdigest()
                             self.seed_content_hash.setdefault(seed, body_hash)
                             if url == seed and collector is not None:
-                                self.seed_route_proofs[seed] = await asyncio.to_thread(collector.proof_for, seed, body_hash)
+                                self.seed_route_proofs[seed] = await asyncio.to_thread(
+                                    collector.wait_for_proof,
+                                    seed,
+                                    body_hash,
+                                    timeout_seconds=3.0,
+                                )
                             if url == seed:
                                 self.seed_probe_evidence[seed] = {
                                     "http_status": response.status_code,
