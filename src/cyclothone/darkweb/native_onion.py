@@ -208,6 +208,7 @@ class NativeOnionCrawler:
         timeout = httpx.Timeout(15.0, connect=20.0)
         limits = httpx.Limits(max_connections=5, max_keepalive_connections=2)
         collector: TorControlProofCollector | None = None
+        request_proxy = self.proxy
         try:
             if TorControlProofCollector.enabled_from_env() and not self.service_request_id:
                 # Global scheduler ticks have no customer request fence. Do not
@@ -221,6 +222,9 @@ class NativeOnionCrawler:
                     self.tor_control_authenticated = collector.controller is not None
                     self.tor_bootstrap_complete = collector.bootstrapped
                     self.tor_version = collector.tor_version
+                    # Per-request credentials force Tor's IsolateSOCKSAuth stream
+                    # isolation and let the ControlPort event be bound to this crawl.
+                    request_proxy = collector.proxy_for_request(self.proxy)
                 except Exception as exc:
                     # ControlPort failure is not proof of a clean source. Allow
                     # bounded crawling to finish, but route proof remains absent.
@@ -231,7 +235,7 @@ class NativeOnionCrawler:
                 # Without explicit ControlPort configuration, no protocol proof is minted.
                 self.tor_control_status = "disabled"
             async with httpx.AsyncClient(
-                proxy=self.proxy,
+                proxy=request_proxy,
                 timeout=timeout,
                 limits=limits,
                 follow_redirects=False,
