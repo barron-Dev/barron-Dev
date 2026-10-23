@@ -68,6 +68,8 @@ class DwClassLevelTrustControlsTests(unittest.TestCase):
         docs = (ROOT / "docs/dark-web/class-level-trust-controls.md").read_text(encoding="utf-8").lower()
         self.assertIn("dw_verified_findings", docs)
         self.assertIn("release blocker", docs)
+        for finding_class in ("DW-04", "DW-POLICY-01", "DW-OTS-01", "DW-BASE-01", "DW-FINDING-01"):
+            self.assertIn(finding_class.lower(), docs)
 
 
 if __name__ == "__main__":
