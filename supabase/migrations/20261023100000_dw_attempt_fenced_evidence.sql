@@ -2,6 +2,10 @@
 -- Branch-only. Review and validate in an isolated PostgreSQL/Supabase environment before any production migration.
 BEGIN;
 
+DROP FUNCTION IF EXISTS public.record_dw_source_attempt(
+  text,text,text,integer,text,jsonb,boolean,boolean,boolean,boolean,boolean
+);
+
 CREATE OR REPLACE FUNCTION public.record_dw_source_attempt(
   p_source_id text,
   p_status text,
@@ -13,7 +17,8 @@ CREATE OR REPLACE FUNCTION public.record_dw_source_attempt(
   p_hs_desc_content_received boolean,
   p_descriptor_fetched boolean,
   p_rendezvous_hop_verified boolean,
-  p_stream_circuit_bound boolean
+  p_stream_circuit_bound boolean,
+  p_auth_ok boolean
 ) RETURNS bigint
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -35,7 +40,7 @@ BEGIN
   INSERT INTO public.dw_source_attempts (
     source_id, status, content_sha256, inspected_items, error_code, metadata,
     route_verified, hs_desc_content_received, descriptor_fetched,
-    rendezvous_hop_verified, stream_circuit_bound
+    rendezvous_hop_verified, stream_circuit_bound, auth_ok
   )
   SELECT s.id, p_status, p_content_sha256, p_inspected_items,
          nullif(left(p_error_code, 100), ''),
@@ -44,7 +49,8 @@ BEGIN
          coalesce(p_hs_desc_content_received, false),
          coalesce(p_descriptor_fetched, false),
          coalesce(p_rendezvous_hop_verified, false),
-         coalesce(p_stream_circuit_bound, false)
+         coalesce(p_stream_circuit_bound, false),
+         coalesce(p_auth_ok, false)
     FROM public.dw_sources s
    WHERE s.id = p_source_id
   RETURNING id INTO v_id;
@@ -57,10 +63,10 @@ END;
 $function$;
 
 REVOKE ALL ON FUNCTION public.record_dw_source_attempt(
-  text,text,text,integer,text,jsonb,boolean,boolean,boolean,boolean,boolean
+  text,text,text,integer,text,jsonb,boolean,boolean,boolean,boolean,boolean,boolean
 ) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.record_dw_source_attempt(
-  text,text,text,integer,text,jsonb,boolean,boolean,boolean,boolean,boolean
+  text,text,text,integer,text,jsonb,boolean,boolean,boolean,boolean,boolean,boolean
 ) TO service_role;
 
 -- This wrapper locks the request row and validates the active attempt in the
