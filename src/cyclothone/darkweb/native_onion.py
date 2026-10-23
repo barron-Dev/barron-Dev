@@ -214,12 +214,19 @@ class NativeOnionCrawler:
                 # attach control events to an invented or empty request identity.
                 self.tor_control_status = "unavailable_missing_request_context"
             elif TorControlProofCollector.enabled_from_env():
-                collector = TorControlProofCollector.from_env(self.service_request_id)
-                await asyncio.to_thread(collector.start)
-                self.tor_control_status = "authenticated" if collector.controller is not None else "failed"
-                self.tor_control_authenticated = collector.controller is not None
-                self.tor_bootstrap_complete = collector.bootstrapped
-                self.tor_version = collector.tor_version
+                try:
+                    collector = TorControlProofCollector.from_env(self.service_request_id)
+                    await asyncio.to_thread(collector.start)
+                    self.tor_control_status = "authenticated" if collector.controller is not None else "failed"
+                    self.tor_control_authenticated = collector.controller is not None
+                    self.tor_bootstrap_complete = collector.bootstrapped
+                    self.tor_version = collector.tor_version
+                except Exception as exc:
+                    # ControlPort failure is not proof of a clean source. Allow
+                    # bounded crawling to finish, but route proof remains absent.
+                    collector = None
+                    self.tor_control_status = "unavailable"
+                    logger.warning("Tor control protocol unavailable error=%s", type(exc).__name__)
             else:
                 # Without explicit ControlPort configuration, no protocol proof is minted.
                 self.tor_control_status = "disabled"
