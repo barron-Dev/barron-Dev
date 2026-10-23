@@ -152,3 +152,57 @@ def test_temporal_candidates_deduplicate_stable_feed_entry_hash():
     other = {"entry_hash": "b" * 64, "victim_name": "Other"}
     result = _dedupe_temporal_candidates([older, latest, other])
     assert result == [latest, other]
+
+
+
+@pytest.mark.asyncio
+async def test_ransomwatch_retains_current_historical_and_future_metadata(monkeypatch):
+    import json
+
+    now = datetime.now(UTC)
+    posts = [
+        {
+            "post_title": "Current Example",
+            "post_url": "https://feed.example/current",
+            "group_name": "group-a",
+            "discovered": (now - timedelta(days=1)).isoformat(),
+        },
+        {
+            "post_title": "Historical Example",
+            "post_url": "https://feed.example/historical",
+            "group_name": "group-b",
+            "discovered": (now - timedelta(days=60)).isoformat(),
+        },
+        {
+            "post_title": "Future Example",
+            "post_url": "https://feed.example/future",
+            "group_name": "group-c",
+            "discovered": (now + timedelta(days=1)).isoformat(),
+        },
+    ]
+    body = json.dumps(posts).encode()
+
+    class Response:
+        content = body
+        def raise_for_status(self):
+            return None
+        def json(self):
+            return posts
+
+    class Client:
+        def __init__(self, *args, **kwargs):
+            pass
+        async def __aenter__(self):
+            return self
+        async def __aexit__(self, *args):
+            return False
+        async def get(self, url):
+            return Response()
+
+    monkeypatch.setattr("cyclothone.darkweb.pullers.httpx.AsyncClient", Client)
+    puller = RansomwatchPuller()
+    await puller.pull()
+    classes = {record["temporal_class"] for record in puller.temporal_records}
+    assert classes == {"current_feed", "historical_archive", "future_dated"}
+    assert all(len(record["record_key"]) == 64 for record in puller.temporal_records)
+    assert all(record["feed_content_sha256"] for record in puller.temporal_records)
