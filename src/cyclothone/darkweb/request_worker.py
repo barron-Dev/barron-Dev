@@ -469,10 +469,11 @@ class DarkWebRequestWorker:
                     }, []
                 if source_id == "pastebin_public" and getattr(monitor, "items_checked", 0) == 0:
                     return {
-                        "source": source_id, "state": "checked", "coverage": "partial",
-                        "reason": "feed_checked_no_documents_fetched",
+                        "source": source_id, "state": "unavailable", "coverage": "none",
+                        "reason": "feed_checked_no_documents_inspected",
                         "feed_entries": getattr(monitor, "feed_entries_count", 0),
                         "items_checked": 0,
+                        "items_inspected": 0,
                     }, []
                 channel_status = getattr(monitor, "channel_status", {})
                 failed_channels = [
@@ -485,6 +486,7 @@ class DarkWebRequestWorker:
                         return {
                             "source": source_id, "state": "failed",
                             "reason": "all_configured_channels_failed",
+                            "items_inspected": 0,
                             "channels": [{"channel": channel, "state": state} for channel, state in sorted(channel_status.items())],
                         }, []
                     return {
@@ -493,6 +495,8 @@ class DarkWebRequestWorker:
                         "coverage": "partial" if failed_channels else "all_configured_channels_checked",
                         "checked_channels": len(successful_channels),
                         "failed_channels": len(failed_channels),
+                        # Each successful public channel preview was fetched and inspected.
+                        "items_inspected": len(successful_channels),
                         "channels": [
                             {"channel": channel, "state": state}
                             for channel, state in sorted(channel_status.items())
@@ -533,12 +537,14 @@ class DarkWebRequestWorker:
                         "coverage": "all_returned_documents_fetched",
                         "feed_entries": getattr(monitor, "feed_entries_count", 0),
                         "items_checked": getattr(monitor, "items_checked", 0),
+                        "items_inspected": getattr(monitor, "items_checked", 0),
                     }, findings
                 if source_id == "bluesky_public":
                     return {
                         "source": source_id, "state": "checked",
                         "coverage": "public_search_results_inspected",
                         "posts_checked": getattr(monitor, "posts_checked", 0),
+                        "items_inspected": getattr(monitor, "posts_checked", 0),
                         "matches": len(findings),
                     }, findings
                 return {"source": source_id, "state": "checked"}, findings
@@ -638,6 +644,7 @@ class DarkWebRequestWorker:
                 int(source.get("posts_checked") or 0),
                 int(source.get("items_checked") or 0),
                 int(source.get("documents_checked") or 0),
+                int(source.get("items_inspected") or 0),
             )
             reason = str(source.get("reason") or "")
             error_code = reason if reason and all(
