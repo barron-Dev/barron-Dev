@@ -27,7 +27,7 @@ def test_tor_proof_requires_descriptor_content_and_matching_rendezvous_stream():
         (now, "RECEIVED", True),
         (now, "CONTENT", True),
     ]
-    collector._circuits = [(now, "17", "BUILT", "HS_CLIENT_REND")]
+    collector._circuits = [(now, "17", "BUILT", "HS_CLIENT_REND", collector._socks_username)]
     collector._streams = [(now, host, "SUCCEEDED", "17", collector._socks_username)]
 
     collector.complete_seed_response(seed, "A" * 64)
@@ -46,7 +46,7 @@ def test_tor_proof_rejects_stream_not_bound_to_built_rendezvous_circuit():
     host = "a" * 56 + ".onion"
     now = time.monotonic()
     collector._descriptor_events[host] = [(now, "RECEIVED", True), (now, "CONTENT", True)]
-    collector._circuits = [(now, "17", "BUILT", "GENERAL")]
+    collector._circuits = [(now, "17", "BUILT", "GENERAL", collector._socks_username)]
     collector._streams = [(now, host, "SUCCEEDED", "17", collector._socks_username)]
 
     collector.complete_seed_response(seed, "b" * 64)
@@ -137,7 +137,7 @@ def test_tor_route_proof_fails_when_socks_auth_isolation_is_not_configured():
         (now, "RECEIVED", True),
         (now, "CONTENT", True),
     ]
-    collector._circuits = [(now, "17", "BUILT", "HS_CLIENT_REND")]
+    collector._circuits = [(now, "17", "BUILT", "HS_CLIENT_REND", collector._socks_username)]
     collector._streams = [(now, host, "SUCCEEDED", "17", collector._socks_username)]
 
     collector.complete_seed_response(seed, "d" * 64)
@@ -154,7 +154,7 @@ def test_tor_route_proof_is_bound_to_each_request_and_response_digest():
         (now, "RECEIVED", True),
         (now, "CONTENT", True),
     ]
-    collector._circuits = [(now, "17", "BUILT", "HS_CLIENT_REND")]
+    collector._circuits = [(now, "17", "BUILT", "HS_CLIENT_REND", collector._socks_username)]
     collector._streams = [(now, host, "SUCCEEDED", "17", collector._socks_username)]
 
     collector.complete_seed_response(seed, "E" * 64)
@@ -171,7 +171,7 @@ def test_tor_proof_rejects_digest_not_bound_to_completed_response():
     host = "a" * 56 + ".onion"
     now = time.monotonic()
     collector._descriptor_events[host] = [(now, "RECEIVED", True), (now, "CONTENT", True)]
-    collector._circuits = [(now, "17", "BUILT", "HS_CLIENT_REND")]
+    collector._circuits = [(now, "17", "BUILT", "HS_CLIENT_REND", collector._socks_username)]
     collector._streams = [(now, host, "SUCCEEDED", "17", collector._socks_username)]
     collector.complete_seed_response(seed, "f" * 64)
 
