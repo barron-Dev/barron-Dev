@@ -94,8 +94,10 @@ BEGIN
    WHERE id = p_service_request_id
    FOR UPDATE;
 
-  IF NOT FOUND
-     OR v_request.service_key <> 'dark_web_monitoring'
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'dw_evidence_attempt_fence_rejected';
+  END IF;
+  IF v_request.service_key <> 'dark_web_monitoring'
      OR v_request.processing_state <> 'running'
      OR v_request.attempts <> p_expected_attempt
      OR v_request.locked_until IS NULL
