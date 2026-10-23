@@ -80,3 +80,15 @@ def test_tor_descriptor_events_without_onion_suffix_normalize_to_seed_host():
     collector, _ = _collector()
     address = "a" * 56
     assert collector._host_from_event(SimpleNamespace(address=address)) == address + ".onion"
+
+
+@pytest.mark.parametrize("status,expected", [
+    ("NOTICE BOOTSTRAP PROGRESS=100 TAG=done SUMMARY=Done", True),
+    ("NOTICE BOOTSTRAP PROGRESS=99 TAG=loading SUMMARY=Loading", False),
+    ("PROGRESS=1000", False),
+    ("", False),
+])
+def test_tor_bootstrap_requires_exact_completion_marker(status, expected):
+    from cyclothone.darkweb.tor_control import _bootstrap_complete
+
+    assert _bootstrap_complete(status) is expected
