@@ -62,7 +62,7 @@ begin
         where p.tablename = t.tablename
      );
   if unregistered is not null then
-    raise exception 'unregistered evidence tables; add explicit policy before applying: %', unregistered;
+    raise exception 'unregistered DW trust/evidence tables; add explicit policy before applying: %', unregistered;
   end if;
 
   -- A registered name must resolve to a real table. Fail closed on stale entries.
