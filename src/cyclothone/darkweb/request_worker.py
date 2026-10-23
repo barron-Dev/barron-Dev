@@ -606,6 +606,7 @@ class DarkWebRequestWorker:
                 continue
             meta = dict(finding.metadata or {})
             meta["customer_match"] = "exact"
+            meta["service_request_id"] = request_id
             tenant_hash = hashlib.sha256(f"{getattr(finding, 'source_id', '')}:{hashlib.sha256((str(finding.matched_value).strip().lower()).encode()).hexdigest()}:{watch_id}".encode()).hexdigest()
             trust_evidence = None
             try:
@@ -648,18 +649,33 @@ class DarkWebRequestWorker:
         # Re-read tenant-scoped findings for this watchlist and keep result evidence bounded.
         persisted = await supabase.select(
             "dw_findings",
-            "id,source_id,content_hash,matched_value,context,source_url,severity,first_seen,collected_at,watchlist_id,web_layer,access_mode",
+            "id,source_id,content_hash,matched_value,context,source_url,severity,first_seen,collected_at,watchlist_id,web_layer,access_mode,finding_class,source_metadata",
             tenant_id=tenant_id, watchlist_id=watch_id,
         )
+        # Keep archived Ransomwatch and legacy/unclassified rows out of current
+        # findings. A native-onion row is a current candidate only when this
+        # request persisted its durable evidence; no row is promoted to verified.
+        current_persisted = [
+            item for item in persisted
+            if str(item.get("source_id") or "").lower() != "ransomwatch"
+            and (
+                str(item.get("finding_class") or "") != "historical_archive"
+                or (
+                    str(item.get("source_id") or "") == "native_onion"
+                    and isinstance(item.get("source_metadata"), dict)
+                    and str(item["source_metadata"].get("service_request_id") or "") == request_id
+                    and isinstance(item["source_metadata"].get("durable_evidence"), dict)
+                )
+            )
+        ]
         # The watchlist may already have findings from the continuous scheduler.
-        # Include those durable rows in the explicit evidence collection as well;
-        # otherwise the result can list a finding without its corresponding evidence.
+        # Include only current-classified durable rows in the current evidence list.
         evidence_by_hash = {
             str(item.get("content_hash") or ""): item
             for item in evidence
             if item.get("content_hash")
         }
-        for item in persisted:
+        for item in current_persisted:
             content_hash = str(item.get("content_hash") or "")
             if not content_hash:
                 continue
@@ -676,7 +692,7 @@ class DarkWebRequestWorker:
             "id,title,summary,severity,status,finding_id,created_at,case_id",
             tenant_id=tenant_id,
         )
-        relevant_alerts = [a for a in alerts if str(a.get("finding_id")) in {str(f["id"]) for f in persisted}]
+        relevant_alerts = [a for a in alerts if str(a.get("finding_id")) in {str(f["id"]) for f in current_persisted}]
         case_id = None
         if relevant_alerts:
             # Reuse a case already linked to this request if a worker retry occurs.
@@ -718,9 +734,8 @@ class DarkWebRequestWorker:
         coverage = _coverage_state(sources)
         dark_sources = [x for x in sources if x.get("layer") == "dark"]
         surface_sources = [x for x in sources if x.get("layer") == "surface"]
-        dark_findings = [f for f in persisted if str(f.get("web_layer") or "").lower() == "dark"
-                         or str(f.get("source_id") or "") in {"native_onion", "ransomwatch"}]
-        surface_findings = [f for f in persisted if f not in dark_findings]
+        dark_findings = [f for f in current_persisted if str(f.get("source_id") or "") == "native_onion"]
+        surface_findings = [f for f in current_persisted if str(f.get("source_id") or "") != "native_onion"]
         native_status = next((x for x in dark_sources if x.get("source") == "native_onion"), None)
         result = {
             "service": "dark_web_monitoring", "target": watch_value, "target_type": target_type,
@@ -739,7 +754,7 @@ class DarkWebRequestWorker:
                 "unavailable_source_ids": [x.get("source") for x in unavailable_sources],
                 "layers": {"dark_web": dark_sources, "surface_web": surface_sources},
             },
-            "findings": persisted[:200],
+            "findings": current_persisted[:200],
             "historical_candidates": historical_candidates[:200],
             "historical_candidate_count": len(historical_candidates),
             "evidence": evidence[:200], "alerts": relevant_alerts[:200],
