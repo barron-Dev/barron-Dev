@@ -161,7 +161,14 @@ VALUES
   ('ransomwatch_feed', false, false, false, false, false, false, 3600),
   ('excluded', false, false, false, false, false, false, 0),
   ('unclassified', false, false, false, false, false, false, 0)
-ON CONFLICT (source_class) DO NOTHING;
+ON CONFLICT (source_class) DO UPDATE SET
+  requires_route_verified = EXCLUDED.requires_route_verified,
+  requires_hs_desc_content = EXCLUDED.requires_hs_desc_content,
+  requires_descriptor_fetch = EXCLUDED.requires_descriptor_fetch,
+  requires_rendezvous_hop = EXCLUDED.requires_rendezvous_hop,
+  requires_stream_circuit_binding = EXCLUDED.requires_stream_circuit_binding,
+  requires_auth = EXCLUDED.requires_auth,
+  max_age_seconds = EXCLUDED.max_age_seconds;
 
 ALTER TABLE public.dw_source_type_requirements ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON TABLE public.dw_source_type_requirements FROM PUBLIC, anon, authenticated, service_role;
