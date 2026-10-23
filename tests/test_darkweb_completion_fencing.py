@@ -512,3 +512,34 @@ def test_native_onion_protocol_evidence_is_bounded_and_excludes_descriptor_conte
     assert evidence["bootstrap_complete"] is True
     assert evidence["seed_proofs"][0]["proof"]["route_verified"] is True
     assert "descriptor" not in str(evidence).lower() or "descriptor_event_count" in str(evidence)
+
+
+def test_temporal_observation_rpc_response_must_bind_tenant_request_and_entry():
+    from cyclothone.darkweb.request_worker import _require_temporal_observation_confirmation
+
+    row = {
+        "observation_id": "observation-1",
+        "tenant_id": "tenant-1",
+        "watchlist_id": "watchlist-1",
+        "service_request_id": "request-1",
+        "entry_hash": "a" * 64,
+        "temporal_class": "historical_archive",
+    }
+    assert _require_temporal_observation_confirmation(
+        [row],
+        request_id="request-1",
+        tenant_id="tenant-1",
+        watchlist_id="watchlist-1",
+        entry_hash="a" * 64,
+        temporal_class="historical_archive",
+    ) == row
+
+    with pytest.raises(RuntimeError, match="ransomwatch_temporal_observation_unconfirmed"):
+        _require_temporal_observation_confirmation(
+            [{**row, "tenant_id": "tenant-2"}],
+            request_id="request-1",
+            tenant_id="tenant-1",
+            watchlist_id="watchlist-1",
+            entry_hash="a" * 64,
+            temporal_class="historical_archive",
+        )
