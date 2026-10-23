@@ -374,6 +374,12 @@ def test_native_onion_seed_status_requires_request_and_digest_binding():
     fields = {
         "service_request_id": "request-1",
         "content_sha256": "a" * 64,
+        "descriptor_sha256": "c" * 64,
+        "tor_control_authenticated": True,
+        "tor_bootstrap_complete": True,
+        "tor_socks_auth_isolation_configured": True,
+        "hsfetch_accepted": True,
+        "socks_auth_bound": True,
         "route_verified": True,
         "hs_desc_content_received": True,
         "descriptor_fetched": True,
