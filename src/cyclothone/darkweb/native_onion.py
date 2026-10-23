@@ -183,6 +183,10 @@ class NativeOnionCrawler:
         self.discovered_from: dict[str, str] = dict(discovered_from or {})
         self.discovered_seeds: list[dict[str, str]] = []
         self.seed_content_hash: dict[str, str] = {}
+        # Filled only by a future Tor-control collector that can bind a circuit,
+        # hidden-service descriptor events, and this response digest per seed.
+        # HTTPX/SOCKS reachability alone never populates this proof map.
+        self.seed_route_proofs: dict[str, dict] = {}
         self.seed_probe_evidence: dict[str, dict] = {}
         self.pages_checked = 0
         self.pages_failed = 0
