@@ -39,6 +39,8 @@ class TorControlProofCollector:
         self.request_id = str(request_id)
         self.host = host
         self.port = int(port)
+        if not 1 <= self.port <= 65535:
+            raise ValueError("tor_control_port_invalid")
         self.password = password
         self.cookie_path = cookie_path
         self.controller = None
@@ -81,6 +83,8 @@ class TorControlProofCollector:
         parsed = urlsplit(str(proxy_url or ""))
         if parsed.scheme not in {"socks5", "socks5h"} or not parsed.hostname:
             raise RuntimeError("tor_control_socks_proxy_invalid")
+        if not _private_control_host(parsed.hostname):
+            raise RuntimeError("tor_control_socks_proxy_must_be_private")
         if parsed.username or parsed.password:
             raise RuntimeError("tor_control_socks_proxy_must_not_contain_static_credentials")
         host = parsed.hostname
