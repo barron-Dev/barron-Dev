@@ -274,3 +274,44 @@ def test_native_onion_content_proof_requires_real_digest_and_inspected_page():
     monitor.pages_checked = 1
     assert _native_onion_content_proof_missing(monitor) == []
     assert _native_onion_content_sha256(monitor) == "a" * 64
+
+
+def test_native_onion_http_content_without_tor_protocol_proof_is_unavailable():
+    from types import SimpleNamespace
+    from cyclothone.darkweb.request_worker import _native_onion_unavailability
+
+    monitor = SimpleNamespace(
+        seed_content_hash={"seed": "a" * 64},
+        pages_checked=1,
+    )
+    reason, route_missing, content_missing = _native_onion_unavailability(monitor)
+    assert reason == "tor_route_proof_unavailable"
+    assert len(route_missing) == 5
+    assert content_missing == []
+
+
+def test_native_onion_route_proof_without_inspected_content_is_unavailable():
+    from types import SimpleNamespace
+    from cyclothone.darkweb.request_worker import _native_onion_unavailability
+
+    monitor = SimpleNamespace(
+        route_verified=True,
+        hs_desc_content_received=True,
+        descriptor_fetched=True,
+        rendezvous_hop_verified=True,
+        stream_circuit_bound=True,
+        seed_content_hash={},
+        pages_checked=0,
+    )
+    reason, route_missing, content_missing = _native_onion_unavailability(monitor)
+    assert reason == "onion_content_proof_unavailable"
+    assert route_missing == []
+    assert content_missing == ["content_sha256", "inspected_items"]
+
+
+def test_inspected_item_ledger_count_uses_only_actual_content_counts():
+    from cyclothone.darkweb.request_worker import _source_inspected_items
+
+    assert _source_inspected_items({"items_inspected": 4}) == 4
+    assert _source_inspected_items({"pages_checked": 3, "posts_checked": 8}) == 8
+    assert _source_inspected_items({"seed_count": 20, "matches": 2}) == 0
