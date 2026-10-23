@@ -565,3 +565,24 @@ def test_ransomwatch_source_is_current_feed_intelligence_not_historical_only():
     assert source.availability == "implemented"
     assert source.layer == "breach_intel"
     assert source.access_mode == "public_feed"
+
+
+def test_tor_hs_desc_content_event_hashes_descriptor_bytes_without_retaining_body():
+    import hashlib
+    from types import SimpleNamespace
+    from cyclothone.darkweb.tor_control import TorControlProofCollector
+
+    host = "a" * 56 + ".onion"
+    body = b"descriptor bytes used only to compute a digest"
+
+    class Descriptor:
+        def get_bytes(self):
+            return body
+
+    collector = TorControlProofCollector("request-1", host="127.0.0.1", port=9051)
+    collector._on_hs_desc_content(SimpleNamespace(address=host[:-6], descriptor=Descriptor()))
+
+    events = collector._descriptor_events[host]
+    assert events[0][1:3] == ("CONTENT", True)
+    assert events[0][3] == hashlib.sha256(body).hexdigest()
+    assert body.decode() not in str(events)
