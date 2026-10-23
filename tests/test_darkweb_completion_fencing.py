@@ -224,6 +224,7 @@ def test_native_onion_requires_per_seed_tor_protocol_proof():
     from cyclothone.darkweb.request_worker import _native_onion_route_proof_missing
 
     monitor = SimpleNamespace(
+        service_request_id="request-1",
         seed_content_hash={"seed-a": "a" * 64},
         seed_route_proofs={},
     )
@@ -257,6 +258,7 @@ def test_global_tor_flags_cannot_substitute_for_per_seed_proof():
         descriptor_fetched=True,
         rendezvous_hop_verified=True,
         stream_circuit_bound=True,
+        service_request_id="request-1",
         seed_content_hash={"seed-a": "a" * 64},
         seed_route_proofs={},
     )
@@ -267,9 +269,12 @@ def test_truthy_non_boolean_tor_proof_is_not_accepted():
     from cyclothone.darkweb.request_worker import _native_onion_route_proof_missing
 
     monitor = SimpleNamespace(
+        service_request_id="request-1",
         seed_content_hash={"seed-a": "a" * 64},
         seed_route_proofs={
             "seed-a": {
+                "service_request_id": "request-1",
+                "content_sha256": "a" * 64,
                 "route_verified": 1,
                 "hs_desc_content_received": "true",
                 "descriptor_fetched": True,
@@ -320,9 +325,12 @@ def test_native_onion_route_proof_without_inspected_content_is_unavailable():
     from cyclothone.darkweb.request_worker import _native_onion_unavailability
 
     monitor = SimpleNamespace(
+        service_request_id="request-1",
         seed_content_hash={"seed-a": "a" * 64},
         seed_route_proofs={
             "seed-a": {
+                "service_request_id": "request-1",
+                "content_sha256": "a" * 64,
                 "route_verified": True,
                 "hs_desc_content_received": True,
                 "descriptor_fetched": True,
