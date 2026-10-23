@@ -48,11 +48,6 @@ begin
       add constraint dw_evidence_ots_confirmed_has_block
       check (state <> 'confirmed' or bitcoin_block_height is not null);
   end if;
-  if not exists (select 1 from pg_constraint where conname='dw_evidence_ots_receipt_unique_anchor') then
-    alter table public.dw_evidence_ots_receipts
-      add constraint dw_evidence_ots_receipt_unique_anchor
-      unique (evidence_seq, anchor_id);
-  end if;
 end
 $$;
 
