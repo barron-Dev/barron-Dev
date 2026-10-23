@@ -106,6 +106,27 @@ def _require_recorded_finding(response: object) -> dict:
     raise RuntimeError("finding_persistence_unconfirmed")
 
 
+def _require_temporal_observation_confirmation(
+    response: object, *, request_id: str, tenant_id: str, watchlist_id: str,
+    entry_hash: str, temporal_class: str,
+) -> dict:
+    """Reject a temporal RPC result not bound to this tenant/request/feed entry."""
+    rows = response if isinstance(response, list) else [response]
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        if (
+            str(row.get("service_request_id") or "") == str(request_id)
+            and str(row.get("tenant_id") or "") == str(tenant_id)
+            and str(row.get("watchlist_id") or "") == str(watchlist_id)
+            and str(row.get("entry_hash") or "") == str(entry_hash)
+            and str(row.get("temporal_class") or "") == str(temporal_class)
+            and row.get("observation_id")
+        ):
+            return row
+    raise RuntimeError("ransomwatch_temporal_observation_unconfirmed")
+
+
 def _is_current_finding(item: dict, request_id: str) -> bool:
     """Keep historical archives out of current results without promoting legacy rows."""
     source_id = str(item.get("source_id") or "").lower()
@@ -365,6 +386,8 @@ def _partition_ransomwatch_findings(findings: list, watch_kind: str, watch_value
         candidate = {
             "source": "ransomwatch",
             "source_url": finding.source_url,
+            "match_kind": getattr(finding, "kind", ""),
+            "matched_value": getattr(finding, "matched_value", ""),
             "published": metadata.get("published"),
             "feed_observed_at": metadata.get("feed_observed_at"),
             "victim_name": metadata.get("victim_name") or finding.matched_value,
@@ -906,6 +929,8 @@ class DarkWebRequestWorker:
                 current_feed_candidates.append({
                     "source": "ransomwatch",
                     "source_url": finding.source_url,
+                    "match_kind": finding.kind,
+                    "matched_value": finding.matched_value,
                     "published": metadata.get("published"),
                     "feed_observed_at": metadata.get("feed_observed_at"),
                     "feed_content_sha256": metadata.get("feed_content_sha256"),
@@ -930,43 +955,32 @@ class DarkWebRequestWorker:
             entry_hash = str(candidate.get("entry_hash") or "")
             if len(entry_hash) != 64:
                 raise RuntimeError("ransomwatch_temporal_entry_hash_missing")
-            observation_values = {
-                "service_request_id": request_id,
-                "temporal_class": candidate["temporal_class"],
-                "published_at": candidate.get("published"),
-                "feed_observed_at": candidate.get("feed_observed_at"),
-                "feed_content_sha256": candidate.get("feed_content_sha256"),
-                "victim_name": candidate.get("victim_name"),
-                "group_name": candidate.get("group"),
-                "source_url": candidate.get("source_url"),
-                "label": candidate.get("label"),
-                "last_seen_at": datetime.now(UTC).isoformat(),
-            }
-            existing_observation = await supabase.select_one(
-                "dw_feed_temporal_observations",
-                "id,observation_count",
+            observed = await supabase.rpc("record_dw_feed_temporal_observation", {
+                "p_service_request_id": request_id,
+                "p_expected_attempt": int(request["attempts"]),
+                "p_tenant_id": tenant_id,
+                "p_watchlist_id": watch_id,
+                "p_source_id": "ransomwatch",
+                "p_entry_hash": entry_hash,
+                "p_temporal_class": str(candidate["temporal_class"]),
+                "p_published_at": candidate.get("published"),
+                "p_feed_observed_at": candidate.get("feed_observed_at"),
+                "p_feed_content_sha256": candidate.get("feed_content_sha256"),
+                "p_victim_name": str(candidate.get("victim_name") or "")[:512],
+                "p_group_name": str(candidate.get("group") or "unknown")[:256],
+                "p_source_url": candidate.get("source_url"),
+                "p_label": str(candidate.get("label") or "Ransomwatch temporal record")[:256],
+                "p_match_kind": str(candidate.get("match_kind") or ""),
+                "p_matched_value": str(candidate.get("matched_value") or ""),
+            })
+            _require_temporal_observation_confirmation(
+                observed,
+                request_id=request_id,
                 tenant_id=tenant_id,
                 watchlist_id=watch_id,
-                source_id="ransomwatch",
                 entry_hash=entry_hash,
+                temporal_class=str(candidate["temporal_class"]),
             )
-            if existing_observation:
-                observation_values["observation_count"] = int(existing_observation.get("observation_count") or 1) + 1
-                await supabase.update(
-                    "dw_feed_temporal_observations",
-                    observation_values,
-                    id=str(existing_observation["id"]),
-                    tenant_id=tenant_id,
-                )
-                continue
-            await supabase.insert_one("dw_feed_temporal_observations", {
-                "tenant_id": tenant_id,
-                "watchlist_id": watch_id,
-                "source_id": "ransomwatch",
-                "entry_hash": entry_hash,
-                "observation_count": 1,
-                **observation_values,
-            })
         historical_candidates = _dedupe_temporal_candidates(
             feed_historical_candidates + historical_candidates
         )[:1000]
