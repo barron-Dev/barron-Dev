@@ -1,0 +1,30 @@
+name: DW caller-attestation lint (warning-only)
+on:
+  pull_request:
+    paths:
+      - "supabase/migrations/**"
+      - "scripts/check_dw_caller_attestation.py"
+      - ".github/workflows/dw-caller-attestation-lint.yml"
+  push:
+    branches: [main]
+    paths:
+      - "supabase/migrations/**"
+      - "scripts/check_dw_caller_attestation.py"
+      - ".github/workflows/dw-caller-attestation-lint.yml"
+permissions:
+  contents: read
+jobs:
+  caller-attestation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Scan migration function signatures
+        id: lint
+        continue-on-error: true
+        run: python scripts/check_dw_caller_attestation.py
+      - name: Report warning-only result
+        if: steps.lint.outcome == 'failure'
+        run: echo "::warning::Caller-attestation-shaped boolean parameters detected. This check is warning-only until current instances are removed."
