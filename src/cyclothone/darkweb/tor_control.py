@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import ipaddress
 import logging
 import os
@@ -53,7 +54,7 @@ class TorControlProofCollector:
         # The digest is registered after bounded body read and must match proof_for.
         self._response_windows: dict[str, tuple[float, float, str]] = {}
         self._hsfetch_accepted: set[str] = set()
-        self._descriptor_events: dict[str, list[tuple[float, str, bool]]] = {}
+        self._descriptor_events: dict[str, list[tuple[float, str, bool, str | None]]] = {}
         self._streams: list[tuple[float, str, str, str, str]] = []
         self._socks_username = "ct_" + secrets.token_urlsafe(18)
         self._socks_password = secrets.token_urlsafe(32)
@@ -168,7 +169,7 @@ class TorControlProofCollector:
         descriptor_id = str(getattr(event, "descriptor_id", "") or "")
         with self._lock:
             self._descriptor_events.setdefault(host, []).append(
-                (time.monotonic(), action, bool(descriptor_id))
+                (time.monotonic(), action, bool(descriptor_id), None)
             )
 
     def _on_hs_desc_content(self, event: object) -> None:
@@ -178,9 +179,21 @@ class TorControlProofCollector:
         # Stem parses HS_DESC_CONTENT into a descriptor object (not a raw
         # string). Keep only its presence bit; never serialize or persist it.
         descriptor = getattr(event, "descriptor", None)
+        descriptor_sha256 = None
+        if descriptor is not None:
+            try:
+                raw_descriptor = descriptor.get_bytes()
+                if isinstance(raw_descriptor, str):
+                    raw_descriptor = raw_descriptor.encode("utf-8")
+                if isinstance(raw_descriptor, bytes) and raw_descriptor:
+                    descriptor_sha256 = hashlib.sha256(raw_descriptor).hexdigest()
+            except Exception:
+                # Never convert an opaque Stem descriptor object into positive
+                # content proof. The descriptor body itself is never persisted.
+                descriptor_sha256 = None
         with self._lock:
             self._descriptor_events.setdefault(host, []).append(
-                (time.monotonic(), "CONTENT", descriptor is not None)
+                (time.monotonic(), "CONTENT", descriptor_sha256 is not None, descriptor_sha256)
             )
 
     def _on_stream(self, event: object) -> None:
@@ -298,11 +311,14 @@ class TorControlProofCollector:
         with self._lock:
             hsfetch_accepted = host in self._hsfetch_accepted
         descriptor_fetched = hsfetch_accepted and any(
-            action == "RECEIVED" and has_id for _, action, has_id in descriptor_events
+            action == "RECEIVED" and has_id for _, action, has_id, _ in descriptor_events
         )
-        content_received = hsfetch_accepted and any(
-            action == "CONTENT" and has_content for _, action, has_content in descriptor_events
-        )
+        descriptor_sha256 = next((
+            digest for _, action, has_content, digest in reversed(descriptor_events)
+            if action == "CONTENT" and has_content and isinstance(digest, str)
+            and re.fullmatch(r"[0-9a-f]{64}", digest)
+        ), None)
+        content_received = hsfetch_accepted and descriptor_sha256 is not None
         built_circuit_ids = {circ_id for _, circ_id, _, _ in circuits}
         bound_stream = next((stream for stream in streams if stream[3] in built_circuit_ids), None)
         rendezvous_verified = bound_stream is not None
@@ -311,6 +327,7 @@ class TorControlProofCollector:
             and self.controller is not None and self.bootstrapped and hsfetch_accepted
             and self.socks_auth_isolation_configured
             and descriptor_fetched and content_received and rendezvous_verified
+            and descriptor_sha256 is not None
         )
         return {
             "service_request_id": self.request_id,
@@ -324,6 +341,7 @@ class TorControlProofCollector:
             "route_verified": route_verified,
             "hs_desc_content_received": content_received,
             "descriptor_fetched": descriptor_fetched,
+            "descriptor_sha256": descriptor_sha256,
             "rendezvous_hop_verified": rendezvous_verified,
             "stream_circuit_bound": bound_stream is not None,
             "socks_auth_bound": bound_stream is not None,
