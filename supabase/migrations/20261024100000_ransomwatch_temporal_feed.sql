@@ -5,7 +5,7 @@ BEGIN;
 
 UPDATE public.dw_sources
    SET enabled = true,
-       web_layer = 'surface',
+       web_layer = 'breach_intel',
        access_mode = 'public_feed',
        poll_interval_seconds = 1800,
        last_status = 'awaiting_runtime_poll'
@@ -121,7 +121,7 @@ BEGIN
 
     v_finding_class := CASE
       WHEN p_source_id = 'ransomwatch'
-       AND coalesce(p_metadata->>'temporal_class','') = 'current_feed' THEN 'surface_public'
+       AND coalesce(p_metadata->>'temporal_class','') = 'current_feed' THEN 'current_breach_intel'
       WHEN p_source_id IN ('telegram_public','pastebin_public','bluesky_public','github_code','tiktok_commercial') THEN 'surface_public'
       WHEN p_source_id = 'ransomwatch' THEN 'historical_archive'
       ELSE 'historical_archive'
