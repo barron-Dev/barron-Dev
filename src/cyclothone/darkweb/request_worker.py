@@ -353,6 +353,13 @@ def _partition_ransomwatch_findings(findings: list, watch_kind: str, watch_value
             "feed_observed_at": metadata.get("feed_observed_at"),
             "victim_name": metadata.get("victim_name") or finding.matched_value,
             "group": metadata.get("group"),
+            "feed_content_sha256": metadata.get("feed_content_sha256"),
+            "entry_hash": hashlib.sha256("\x1f".join((
+                str(metadata.get("victim_name") or finding.matched_value or "").strip().casefold(),
+                str(metadata.get("group") or "").strip().casefold(),
+                str(metadata.get("published") or ""),
+                str(finding.source_url or ""),
+            )).encode("utf-8")).hexdigest(),
             "temporal_class": temporal_class,
             "label": (
                 "future-dated feed entry — quarantined, not an alert"
@@ -849,6 +856,39 @@ class DarkWebRequestWorker:
             future_dated_candidates.extend(future_batch)
             normalized_provider_results.append((status, current_batch))
         provider_results = normalized_provider_results
+
+        # Keep newly observed historical/future matches durable without creating
+        # live exposure alerts. The table is tenant/watchlist/request scoped and
+        # unique by stable feed-entry hash, so worker retries remain idempotent.
+        for candidate in feed_historical_candidates + future_dated_candidates:
+            entry_hash = str(candidate.get("entry_hash") or "")
+            if len(entry_hash) != 64:
+                raise RuntimeError("ransomwatch_temporal_entry_hash_missing")
+            existing_observation = await supabase.select_one(
+                "dw_feed_temporal_observations",
+                "id",
+                tenant_id=tenant_id,
+                watchlist_id=watch_id,
+                source_id="ransomwatch",
+                entry_hash=entry_hash,
+            )
+            if existing_observation:
+                continue
+            await supabase.insert_one("dw_feed_temporal_observations", {
+                "tenant_id": tenant_id,
+                "watchlist_id": watch_id,
+                "service_request_id": request_id,
+                "source_id": "ransomwatch",
+                "entry_hash": entry_hash,
+                "temporal_class": candidate["temporal_class"],
+                "published_at": candidate.get("published"),
+                "feed_observed_at": candidate.get("feed_observed_at"),
+                "feed_content_sha256": candidate.get("feed_content_sha256"),
+                "victim_name": candidate.get("victim_name"),
+                "group_name": candidate.get("group"),
+                "source_url": candidate.get("source_url"),
+                "label": candidate.get("label"),
+            })
         historical_candidates = (feed_historical_candidates + historical_candidates)[:1000]
 
         sources = []
