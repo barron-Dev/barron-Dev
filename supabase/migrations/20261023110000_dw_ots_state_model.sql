@@ -80,7 +80,18 @@ begin
     if new.state <> 'pending' or new.verification_status <> 'pending' then
       raise exception 'new OTS receipts must start pending' using errcode='22023';
     end if;
+    if new.demoted_at is not null
+       or new.demoted_from_state is not null
+       or new.demotion_reason is not null then
+      raise exception 'demotion provenance is migration-owned' using errcode='55000';
+    end if;
     return new;
+  end if;
+
+  if new.demoted_at is distinct from old.demoted_at
+     or new.demoted_from_state is distinct from old.demoted_from_state
+     or new.demotion_reason is distinct from old.demotion_reason then
+    raise exception 'OTS demotion provenance is immutable' using errcode='55000';
   end if;
 
   if new.evidence_seq is distinct from old.evidence_seq
