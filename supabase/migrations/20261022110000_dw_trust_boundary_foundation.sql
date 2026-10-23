@@ -30,6 +30,11 @@ ALTER TABLE public.dw_findings
 ALTER TABLE public.dw_sources
   ADD COLUMN IF NOT EXISTS source_class text;
 
+-- Recreate the source-class constraint so a partially provisioned database can
+-- accept the feed class before the idempotent backfill runs.
+ALTER TABLE public.dw_sources
+  DROP CONSTRAINT IF EXISTS dw_sources_source_class_check;
+
 UPDATE public.dw_sources
    SET source_class = CASE id
      WHEN 'native_onion' THEN 'native_onion'
@@ -128,6 +133,18 @@ CREATE TABLE IF NOT EXISTS public.dw_source_type_requirements (
   requires_auth boolean NOT NULL,
   max_age_seconds integer NOT NULL CHECK (max_age_seconds >= 0)
 );
+
+ALTER TABLE public.dw_source_type_requirements
+  DROP CONSTRAINT IF EXISTS dw_source_type_requirements_source_class_check;
+ALTER TABLE public.dw_source_type_requirements
+  ADD CONSTRAINT dw_source_type_requirements_source_class_check
+  CHECK (source_class IN (
+    'native_onion','telegram_public','pastebin_public','bluesky_public',
+    'github_code_search','tiktok_commercial','ransomwatch_feed','historical_archive',
+    'excluded','unclassified'
+  )) NOT VALID;
+ALTER TABLE public.dw_source_type_requirements
+  VALIDATE CONSTRAINT dw_source_type_requirements_source_class_check;
 
 INSERT INTO public.dw_source_type_requirements
   (source_class, requires_route_verified, requires_hs_desc_content, requires_descriptor_fetch,
