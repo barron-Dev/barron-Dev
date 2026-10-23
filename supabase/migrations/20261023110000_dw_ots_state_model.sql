@@ -52,7 +52,7 @@ begin
   if not exists (select 1 from pg_constraint where conname='dw_evidence_ots_confirmed_has_block') then
     alter table public.dw_evidence_ots_receipts
       add constraint dw_evidence_ots_confirmed_has_block
-      check (state <> 'confirmed' or bitcoin_block_height is not null);
+      check (state <> 'confirmed' or (bitcoin_block_height is not null and verified_at is not null));
   end if;
 end
 $$;
@@ -88,8 +88,8 @@ begin
     raise exception 'invalid OTS state transition: % -> %', old.state, new.state using errcode='22023';
   end if;
 
-  if new.state = 'confirmed' and new.bitcoin_block_height is null then
-    raise exception 'confirmed OTS receipt requires a Bitcoin block height' using errcode='23514';
+  if new.state = 'confirmed' and (new.bitcoin_block_height is null or new.verified_at is null) then
+    raise exception 'confirmed OTS receipt requires a Bitcoin block height and verifier timestamp' using errcode='23514';
   end if;
   if new.state = 'failed' and new.failure_reason is null then
     raise exception 'failed OTS receipt requires a failure reason' using errcode='23514';
