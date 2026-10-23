@@ -1191,7 +1191,22 @@ class DarkWebRequestWorker:
                     "p_source_url": finding.source_url, "p_metadata": meta,
                     "p_tenant_id": tenant_id, "p_watchlist_id": watch_id,
                 })
-                _require_recorded_finding(recorded)
+                recorded_row = _require_recorded_finding(recorded)
+                if (
+                    finding.source_id == "ransomwatch"
+                    and meta.get("temporal_class") == "current_feed"
+                ):
+                    # The RPC's legacy default is historical_archive. Correct the
+                    # explicit temporal class only after the fresh feed match and
+                    # alert have both been durably confirmed.
+                    await supabase.update(
+                        "dw_findings",
+                        {"finding_class": "current_breach_intel", "web_layer": "breach_intel"},
+                        id=str(recorded_row["finding_id"]),
+                        tenant_id=tenant_id,
+                        watchlist_id=watch_id,
+                        source_id="ransomwatch",
+                    )
                 evidence.append({
                     "source": finding.source_id,
                     "collected_at": datetime.now(UTC).isoformat(),
