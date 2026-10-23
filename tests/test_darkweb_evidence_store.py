@@ -112,8 +112,9 @@ from cyclothone.darkweb.evidence_store import record_target_matched_onion_eviden
 
 
 class _ServiceClient:
-    def __init__(self, storage):
+    def __init__(self, storage, evidence_tenant="tenant-1"):
         self.storage = storage
+        self.evidence_tenant = evidence_tenant
         self.rpc_calls = []
 
     async def select_one(self, table, columns, **filters):
@@ -150,7 +151,14 @@ class _ServiceClient:
         if function == "trust_register_subject":
             return {"id": "subject-1", "tenant_id": "tenant-1"}
         if function == "trust_record_evidence":
-            return {"id": "evidence-1", "content_hash": params["p_content_hash"]}
+            return {
+                "id": "evidence-1",
+                "tenant_id": self.evidence_tenant,
+                "subject_id": params["p_subject_id"],
+                "content_uri": params["p_content_uri"],
+                "content_hash": params["p_content_hash"],
+                "source_id": params["p_source_id"],
+            }
         raise AssertionError(function)
 
     async def _ensure(self):
@@ -261,6 +269,25 @@ async def test_request_watchlist_target_mismatch_fails_before_storage_or_evidenc
         )
     assert storage.bucket.stored is None
     assert service.rpc_calls == []
+
+
+@pytest.mark.asyncio
+async def test_trust_evidence_rpc_return_for_wrong_tenant_fails_closed():
+    service = _ServiceClient(_Storage(), evidence_tenant="another-tenant")
+    host = "e" * 56 + ".onion"
+    with pytest.raises(RuntimeError, match="dw_evidence_rpc_returned_unbound_record"):
+        await record_target_matched_onion_evidence(
+            service,
+            tenant_id="tenant-1",
+            watchlist_id="watchlist-1",
+            service_request_id="request-1",
+            source_url=f"http://{host}/leak",
+            sanitized_page_text="Public page mentions owned-example.com in the body.",
+            observed_at="2026-10-22T00:00:00+00:00",
+        )
+    assert [call[0] for call in service.rpc_calls] == [
+        "trust_register_subject", "trust_record_evidence"
+    ]
 
 
 @pytest.mark.asyncio
