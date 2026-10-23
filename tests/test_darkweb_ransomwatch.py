@@ -128,3 +128,27 @@ async def test_ransomwatch_pull_emits_durable_temporal_record(monkeypatch):
     assert record["feed_content_sha256"] == __import__("hashlib").sha256(body).hexdigest()
     assert record["victim_name"] == "example corporation"
     assert findings
+
+
+
+def test_ransomwatch_tolerates_only_bounded_future_clock_skew():
+    observed = datetime(2026, 10, 23, 8, 0, tzinfo=UTC)
+    near_future, _ = RansomwatchPuller._classify_published(
+        (observed + timedelta(minutes=2)).isoformat(), observed
+    )
+    beyond_tolerance, _ = RansomwatchPuller._classify_published(
+        (observed + timedelta(minutes=6)).isoformat(), observed
+    )
+    assert near_future == "current_feed"
+    assert beyond_tolerance == "future_dated"
+
+
+def test_temporal_candidates_deduplicate_stable_feed_entry_hash():
+    from cyclothone.darkweb.request_worker import _dedupe_temporal_candidates
+
+    key = "a" * 64
+    older = {"entry_hash": key, "victim_name": "Example", "observation_count": 1}
+    latest = {"entry_hash": key, "victim_name": "Example", "observation_count": 2}
+    other = {"entry_hash": "b" * 64, "victim_name": "Other"}
+    result = _dedupe_temporal_candidates([older, latest, other])
+    assert result == [latest, other]
