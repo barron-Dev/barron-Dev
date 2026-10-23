@@ -140,6 +140,28 @@ def _native_onion_route_proof_missing(monitor: object) -> list[str]:
     ]
 
 
+def _native_onion_content_sha256(monitor: object) -> str | None:
+    """Return a real response digest only when the collector recorded one."""
+    for digest in getattr(monitor, "seed_content_hash", {}).values():
+        if (
+            isinstance(digest, str)
+            and len(digest) == 64
+            and all(char in "0123456789abcdefABCDEF" for char in digest)
+        ):
+            return digest.lower()
+    return None
+
+
+def _native_onion_content_proof_missing(monitor: object) -> list[str]:
+    """Require an actual response digest and at least one inspected page."""
+    missing = []
+    if _native_onion_content_sha256(monitor) is None:
+        missing.append("content_sha256")
+    if int(getattr(monitor, "pages_checked", 0) or 0) <= 0:
+        missing.append("inspected_items")
+    return missing
+
+
 def _finding_matches_target(finding: object, watch_kind: str, watch_value: str) -> bool:
     """Match a provider finding or persisted row without fuzzy guesses."""
     if isinstance(finding, dict):
@@ -405,19 +427,8 @@ class DarkWebRequestWorker:
                         monitor.seed_state_persistence = "unavailable"
                         logger.warning("onion seed registry persistence unavailable request_id=%s", request_id, exc_info=True)
                     missing_route_proof = _native_onion_route_proof_missing(monitor)
-                    seed_digests = [
-                        str(digest).lower()
-                        for digest in getattr(monitor, "seed_content_hash", {}).values()
-                        if isinstance(digest, str)
-                        and len(digest) == 64
-                        and all(char in "0123456789abcdefABCDEF" for char in digest)
-                    ]
+                    missing_content_proof = _native_onion_content_proof_missing(monitor)
                     inspected_pages = int(getattr(monitor, "pages_checked", 0) or 0)
-                    missing_content_proof = []
-                    if not seed_digests:
-                        missing_content_proof.append("content_sha256")
-                    if inspected_pages <= 0:
-                        missing_content_proof.append("inspected_items")
                     if missing_route_proof or missing_content_proof:
                         # HTTP reachability is not proof that this response used
                         # a verified Tor circuit to a fetched v3 hidden service.
@@ -495,11 +506,7 @@ class DarkWebRequestWorker:
                         "pages_failed": pages_failed,
                         "seed_state_persistence": getattr(monitor, "seed_state_persistence", "not_attempted"),
                         "matches": getattr(monitor, "matches", 0),
-                        "content_sha256": next((
-                            str(digest).lower() for digest in getattr(monitor, "seed_content_hash", {}).values()
-                            if isinstance(digest, str) and len(digest) == 64
-                            and all(char in "0123456789abcdefABCDEF" for char in digest)
-                        ), None),
+                        "content_sha256": _native_onion_content_sha256(monitor),
                         **{field: getattr(monitor, field, False) is True for field in _REQUIRED_ONION_ROUTE_PROOFS},
                     }, findings
                 if source_id == "pastebin_public":
