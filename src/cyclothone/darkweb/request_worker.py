@@ -667,11 +667,10 @@ class DarkWebRequestWorker:
                     status["pages_failed"] = getattr(monitor, "pages_failed", 0)
                 return status, []
 
-        # The upstream Ransomwatch corpus is archived. Keep it out of live
-        # coverage and current alerts until a maintained source is verified.
+        # Ransomwatch is a live-polled public aggregator feed with three
+        # separate temporal classes. It is not direct proof of onion-site access.
         ransom_reason = (
-            "historical_only_archived_feed"
-            if target_type in {"domain", "url", "brand"}
+            None if target_type in {"domain", "url", "brand", "username", "other"}
             else "unsupported_target_type"
         )
         public_target_supported = target_type in {"domain", "url", "email"}
