@@ -42,6 +42,7 @@ def test_ransomwatch_current_hits_are_separated_from_history_and_future():
             "https://feed.example/post",
             {
                 "temporal_class": temporal_class,
+                "feed_freshness_verified": temporal_class == "current_feed",
                 "published": "2026-10-23T00:00:00+00:00",
                 "feed_observed_at": "2026-10-23T08:00:00+00:00",
                 "victim_name": "victim.example",
