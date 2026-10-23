@@ -1,4 +1,5 @@
 import hashlib
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -127,6 +128,8 @@ class _ServiceClient:
                 "processing_state": "running",
                 "target": "owned-example.com",
                 "target_type": "domain",
+                "attempts": 1,
+                "locked_until": (datetime.now(UTC) + timedelta(minutes=5)).isoformat(),
             }
         if table == "customer_organizations":
             assert filters == {"id": "org-1"}
@@ -175,6 +178,8 @@ async def test_target_matched_onion_evidence_uses_tenant_scoped_subject_and_rpc(
         tenant_id="tenant-1",
         watchlist_id="watchlist-1",
         service_request_id="request-1",
+
+        expected_attempt=1,
         source_url=f"http://{host}/leak",
         sanitized_page_text="Public page mentions owned-example.com in the body.",
         observed_at="2026-10-22T00:00:00+00:00",
@@ -197,6 +202,8 @@ async def test_target_match_must_be_reproducible_before_subject_creation():
             tenant_id="tenant-1",
             watchlist_id="watchlist-1",
             service_request_id="request-1",
+
+            expected_attempt=1,
             source_url=f"http://{host}/leak",
             sanitized_page_text="No monitored target here.",
             observed_at="2026-10-22T00:00:00+00:00",
@@ -218,6 +225,8 @@ async def test_request_tenant_mismatch_fails_before_storage_or_evidence_rpc():
                 "processing_state": "running",
                 "target": "owned-example.com",
                 "target_type": "domain",
+                "attempts": 1,
+                "locked_until": (datetime.now(UTC) + timedelta(minutes=5)).isoformat(),
             }
         if table == "customer_organizations":
             return {
@@ -235,6 +244,8 @@ async def test_request_tenant_mismatch_fails_before_storage_or_evidence_rpc():
             tenant_id="tenant-1",
             watchlist_id="watchlist-1",
             service_request_id="request-1",
+
+            expected_attempt=1,
             source_url=f"http://{host}/leak",
             sanitized_page_text="Public page mentions owned-example.com in the body.",
             observed_at="2026-10-22T00:00:00+00:00",
@@ -263,6 +274,8 @@ async def test_request_watchlist_target_mismatch_fails_before_storage_or_evidenc
             tenant_id="tenant-1",
             watchlist_id="watchlist-1",
             service_request_id="request-1",
+
+            expected_attempt=1,
             source_url=f"http://{host}/leak",
             sanitized_page_text="Public page mentions owned-example.com in the body.",
             observed_at="2026-10-22T00:00:00+00:00",
@@ -281,6 +294,8 @@ async def test_trust_evidence_rpc_return_for_wrong_tenant_fails_closed():
             tenant_id="tenant-1",
             watchlist_id="watchlist-1",
             service_request_id="request-1",
+
+            expected_attempt=1,
             source_url=f"http://{host}/leak",
             sanitized_page_text="Public page mentions owned-example.com in the body.",
             observed_at="2026-10-22T00:00:00+00:00",
