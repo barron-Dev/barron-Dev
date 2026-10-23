@@ -50,3 +50,50 @@ def test_control_proof_wait_returns_when_all_protocol_assertions_are_true(monkey
     )
     assert result["route_verified"] is True
     assert result["content_sha256"] == "b" * 64
+
+
+def test_request_scoped_socks_proxy_credentials_are_added_without_logging_them():
+    collector = TorControlProofCollector("request-unique", host="127.0.0.1", port=9051, password="test")
+    proxy = collector.proxy_for_request("socks5h://127.0.0.1:9050")
+    assert proxy.startswith("socks5h://ct_")
+    assert "@127.0.0.1:9050" in proxy
+    assert collector._socks_username in proxy
+    assert collector._socks_password in proxy
+    other = TorControlProofCollector("request-other", host="127.0.0.1", port=9051, password="test")
+    assert collector._socks_username != other._socks_username
+
+
+def test_request_scoped_socks_proxy_rejects_non_socks_and_static_credentials():
+    import pytest
+
+    collector = TorControlProofCollector("request-1", host="127.0.0.1", port=9051, password="test")
+    with pytest.raises(RuntimeError, match="tor_control_socks_proxy_invalid"):
+        collector.proxy_for_request("http://127.0.0.1:9050")
+    with pytest.raises(RuntimeError, match="tor_control_socks_proxy_must_not_contain_static_credentials"):
+        collector.proxy_for_request("socks5://user:pass@127.0.0.1:9050")
+
+
+def test_stream_event_captures_socks_auth_identity_for_isolation():
+    from types import SimpleNamespace
+
+    collector = TorControlProofCollector("request-1", host="127.0.0.1", port=9051, password="test")
+    collector._on_stream(SimpleNamespace(
+        address="a" * 56 + ".onion",
+        status="SUCCEEDED",
+        circ_id="17",
+        socks_username=collector._socks_username,
+    ))
+    assert collector._streams[-1][1] == "a" * 56 + ".onion"
+    assert collector._streams[-1][3] == "17"
+    assert collector._streams[-1][4] == collector._socks_username
+
+
+def test_hidden_service_event_accepts_hs_address_field():
+    from types import SimpleNamespace
+
+    collector = TorControlProofCollector("request-1", host="127.0.0.1", port=9051, password="test")
+    collector._on_hs_desc_content(SimpleNamespace(
+        hs_address="a" * 56,
+        descriptor="bounded descriptor text",
+    ))
+    assert collector._descriptor_events["a" * 56 + ".onion"][-1][1:] == ("CONTENT", True)
