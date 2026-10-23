@@ -23,6 +23,8 @@ class DwClassLevelTrustControlsTests(unittest.TestCase):
         self.assertIn("for r in", sql.lower())
         self.assertIn("'dw_evidence_ots_receipts', false", sql.lower())
         self.assertIn("'dw_onion_probe_evidence', true", sql.lower())
+        self.assertIn("'dw_trust_canary_events', true", sql.lower())
+        self.assertIn("dw_trust\\_%", sql.lower())
         self.assertIn("create trigger", sql.lower())
 
     def test_ots_receipt_requires_both_evidence_and_anchor(self):
