@@ -48,14 +48,15 @@ export default function Kontrol() {
                 <span>{name}</span><span className="font-mono text-[8px] text-[#5a6675]">{description}</span>
               </Link>
             ))}
+            <Link href="/kontrol/engineering" className="flex items-center justify-between border border-[#00d9ff]/30 bg-[#00d9ff]/5 px-3 py-2 text-[11px] text-[#8cecff] hover:bg-[#00d9ff]/10">
+              <span>Engineering Console</span><span className="font-mono text-[8px]">LIVE STATE →</span>
+            </Link>
           </nav>
 
           <div className="mb-3 mt-8 font-mono text-[9px] uppercase tracking-[.16em] text-[#00d9ff]">Security operations</div>
           <nav className="space-y-1" aria-label="Security operations navigation">
             {operations.map(([name, href]) => (
-              <Link key={name} href={href} className="block border border-transparent px-3 py-2 text-[11px] text-[#8a97a8] hover:border-[#2a3646] hover:bg-[#111823] hover:text-[#e8eef6]">
-                {name}
-              </Link>
+              <Link key={name} href={href} className="block border border-transparent px-3 py-2 text-[11px] text-[#8a97a8] hover:border-[#2a3646] hover:bg-[#111823] hover:text-[#e8eef6]">{name}</Link>
             ))}
           </nav>
 
@@ -97,12 +98,19 @@ export default function Kontrol() {
 
             <div className="mt-4">
               <Panel>
+                <div className="type-h2">Engineering state</div>
+                <p className="mt-2 max-w-2xl text-xs leading-5 text-[#8a97a8]">Inspect live GitHub, Vercel and Supabase provider results from one read-only workspace. Railway reconnect checks are queued for after the trial upgrade.</p>
+                <Link href="/kontrol/engineering" className="mt-4 inline-flex border border-[#00d9ff]/40 bg-[#00d9ff]/5 px-4 py-2 text-xs text-[#8cecff] hover:bg-[#00d9ff]/10">Open engineering console →</Link>
+              </Panel>
+            </div>
+
+            <div className="mt-4">
+              <Panel>
                 <div className="type-h2">Security services</div>
                 <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                   {operations.map(([name, href, description]) => (
                     <Link key={name} href={href} className="border border-[#1a2330] bg-[#0a0e14] p-3 hover:border-[#00d9ff]/50">
-                      <div className="text-xs">{name}</div>
-                      <div className="mt-1 text-[10px] text-[#5a6675]">{description}</div>
+                      <div className="text-xs">{name}</div><div className="mt-1 text-[10px] text-[#5a6675]">{description}</div>
                     </Link>
                   ))}
                 </div>
