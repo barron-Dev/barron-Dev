@@ -77,12 +77,11 @@ class TorControlProofCollector:
         if self.controller is not None:
             return
         try:
-            from stem import Signal
             from stem.control import Controller, EventType
         except ImportError as exc:
             raise RuntimeError("tor_control_stem_dependency_missing") from exc
-        del Signal  # Signal actions are intentionally not used by this read-only collector.
         controller = Controller.from_port(address=self.host, port=self.port)
+        controller.set_socket_timeout(5.0)
         try:
             if self.cookie_path:
                 controller.authenticate(cookie_path=self.cookie_path)
