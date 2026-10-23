@@ -106,6 +106,18 @@ def _require_recorded_finding(response: object) -> dict:
     raise RuntimeError("finding_persistence_unconfirmed")
 
 
+def _tenant_finding_content_hash(source_id: str, matched_value: str, watchlist_id: str, metadata: dict) -> str:
+    """Hash a tenant match with its stable source-record identity when available."""
+    matched_hash = hashlib.sha256(str(matched_value).strip().lower().encode()).hexdigest()
+    source_record_key = ""
+    if str(source_id).lower() == "ransomwatch":
+        source_record_key = str(metadata.get("record_key") or "")
+        if len(source_record_key) != 64 or any(ch not in "0123456789abcdef" for ch in source_record_key.lower()):
+            raise RuntimeError("ransomwatch_record_key_missing")
+    material = f"{source_id}:{matched_hash}:{watchlist_id}:{source_record_key}"
+    return hashlib.sha256(material.encode()).hexdigest()
+
+
 def _require_temporal_observation_confirmation(
     response: object, *, request_id: str, tenant_id: str, watchlist_id: str,
     entry_hash: str, temporal_class: str,
@@ -1173,7 +1185,12 @@ class DarkWebRequestWorker:
             meta = dict(finding.metadata or {})
             meta["customer_match"] = "exact"
             meta["service_request_id"] = request_id
-            tenant_hash = hashlib.sha256(f"{getattr(finding, 'source_id', '')}:{hashlib.sha256((str(finding.matched_value).strip().lower()).encode()).hexdigest()}:{watch_id}".encode()).hexdigest()
+            tenant_hash = _tenant_finding_content_hash(
+                str(getattr(finding, "source_id", "")),
+                str(finding.matched_value),
+                watch_id,
+                meta,
+            )
             trust_evidence = None
             try:
                 trust_evidence = await self._persist_native_onion_evidence(
@@ -1201,7 +1218,12 @@ class DarkWebRequestWorker:
                     # alert have both been durably confirmed.
                     await supabase.update(
                         "dw_findings",
-                        {"finding_class": "current_breach_intel", "web_layer": "breach_intel"},
+                        {
+                            "finding_class": "current_breach_intel",
+                            "web_layer": "breach_intel",
+                            "source_metadata": meta,
+                            "collected_at": datetime.now(UTC).isoformat(),
+                        },
                         id=str(recorded_row["finding_id"]),
                         tenant_id=tenant_id,
                         watchlist_id=watch_id,
