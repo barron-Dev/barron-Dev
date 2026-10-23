@@ -191,16 +191,60 @@ class DwEvidencePolicyDatabaseTests(unittest.TestCase):
     def test_verified_findings_gate_exists_and_requires_confirmed_ots(self):
         if os.getenv("DW_REQUIRE_VERIFIED_FINDINGS") != "1":
             self.skipTest("release-gating finding view check not enabled")
+        evidence_seq = os.getenv("DW_TEST_OTS_EVIDENCE_SEQ")
+        receipt_id = os.getenv("DW_TEST_OTS_RECEIPT_ID")
+        block_height = os.getenv("DW_TEST_CONFIRMED_BLOCK_HEIGHT")
+        if not evidence_seq or not receipt_id or not block_height:
+            self.skipTest("requires a pending OTS receipt linked to a real disposable evidence-backed finding")
         with self.conn.cursor() as cur:
             cur.execute("select to_regclass('public.dw_verified_findings')")
             self.assertIsNotNone(cur.fetchone()[0], "release blocker: dw_verified_findings is not wired")
-            cur.execute(
-                "select pg_get_viewdef('public.dw_verified_findings'::regclass, true)"
-            )
+            cur.execute("select pg_get_viewdef('public.dw_verified_findings'::regclass, true)")
             definition = cur.fetchone()[0].lower()
             self.assertIn("dw_evidence_ots_receipts", definition)
             self.assertIn("confirmed", definition)
             self.assertIn("state", definition)
+            self.assertIn("evidence_seq", definition)
+            cur.execute(
+                "select state, evidence_seq from public.dw_evidence_ots_receipts where id=%s",
+                (receipt_id,),
+            )
+            receipt = cur.fetchone()
+            self.assertIsNotNone(receipt, "OTS receipt fixture must exist")
+            self.assertEqual(receipt[0], "pending", "OTS receipt fixture must start pending")
+            self.assertEqual(receipt[1], int(evidence_seq))
+
+            class RollbackStateFixture(Exception):
+                pass
+
+            for state in ("pending", "confirmed", "failed", "expired", "invalid"):
+                with self.subTest(ots_state=state):
+                    try:
+                        with self.conn.transaction():
+                            with self.conn.cursor() as tx:
+                                if state != "pending":
+                                    tx.execute(
+                                        """update public.dw_evidence_ots_receipts
+                                              set state=%s,
+                                                  bitcoin_block_height=case when %s='confirmed' then %s else bitcoin_block_height end,
+                                                  verified_at=case when %s='confirmed' then now() else verified_at end,
+                                                  failure_reason=case when %s='failed' then 'disposable verifier rejection' else failure_reason end
+                                            where id=%s""",
+                                        (state, state, int(block_height), state, state, receipt_id),
+                                    )
+                                    self.assertEqual(tx.rowcount, 1)
+                                tx.execute(
+                                    "select count(*) from public.dw_verified_findings where evidence_seq=%s",
+                                    (int(evidence_seq),),
+                                )
+                                visible = tx.fetchone()[0] > 0
+                                self.assertEqual(
+                                    visible, state == "confirmed",
+                                    f"evidence with OTS state {state} has incorrect verified-finding visibility",
+                                )
+                                raise RollbackStateFixture()
+                    except RollbackStateFixture:
+                        pass
 
 
 if __name__ == "__main__":
