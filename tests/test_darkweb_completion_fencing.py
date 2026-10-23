@@ -159,3 +159,45 @@ async def test_native_onion_content_match_without_safe_excerpt_fails_closed(monk
             metadata=dict(finding.metadata),
         )
     persist.assert_not_awaited()
+
+
+def test_archived_ransomwatch_findings_never_enter_current_results():
+    from cyclothone.darkweb.request_worker import _is_current_finding
+
+    assert not _is_current_finding(
+        {"source_id": "ransomwatch", "finding_class": "historical_archive"},
+        "request-1",
+    )
+
+
+def test_legacy_native_onion_row_without_request_evidence_is_not_current():
+    from cyclothone.darkweb.request_worker import _is_current_finding
+
+    assert not _is_current_finding(
+        {"source_id": "native_onion", "finding_class": "historical_archive", "source_metadata": {}},
+        "request-1",
+    )
+
+
+def test_native_onion_current_candidate_requires_this_requests_durable_evidence():
+    from cyclothone.darkweb.request_worker import _is_current_finding
+
+    row = {
+        "source_id": "native_onion",
+        "finding_class": "historical_archive",
+        "source_metadata": {
+            "service_request_id": "request-1",
+            "durable_evidence": {"content_uri": "supabase://private/object"},
+        },
+    }
+    assert _is_current_finding(row, "request-1")
+    assert not _is_current_finding(row, "request-2")
+
+
+def test_surface_public_findings_remain_separate_from_historical_archive():
+    from cyclothone.darkweb.request_worker import _is_current_finding
+
+    assert _is_current_finding(
+        {"source_id": "telegram_public", "finding_class": "surface_public"},
+        "request-1",
+    )
