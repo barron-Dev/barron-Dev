@@ -8,19 +8,17 @@ BEGIN;
 ALTER TABLE public.dw_findings
   ADD COLUMN IF NOT EXISTS finding_class text NOT NULL DEFAULT 'historical_archive';
 
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint
-     WHERE conrelid = 'public.dw_findings'::regclass
-       AND conname = 'dw_findings_finding_class_check'
-  ) THEN
-    ALTER TABLE public.dw_findings
-      ADD CONSTRAINT dw_findings_finding_class_check
-      CHECK (finding_class IN ('verified_live_darkweb', 'historical_archive', 'surface_public'))
-      NOT VALID;
-  END IF;
-END $$;
+ALTER TABLE public.dw_findings
+  DROP CONSTRAINT IF EXISTS dw_findings_finding_class_check;
+
+ALTER TABLE public.dw_findings
+  ADD CONSTRAINT dw_findings_finding_class_check
+  CHECK (finding_class IN (
+    'verified_live_darkweb',
+    'current_breach_intel',
+    'historical_archive',
+    'surface_public'
+  )) NOT VALID;
 
 -- Existing records remain historical_archive. Never infer verification from
 -- a non-null URL, hash, metadata field, or legacy web_layer.
