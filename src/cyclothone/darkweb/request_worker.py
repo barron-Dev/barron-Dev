@@ -598,6 +598,37 @@ class DarkWebRequestWorker:
             }
             for item in exact
         ]
+        future_dated_candidates = []
+        # Load previously observed temporal archive records for this exact tenant
+        # and watchlist. Current-feed rows are never replayed as live findings;
+        # only a fresh feed observation can enter the current alert pipeline.
+        stored_temporal_rows = await supabase.select(
+            "dw_feed_temporal_observations",
+            "id,entry_hash,temporal_class,published_at,feed_observed_at,feed_content_sha256,victim_name,group_name,source_url,label,last_seen_at,observation_count",
+            tenant_id=tenant_id,
+            watchlist_id=watch_id,
+        )
+        for archived in stored_temporal_rows:
+            temporal_class = str(archived.get("temporal_class") or "")
+            candidate = {
+                "id": archived.get("id"),
+                "entry_hash": archived.get("entry_hash"),
+                "source": "ransomwatch",
+                "source_url": archived.get("source_url"),
+                "published": archived.get("published_at"),
+                "feed_observed_at": archived.get("feed_observed_at"),
+                "feed_content_sha256": archived.get("feed_content_sha256"),
+                "victim_name": archived.get("victim_name"),
+                "group": archived.get("group_name"),
+                "temporal_class": temporal_class,
+                "last_seen_at": archived.get("last_seen_at"),
+                "observation_count": archived.get("observation_count"),
+                "label": archived.get("label"),
+            }
+            if temporal_class == "historical_archive":
+                historical_candidates.append(candidate)
+            elif temporal_class == "future_dated":
+                future_dated_candidates.append(candidate)
         source_rows = await supabase.select("dw_sources", "id,enabled,last_status,last_pull_at")
         registered_source_ids = {str(x["id"]) for x in source_rows}
         enabled = {str(x["id"]) for x in source_rows if x.get("enabled") is True}
@@ -842,7 +873,6 @@ class DarkWebRequestWorker:
         # Keep the feed's three time classes distinct. Current dated records may
         # enter the current finding/alert path; historical records are review-only;
         # future-dated records are quarantined from alerts.
-        future_dated_candidates = []
         feed_historical_candidates = []
         current_feed_candidates = []
         normalized_provider_results = []
