@@ -279,7 +279,10 @@ def _partition_ransomwatch_findings(findings: list, watch_kind: str, watch_value
         metadata = finding.metadata if isinstance(getattr(finding, "metadata", None), dict) else {}
         temporal_class = str(metadata.get("temporal_class") or "historical_archive")
         if temporal_class == "current_feed":
-            current.append(finding)
+            # A fresh global feed entry is not automatically a match for this
+            # customer's target. Enforce exact target matching before alerting.
+            if _finding_matches_target(finding, watch_kind, watch_value):
+                current.append(finding)
             continue
         if temporal_class not in {"historical_archive", "future_dated"}:
             # Unknown classes are fail-closed and never enter the alert path.
