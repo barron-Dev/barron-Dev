@@ -4,6 +4,7 @@ on:
     paths:
       - "supabase/migrations/**"
       - "scripts/check_dw_caller_attestation.py"
+      - "tests/test_dw_class_level_trust_controls.py"
       - ".github/workflows/dw-caller-attestation-lint.yml"
   push:
     branches: [main]
@@ -25,6 +26,8 @@ jobs:
         id: lint
         continue-on-error: true
         run: python scripts/check_dw_caller_attestation.py
-      - name: Report warning-only result
+      - name: Run structural DW trust regression tests
+        run: python -m unittest discover -s tests -p 'test_dw_class_level_trust_controls.py'
+      - name: Report warning-only lint result
         if: steps.lint.outcome == 'failure'
-        run: echo "::warning::Caller-attestation-shaped boolean parameters detected. This check is warning-only until current instances are removed."
+        run: echo "::warning::Caller-attestation-shaped boolean parameters or evidence-policy drift detected. This check is warning-only during the cleanup rollout."
