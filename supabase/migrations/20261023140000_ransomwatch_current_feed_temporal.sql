@@ -3,6 +3,7 @@
 -- presenting the source and its old rows as native dark-web observations.
 UPDATE public.dw_sources
 SET web_layer = 'breach_intel',
+    access_mode = 'public_feed',
     last_status = 'awaiting_current_feed_poll',
     poll_interval_seconds = 1800
 WHERE id = 'ransomwatch';
