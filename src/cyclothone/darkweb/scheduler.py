@@ -161,6 +161,15 @@ class DarkWebScheduler:
         try:
             findings = await pull()
             monitor = monitor or getattr(pull, "__self__", None)
+            if source_id == "ransomwatch":
+                # The scheduler is the current-alert path. Archive entries remain
+                # available as request-level historical candidates, and future-dated
+                # entries are quarantined; neither may create a current alert.
+                findings = [
+                    finding for finding in findings
+                    if isinstance(getattr(finding, "metadata", None), dict)
+                    and finding.metadata.get("temporal_class") == "current_feed"
+                ]
             if (
                 source_id == "native_onion"
                 and monitor is not None
