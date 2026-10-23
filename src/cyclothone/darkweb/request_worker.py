@@ -231,18 +231,22 @@ def _native_onion_route_proof_missing(monitor: object) -> list[str]:
             continue
         # Proof must bind to this exact request and the digest of this seed's
         # inspected response; global daemon health is not per-response evidence.
+        descriptor_digest = str(proof.get("descriptor_sha256") or "").lower()
         if (
             not getattr(monitor, "service_request_id", "")
             or str(proof.get("service_request_id") or "") != str(monitor.service_request_id)
             or str(proof.get("content_sha256") or "").lower() != str(content_hashes[seed]).lower()
+            or not re.fullmatch(r"[0-9a-f]{64}", descriptor_digest)
             or any(proof.get(field) is not True for field in _REQUIRED_ONION_CONTROL_ASSERTIONS)
         ):
             missing.update(_REQUIRED_ONION_ROUTE_PROOFS)
+            if not re.fullmatch(r"[0-9a-f]{64}", descriptor_digest):
+                missing.add("descriptor_sha256")
             continue
         for field in _REQUIRED_ONION_ROUTE_PROOFS:
             if proof.get(field) is not True:
                 missing.add(field)
-    return [field for field in _REQUIRED_ONION_ROUTE_PROOFS if field in missing]
+    return [field for field in _REQUIRED_ONION_ROUTE_PROOFS if field in missing] + (["descriptor_sha256"] if "descriptor_sha256" in missing else [])
 
 
 def _native_onion_route_proof_state(monitor: object) -> dict[str, bool]:
@@ -267,6 +271,8 @@ def _native_onion_seed_route_proven(monitor: object, seed: str) -> bool:
         return False
     if any(proof.get(field) is not True for field in _REQUIRED_ONION_CONTROL_ASSERTIONS):
         return False
+    if not re.fullmatch(r"[0-9a-f]{64}", str(proof.get("descriptor_sha256") or "").lower()):
+        return False
     return all(proof.get(field) is True for field in _REQUIRED_ONION_ROUTE_PROOFS)
 
 
@@ -282,6 +288,7 @@ def _native_onion_protocol_evidence(monitor: object) -> dict:
                 "seed_host": (urlsplit(str(seed_url)).hostname or "").lower(),
                 "service_request_id": str(proof.get("service_request_id") or ""),
                 "content_sha256": str(proof.get("content_sha256") or "").lower() or None,
+                "descriptor_sha256": str(proof.get("descriptor_sha256") or "").lower() or None,
                 "descriptor_event_count": int(proof.get("descriptor_event_count") or 0),
                 "proof": {
                     field: proof.get(field) is True
