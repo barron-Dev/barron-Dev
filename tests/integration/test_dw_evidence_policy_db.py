@@ -125,6 +125,19 @@ class DwEvidencePolicyDatabaseTests(unittest.TestCase):
                 probe_before = cur.fetchone()[0]
                 cur.execute("select count(*) from public.dw_source_health_events")
                 health_before = cur.fetchone()[0]
+                cur.execute("select count(*) from public.dw_evidence_ots_receipts")
+                receipt_before = cur.fetchone()[0]
+                cur.execute("select count(*) from public.dw_findings")
+                finding_before = cur.fetchone()[0]
+                cur.execute("select count(*) from public.dw_alerts")
+                alert_before = cur.fetchone()[0]
+                cur.execute(
+                    "select status, candidate_trust, monitoring_enabled, last_checked, last_status "
+                    "from public.dw_onion_seeds where id=%s",
+                    (seed_id,),
+                )
+                seed_before = cur.fetchone()
+                self.assertIsNotNone(seed_before, "disposable seed fixture must exist")
                 with self.subTest(rejected_proof=label):
                     class UnexpectedProofSuccess(Exception):
                         pass
@@ -158,6 +171,18 @@ class DwEvidencePolicyDatabaseTests(unittest.TestCase):
                 self.assertEqual(cur.fetchone()[0], probe_before, f"{label} rejection wrote probe evidence")
                 cur.execute("select count(*) from public.dw_source_health_events")
                 self.assertEqual(cur.fetchone()[0], health_before, f"{label} rejection wrote health event")
+                cur.execute("select count(*) from public.dw_evidence_ots_receipts")
+                self.assertEqual(cur.fetchone()[0], receipt_before, f"{label} rejection wrote OTS receipt")
+                cur.execute("select count(*) from public.dw_findings")
+                self.assertEqual(cur.fetchone()[0], finding_before, f"{label} rejection wrote finding")
+                cur.execute("select count(*) from public.dw_alerts")
+                self.assertEqual(cur.fetchone()[0], alert_before, f"{label} rejection wrote alert")
+                cur.execute(
+                    "select status, candidate_trust, monitoring_enabled, last_checked, last_status "
+                    "from public.dw_onion_seeds where id=%s",
+                    (seed_id,),
+                )
+                self.assertEqual(cur.fetchone(), seed_before, f"{label} rejection changed seed status")
 
     def test_verified_findings_gate_exists_and_requires_confirmed_ots(self):
         if os.getenv("DW_REQUIRE_VERIFIED_FINDINGS") != "1":
