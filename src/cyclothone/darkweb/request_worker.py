@@ -122,6 +122,23 @@ def _is_current_finding(item: dict, request_id: str) -> bool:
     )
 
 
+_REQUIRED_ONION_ROUTE_PROOFS = (
+    "route_verified",
+    "hs_desc_content_received",
+    "descriptor_fetched",
+    "rendezvous_hop_verified",
+    "stream_circuit_bound",
+)
+
+
+def _native_onion_route_proof_missing(monitor: object) -> list[str]:
+    """Return every required Tor protocol proof not explicitly verified true."""
+    return [
+        field for field in _REQUIRED_ONION_ROUTE_PROOFS
+        if getattr(monitor, field, False) is not True
+    ]
+
+
 def _finding_matches_target(finding: object, watch_kind: str, watch_value: str) -> bool:
     """Match a provider finding or persisted row without fuzzy guesses."""
     if isinstance(finding, dict):
@@ -386,6 +403,21 @@ class DarkWebRequestWorker:
                         # optional discovered-seed registry could not be updated.
                         monitor.seed_state_persistence = "unavailable"
                         logger.warning("onion seed registry persistence unavailable request_id=%s", request_id, exc_info=True)
+                    missing_route_proof = _native_onion_route_proof_missing(monitor)
+                    if missing_route_proof:
+                        # HTTP reachability is not proof that this response used
+                        # a verified Tor circuit to a fetched v3 hidden service.
+                        # Never persist matches or count pages as dark-web checked
+                        # until every required protocol proof is explicitly true.
+                        return {
+                            "source": source_id,
+                            "state": "unavailable",
+                            "reason": "tor_route_proof_unavailable",
+                            "route_proof_missing": missing_route_proof,
+                            "unverified_page_responses": int(getattr(monitor, "pages_checked", 0) or 0),
+                            "seed_state_persistence": getattr(monitor, "seed_state_persistence", "not_attempted"),
+                            **{field: getattr(monitor, field, False) is True for field in _REQUIRED_ONION_ROUTE_PROOFS},
+                        }, []
                 if source_id == "pastebin_public" and not getattr(monitor, "feed_checked", False):
                     return {
                         "source": source_id, "state": "unavailable",
@@ -448,6 +480,7 @@ class DarkWebRequestWorker:
                         "pages_failed": pages_failed,
                         "seed_state_persistence": getattr(monitor, "seed_state_persistence", "not_attempted"),
                         "matches": getattr(monitor, "matches", 0),
+                        **{field: getattr(monitor, field, False) is True for field in _REQUIRED_ONION_ROUTE_PROOFS},
                     }, findings
                 if source_id == "pastebin_public":
                     return {
@@ -579,6 +612,11 @@ class DarkWebRequestWorker:
                         "layer": str(source.get("layer") or ""),
                         "category": str(source.get("category") or ""),
                     },
+                    "p_route_verified": source.get("route_verified") is True,
+                    "p_hs_desc_content_received": source.get("hs_desc_content_received") is True,
+                    "p_descriptor_fetched": source.get("descriptor_fetched") is True,
+                    "p_rendezvous_hop_verified": source.get("rendezvous_hop_verified") is True,
+                    "p_stream_circuit_bound": source.get("stream_circuit_bound") is True,
                 })
             except Exception as exc:
                 logger.warning(
