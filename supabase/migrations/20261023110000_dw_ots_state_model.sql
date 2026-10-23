@@ -18,17 +18,23 @@ alter table public.dw_evidence_ots_receipts
   add column if not exists failure_reason text;
 
 -- Never promote a legacy "confirmed" receipt without a block height to confirmed.
+-- Legacy "confirmed" is only a caller-attested status; require fresh verifier work.
 update public.dw_evidence_ots_receipts
    set state = case
-     when verification_status = 'confirmed' and bitcoin_block_height is not null then 'confirmed'::public.dw_ots_state
-     when verification_status = 'confirmed' then 'invalid'::public.dw_ots_state
      when verification_status = 'verification_failed' then 'failed'::public.dw_ots_state
      else 'pending'::public.dw_ots_state
    end,
    failure_reason = case
-     when verification_status = 'confirmed' and bitcoin_block_height is null then 'legacy_confirmed_without_block'
      when verification_status = 'verification_failed' then coalesce(failure_reason, 'legacy_verification_failed')
      else failure_reason
+   end,
+   verification_status = case
+     when verification_status = 'confirmed' then 'pending'
+     else verification_status
+   end,
+   verified_at = case
+     when verification_status = 'confirmed' then null
+     else verified_at
    end
  where state is null;
 
