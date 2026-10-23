@@ -452,8 +452,8 @@ def test_tor_control_proof_requires_hsfetch_descriptor_content_and_bound_rendezv
     collector._hsfetch_accepted.add(host)
     collector._response_windows[host] = (1.0, 3.5, "b" * 64)
     collector._descriptor_events[host] = [
-        (2.0, "RECEIVED", True),
-        (2.1, "CONTENT", True),
+        (2.0, "RECEIVED", True, None),
+        (2.1, "CONTENT", True, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
     ]
     collector._circuits = [(2.5, "77", "BUILT", "HS_CLIENT_REND")]
     collector._streams = [(3.0, host, "SUCCEEDED", "77", collector._socks_username)]
