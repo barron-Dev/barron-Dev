@@ -33,3 +33,19 @@ async def test_global_tick_skips_ransomwatch_when_source_disabled(monkeypatch):
 
     await scheduler._global_tick()
     pull.assert_not_awaited()
+
+
+def test_temporal_archive_write_requires_database_count_confirmation():
+    from cyclothone.darkweb.scheduler import _require_temporal_archive_confirmation
+
+    _require_temporal_archive_confirmation([{"accepted_count": 3}], 3)
+    _require_temporal_archive_confirmation([{"accepted_count": 0}], 0)
+
+
+def test_temporal_archive_write_fails_closed_on_partial_or_unconfirmed_write():
+    from cyclothone.darkweb.scheduler import _require_temporal_archive_confirmation
+
+    with pytest.raises(RuntimeError, match="ransomwatch_temporal_archive_unconfirmed"):
+        _require_temporal_archive_confirmation([{"accepted_count": 2}], 3)
+    with pytest.raises(RuntimeError, match="ransomwatch_temporal_archive_unconfirmed"):
+        _require_temporal_archive_confirmation(None, 0)
