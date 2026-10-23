@@ -97,3 +97,33 @@ def test_hidden_service_event_accepts_hs_address_field():
         descriptor="bounded descriptor text",
     ))
     assert collector._descriptor_events["a" * 56 + ".onion"][-1][1:] == ("CONTENT", True)
+
+
+def test_control_proof_requires_matching_request_socks_auth_and_built_rendezvous_circuit():
+    import time
+
+    collector = TorControlProofCollector("request-1", host="127.0.0.1", port=9051, password="test")
+    host = "a" * 56 + ".onion"
+    collector.controller = object()
+    collector.bootstrapped = True
+    collector._starts[host] = 0.0
+    collector._hsfetch_accepted.add(host)
+    now = time.monotonic()
+    collector._descriptor_events[host] = [
+        (now, "RECEIVED", True),
+        (now, "CONTENT", True),
+    ]
+    collector._circuits = [(now, "17", "BUILT", "HS_CLIENT_REND")]
+    collector._streams = [(now, host, "SUCCEEDED", "17", collector._socks_username)]
+
+    proof = collector.proof_for("http://" + host + "/", "c" * 64)
+    assert proof["route_verified"] is True
+    assert proof["stream_circuit_bound"] is True
+    assert proof["socks_auth_bound"] is True
+    assert proof["content_sha256"] == "c" * 64
+
+    collector._streams = [(now, host, "SUCCEEDED", "17", "another-request")]
+    proof = collector.proof_for("http://" + host + "/", "c" * 64)
+    assert proof["route_verified"] is False
+    assert proof["stream_circuit_bound"] is False
+    assert proof["socks_auth_bound"] is False
