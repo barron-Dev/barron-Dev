@@ -193,8 +193,10 @@ class RansomwatchPuller:
                 group.casefold(),
                 published or "",
             ))
+            record_key = hashlib.sha256(record_identity.encode("utf-8")).hexdigest()
+            metadata["record_key"] = record_key
             self.temporal_records.append({
-                "record_key": hashlib.sha256(record_identity.encode("utf-8")).hexdigest(),
+                "record_key": record_key,
                 "source_url": raw_url[:2048] or None,
                 "victim_name": victim[:512],
                 "victim_domain": victim_domain,
