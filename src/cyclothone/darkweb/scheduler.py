@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 
 from cyclothone.darkweb.matcher import DarkWebMatcher
 from cyclothone.darkweb.native_onion import NativeOnionCrawler, configured_onion_seeds
-from cyclothone.darkweb.pullers import PastePublicMonitor, TelegramPublicMonitor
+from cyclothone.darkweb.pullers import PastePublicMonitor, RansomwatchPuller, TelegramPublicMonitor
 from cyclothone.darkweb.telegram_config import (
     DEFAULT_PUBLIC_TELEGRAM_CHANNELS,  # noqa: F401 — compatibility export
     configured_telegram_channels,
@@ -33,6 +33,7 @@ class DarkWebScheduler:
         self._task: asyncio.Task | None = None
         self._stop = asyncio.Event()
         self._last_domain = 0.0
+        self._last_ransomwatch_pull = 0.0
         self._onion_evidence_persisted_this_tick = False
 
     def start(self) -> None:
@@ -74,9 +75,16 @@ class DarkWebScheduler:
 
     async def _global_tick(self) -> None:
         enabled = await self._enabled_sources()
-        # Ransomwatch is archived and must never be represented as a fresh source check.
-        if "ransomwatch" in enabled:
-            await self._mark_source("ransomwatch", "historical_only_archived_feed", pulled=False)
+        # Poll the public aggregate feed on its 30-minute cadence. Current dated
+        # entries are live feed intelligence; older entries remain historical, and
+        # this is never represented as direct Tor access to a leak site.
+        if (
+            "ransomwatch" in enabled
+            and time.monotonic() - self._last_ransomwatch_pull >= 30 * 60
+        ):
+            ransomwatch = RansomwatchPuller()
+            await self._run_pull("ransomwatch", ransomwatch.pull, monitor=ransomwatch)
+            self._last_ransomwatch_pull = time.monotonic()
         paste = PastePublicMonitor()
         if paste.SOURCE in enabled:
             await self._run_pull(paste.SOURCE, paste.pull)
