@@ -9,7 +9,7 @@ import time
 from urllib.parse import urlsplit
 
 logger = logging.getLogger(__name__)
-_ONION_HOST = re.compile(r"^[a-z2-7]{56}\\.onion$", re.IGNORECASE)
+_ONION_HOST = re.compile(r"^[a-z2-7]{56}\.onion$", re.IGNORECASE)
 def _private_control_host(host: str) -> bool:
     value = host.strip().lower().rstrip(".")
     if value in {"localhost", "tor"} or value.endswith((".internal", ".local", ".railway.internal")):
@@ -79,7 +79,7 @@ class TorControlProofCollector:
                 controller.authenticate()
             self.tor_version = str(controller.get_version())
             bootstrap = str(controller.get_info("status/bootstrap-phase", ""))
-            self.bootstrapped = bool(re.search(r"(?:^|\\s)PROGRESS=100(?:\\s|$)", bootstrap))
+            self.bootstrapped = bool(re.search(r"(?:^|\s)PROGRESS=100(?:\s|$)", bootstrap))
             controller.add_event_listener(self._on_hs_desc, EventType.HS_DESC)
             controller.add_event_listener(self._on_hs_desc_content, EventType.HS_DESC_CONTENT)
             controller.add_event_listener(self._on_stream, EventType.STREAM)
