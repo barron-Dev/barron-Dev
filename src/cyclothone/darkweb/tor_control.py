@@ -10,6 +10,11 @@ from urllib.parse import urlsplit
 
 logger = logging.getLogger(__name__)
 _ONION_HOST = re.compile(r"^[a-z2-7]{56}\.onion$", re.IGNORECASE)
+def _bootstrap_complete(value: str) -> bool:
+    """Parse Tor's bootstrap status without treating partial progress as ready."""
+    return bool(re.search(r"(?:^|\\s)PROGRESS=100(?:\\s|$)", str(value or "")))
+
+
 def _private_control_host(host: str) -> bool:
     value = host.strip().lower().rstrip(".")
     if value in {"localhost", "tor"} or value.endswith((".internal", ".local", ".railway.internal")):
@@ -188,7 +193,7 @@ class TorControlProofCollector:
         built_circuit_ids = {circ_id for _, circ_id, _, _ in circuits}
         bound_stream = next((stream for stream in streams if stream[3] in built_circuit_ids), None)
         rendezvous_verified = bound_stream is not None
-        route_verified = bool(self.bootstrapped and bound_stream is not None)
+        route_verified = bool(self.controller is not None and self.bootstrapped and bound_stream is not None)
         return {
             "service_request_id": self.request_id,
             "content_sha256": str(content_sha256).lower(),
