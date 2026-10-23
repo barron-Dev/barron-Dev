@@ -14,3 +14,16 @@ WHERE source_id = 'ransomwatch'
 
 COMMENT ON COLUMN public.dw_findings.finding_class IS
   'Evidence class; Ransomwatch feed entries remain historical_archive unless the application exposes a fresh, dated current_feed entry as current surface-feed intelligence.';
+
+-- Future alert titles must follow the finding's explicit class, not a legacy
+-- web_layer='dark' value. Historical records remain visible as review-only.
+UPDATE public.dw_alerts AS a
+   SET title = CASE
+     WHEN f.finding_class = 'current_breach_intel'
+       THEN 'Breach exposure detected'
+     ELSE 'Historical ransomware report — review only'
+   END
+  FROM public.dw_findings AS f
+ WHERE a.finding_id = f.id
+   AND f.source_id = 'ransomwatch';
+
