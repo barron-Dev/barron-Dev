@@ -4,11 +4,12 @@ This work is preview-branch only. It does not apply migrations, deploy services,
 
 ## Structural policies
 
-- Evidence-related tables must be listed in `dw_table_security_policy`; the migration aborts when a `dw_%evidence%` table is missing a policy or a registry row points to a missing table.
+- Evidence-related tables must be listed in `dw_table_security_policy`; the migration aborts when a `dw_%evidence%` table is missing a policy or a registry row points to a missing table. The follow-on proof migration extends this fail-closed assertion to `dw_%proofs` tables.
+- The existing PR #76 evidence migration had a malformed OTS/TSA table-definition block (unterminated hash check and duplicated columns). The branch repairs the DDL and requires both evidence and anchor references for each OTS receipt.
 - The migration derives RLS, grants, and append-only triggers from that registry. OTS and TSA receipts are explicitly mutable state machines, not append-only event logs.
 - The initial caller-attestation lint is warning-only. It scans all PostgreSQL function signatures (not only SECURITY DEFINER functions) because invoker RPCs can still trust forged boolean claims. It also flags evidence/proof tables created without a registry row.
 - The legacy boolean-parameter probe RPC is revoked from application roles and dropped by the proof-bound migration. The replacement accepts proof IDs and validates source, request URL, content hash, publisher pin/host match, evidence sequence, corroboration record, and confirmed OTS receipt inside the transaction.
-- Proof artifact tables are read-only to `service_role` on purpose. Until a dedicated trusted verifier writer is implemented and independently tested, the proof-bound success path fails closed; do not manually seed proof rows or claim live verification.
+- Evidence, receipt, anchor, source-health, and proof artifact tables are read-only to `service_role` on purpose. Writes must flow through a trusted verifier/writer path. Until those writers are implemented and independently tested, the proof-bound success path fails closed; do not manually seed proof rows or claim live verification.
 
 ## Required test matrix
 
