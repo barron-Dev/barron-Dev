@@ -143,8 +143,15 @@ class DwEvidencePolicyDatabaseTests(unittest.TestCase):
                                     ),
                                 )
                                 raise UnexpectedProofSuccess()
-                    except psycopg.Error:
-                        pass
+                    except psycopg.Error as exc:
+                        self.assertEqual(exc.sqlstate, "42501", f"{label} rejection failed for an unexpected reason: {exc}")
+                        expected_message = {
+                            "route": "verified Tor route proof missing",
+                            "publisher": "verified publisher proof missing",
+                            "corroboration": "independent corroboration proof missing",
+                            "evidence": "evidence sequence does not belong",
+                        }[label]
+                        self.assertIn(expected_message, str(exc))
                     except UnexpectedProofSuccess:
                         self.fail(f"{label} invalid proof was accepted")
                 cur.execute("select count(*) from public.dw_onion_probe_evidence")
