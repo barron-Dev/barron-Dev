@@ -21,25 +21,26 @@ def test_native_onion_is_dark_and_public_telegram_is_surface():
     assert get_source("pastebin_public").layer == "surface"
 
 
-def test_historical_feed_is_not_classified_as_live_dark_web():
+def test_ransomwatch_is_live_polled_breach_intelligence_not_direct_dark_web():
     ransomwatch = get_source("ransomwatch")
     assert ransomwatch is not None
-    assert ransomwatch.layer == "surface_historical"
-    assert ransomwatch.access_mode == "archived_feed"
-    assert ransomwatch.availability == "historical_only"
-    assert not reportable_as_checked("ransomwatch", "checked")
+    assert ransomwatch.layer == "breach_intel"
+    assert ransomwatch.access_mode == "public_feed"
+    assert ransomwatch.availability == "implemented"
+    assert reportable_as_checked("ransomwatch", "checked")
+    assert not reportable_as_checked("ransomwatch", "failed")
     assert reportable_as_checked("native_onion", "checked")
     assert not reportable_as_checked("native_onion", "failed")
     assert not reportable_as_checked("reddit", "checked")
 
 
-def test_historical_feed_is_excluded_from_live_layer_lists():
+def test_ransomwatch_is_separate_from_native_dark_web_and_surface_sources():
     dark_ids = {source.source_id for source in sources_for_layer("dark")}
     surface_ids = {source.source_id for source in sources_for_layer("surface")}
-    historical_ids = {source.source_id for source in sources_for_layer("surface_historical")}
+    breach_ids = {source.source_id for source in sources_for_layer("breach_intel")}
     assert "ransomwatch" not in dark_ids
     assert "ransomwatch" not in surface_ids
-    assert "ransomwatch" in historical_ids
+    assert "ransomwatch" in breach_ids
 
 
 def test_layers_are_separate_and_planned_connectors_are_explicit():
