@@ -450,7 +450,7 @@ def test_tor_control_proof_requires_hsfetch_descriptor_content_and_bound_rendezv
         (2.1, "CONTENT", True),
     ]
     collector._circuits = [(2.5, "77", "BUILT", "HS_CLIENT_REND")]
-    collector._streams = [(3.0, host, "SUCCEEDED", "77")]
+    collector._streams = [(3.0, host, "SUCCEEDED", "77", collector._socks_username)]
 
     proof = collector.proof_for("http://" + host + "/", "b" * 64)
     assert proof["route_verified"] is True
