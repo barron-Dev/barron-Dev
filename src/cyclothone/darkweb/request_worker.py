@@ -109,11 +109,30 @@ def _require_recorded_finding(response: object) -> dict:
 def _is_current_finding(item: dict, request_id: str) -> bool:
     """Keep historical archives out of current results without promoting legacy rows."""
     source_id = str(item.get("source_id") or "").lower()
+    metadata = item.get("source_metadata")
     if source_id == "ransomwatch":
-        return False
+        if not isinstance(metadata, dict):
+            return False
+        if str(metadata.get("temporal_class") or "") != "current_feed":
+            return False
+        if str(metadata.get("service_request_id") or "") != str(request_id):
+            return False
+        try:
+            observed = datetime.fromisoformat(str(metadata.get("feed_observed_at") or "").replace("Z", "+00:00"))
+            published = datetime.fromisoformat(str(metadata.get("published") or "").replace("Z", "+00:00"))
+            if observed.tzinfo is None:
+                observed = observed.replace(tzinfo=UTC)
+            if published.tzinfo is None:
+                published = published.replace(tzinfo=UTC)
+            now = datetime.now(UTC)
+            if (now - observed.astimezone(UTC)).total_seconds() > 3600:
+                return False
+            age = (now - published.astimezone(UTC)).total_seconds()
+            return -300 <= age <= 30 * 86400
+        except (TypeError, ValueError):
+            return False
     if str(item.get("finding_class") or "") != "historical_archive":
         return True
-    metadata = item.get("source_metadata")
     if not isinstance(metadata, dict) or str(metadata.get("service_request_id") or "") != str(request_id):
         return False
     # Surface findings are bound by the successful finding RPC for this request.
@@ -516,6 +535,26 @@ class DarkWebRequestWorker:
                             "seed_state_persistence": getattr(monitor, "seed_state_persistence", "not_attempted"),
                             **_native_onion_route_proof_state(monitor),
                         }, []
+                if source_id == "ransomwatch":
+                    if not getattr(monitor, "feed_checked", False):
+                        return {
+                            "source": source_id, "state": "unavailable",
+                            "reason": "public_feed_not_confirmed",
+                            "items_inspected": 0,
+                        }, []
+                    return {
+                        "source": source_id,
+                        "state": "checked",
+                        "coverage": "current_feed_plus_historical_records",
+                        "feed_observed_at": getattr(monitor, "feed_observed_at", None),
+                        "feed_entries": getattr(monitor, "feed_entries_count", 0),
+                        "posts_inspected": getattr(monitor, "posts_checked", 0),
+                        "items_inspected": getattr(monitor, "posts_checked", 0),
+                        "current_feed_entries": getattr(monitor, "current_post_count", 0),
+                        "historical_entries": getattr(monitor, "historical_post_count", 0),
+                        "future_dated_entries": getattr(monitor, "future_dated_post_count", 0),
+                        "direct_onion_access_verified": False,
+                    }, findings
                 if source_id == "pastebin_public" and not getattr(monitor, "feed_checked", False):
                     return {
                         "source": source_id, "state": "unavailable",
