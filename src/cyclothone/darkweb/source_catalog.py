@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-Layer = Literal["dark", "surface", "surface_historical"]
+Layer = Literal["dark", "surface", "breach_intel", "surface_historical"]
 Availability = Literal["implemented", "historical_only", "planned"]
 
 
@@ -31,7 +31,7 @@ SOURCE_CATALOG: dict[str, SourceDefinition] = {
     "pastebin_public": SourceDefinition("pastebin_public", "paste_site", "surface", "public_web", "implemented", False, "Public paste content reachable through the configured public collector."),
     "bluesky_public": SourceDefinition("bluesky_public", "social_media", "surface", "public_api", "implemented", False, "Public Bluesky records through the configured public collector."),
     "github_code": SourceDefinition("github_code", "code_repository", "surface", "public_api", "planned", True, "Optional public code-search connector; not counted unless an actual supported collector succeeds."),
-    "ransomwatch": SourceDefinition("ransomwatch", "ransomware_leak_feed", "surface", "public_feed", "implemented", False, "Active public aggregator feed polled on a bounded schedule; recent dated entries are current feed intelligence, older entries are historical, future-dated entries are quarantined, and none prove direct onion access."),
+    "ransomwatch": SourceDefinition("ransomwatch", "ransomware_leak_feed", "breach_intel", "public_feed", "implemented", False, "Active public aggregator feed polled on a bounded schedule; recent dated entries are current feed intelligence, older entries are historical, future-dated entries are quarantined, and none prove direct onion access."),
 }
 
 # Explicit exclusion: Reddit is not a source and must not be registered, polled,
