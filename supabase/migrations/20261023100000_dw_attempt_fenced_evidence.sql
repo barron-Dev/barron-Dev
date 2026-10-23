@@ -149,7 +149,8 @@ BEGIN
     FROM public.trust_subjects
    WHERE id = p_subject_id
    FOR SHARE;
-  IF NOT FOUND OR v_subject.tenant_id <> p_tenant_id
+  IF NOT FOUND OR v_subject.tenant_id IS NULL
+     OR v_subject.tenant_id <> p_tenant_id
      OR v_subject.subject_kind <> 'dark_web_monitoring_target'
      OR v_subject.external_ref <> p_watchlist_id::text THEN
     RAISE EXCEPTION 'dw_evidence_subject_fence_rejected';
