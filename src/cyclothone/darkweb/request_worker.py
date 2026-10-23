@@ -486,7 +486,9 @@ def _partition_ransomwatch_findings(findings: list, watch_kind: str, watch_value
         temporal_class = str(metadata.get("temporal_class") or "historical_archive")
         if temporal_class == "current_feed":
             # A fresh global feed entry is not automatically a match for this
-            # customer's target. Enforce exact target matching before alerting.
+            # customer's target. Require HTTP freshness proof and exact matching.
+            if metadata.get("feed_freshness_verified") is not True:
+                continue
             if _finding_matches_target(finding, watch_kind, watch_value):
                 current.append(finding)
             continue
@@ -842,10 +844,13 @@ class DarkWebRequestWorker:
                             **_native_onion_route_proof_state(monitor),
                         }, []
                 if source_id == "ransomwatch":
-                    if not getattr(monitor, "feed_checked", False):
+                    if (
+                        not getattr(monitor, "feed_checked", False)
+                        or getattr(monitor, "feed_freshness_verified", False) is not True
+                    ):
                         return {
                             "source": source_id, "state": "unavailable",
-                            "reason": "public_feed_not_confirmed",
+                            "reason": "public_feed_freshness_unverified",
                             "items_inspected": 0,
                         }, []
                     return {
@@ -853,6 +858,9 @@ class DarkWebRequestWorker:
                         "state": "checked",
                         "coverage": "current_historical_and_future_temporal_classification",
                         "feed_observed_at": getattr(monitor, "feed_observed_at", None),
+                        "feed_response_date": getattr(monitor, "feed_response_date", None),
+                        "feed_age_seconds": getattr(monitor, "feed_age_seconds", None),
+                        "feed_freshness_verified": getattr(monitor, "feed_freshness_verified", False) is True,
                         "content_sha256": getattr(monitor, "feed_content_sha256", None),
                         "feed_entries": getattr(monitor, "feed_entries_count", 0),
                         "posts_inspected": getattr(monitor, "posts_checked", 0),
