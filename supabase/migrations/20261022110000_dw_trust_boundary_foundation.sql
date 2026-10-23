@@ -150,7 +150,7 @@ INSERT INTO public.dw_source_type_requirements
   (source_class, requires_route_verified, requires_hs_desc_content, requires_descriptor_fetch,
    requires_rendezvous_hop, requires_stream_circuit_binding, requires_auth, max_age_seconds)
 VALUES
-  ('native_onion', true, true, true, true, true, false, 86400),
+  ('native_onion', true, true, true, true, true, true, 86400),
   ('telegram_public', false, false, false, false, false, false, 86400),
   ('pastebin_public', false, false, false, false, false, false, 86400),
   ('bluesky_public', false, false, false, false, false, false, 86400),
