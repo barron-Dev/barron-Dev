@@ -51,7 +51,10 @@ BEGIN
     IF coalesce(auth.role(), '') <> 'service_role' THEN
         RAISE EXCEPTION 'ransomwatch_temporal_service_role_required';
     END IF;
-    IF jsonb_typeof(p_records) <> 'array' OR jsonb_array_length(p_records) > 5000 THEN
+    IF p_records IS NULL OR jsonb_typeof(p_records) IS DISTINCT FROM 'array' THEN
+        RAISE EXCEPTION 'ransomwatch_temporal_batch_invalid';
+    END IF;
+    IF jsonb_array_length(p_records) > 5000 THEN
         RAISE EXCEPTION 'ransomwatch_temporal_batch_invalid';
     END IF;
 
