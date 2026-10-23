@@ -128,3 +128,18 @@ def test_control_proof_requires_matching_request_socks_auth_and_built_rendezvous
     assert proof["route_verified"] is False
     assert proof["stream_circuit_bound"] is False
     assert proof["socks_auth_bound"] is False
+
+
+def test_control_proxy_rejects_public_socks_endpoint():
+    import pytest
+
+    collector = TorControlProofCollector("request-1", host="127.0.0.1", port=9051, password="test")
+    with pytest.raises(RuntimeError, match="tor_control_socks_proxy_must_be_private"):
+        collector.proxy_for_request("socks5h://proxy.example.com:9050")
+
+
+def test_control_port_range_is_validated():
+    import pytest
+
+    with pytest.raises(ValueError, match="tor_control_port_invalid"):
+        TorControlProofCollector("request-1", host="127.0.0.1", port=70000, password="test")
