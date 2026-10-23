@@ -106,6 +106,22 @@ def _require_recorded_finding(response: object) -> dict:
     raise RuntimeError("finding_persistence_unconfirmed")
 
 
+def _is_current_finding(item: dict, request_id: str) -> bool:
+    """Keep historical archives out of current results without promoting legacy rows."""
+    source_id = str(item.get("source_id") or "").lower()
+    if source_id == "ransomwatch":
+        return False
+    if str(item.get("finding_class") or "") != "historical_archive":
+        return True
+    metadata = item.get("source_metadata")
+    return bool(
+        source_id == "native_onion"
+        and isinstance(metadata, dict)
+        and str(metadata.get("service_request_id") or "") == str(request_id)
+        and isinstance(metadata.get("durable_evidence"), dict)
+    )
+
+
 def _finding_matches_target(finding: object, watch_kind: str, watch_value: str) -> bool:
     """Match a provider finding or persisted row without fuzzy guesses."""
     if isinstance(finding, dict):
@@ -656,17 +672,7 @@ class DarkWebRequestWorker:
         # findings. A native-onion row is a current candidate only when this
         # request persisted its durable evidence; no row is promoted to verified.
         current_persisted = [
-            item for item in persisted
-            if str(item.get("source_id") or "").lower() != "ransomwatch"
-            and (
-                str(item.get("finding_class") or "") != "historical_archive"
-                or (
-                    str(item.get("source_id") or "") == "native_onion"
-                    and isinstance(item.get("source_metadata"), dict)
-                    and str(item["source_metadata"].get("service_request_id") or "") == request_id
-                    and isinstance(item["source_metadata"].get("durable_evidence"), dict)
-                )
-            )
+            item for item in persisted if _is_current_finding(item, request_id)
         ]
         # The watchlist may already have findings from the continuous scheduler.
         # Include only current-classified durable rows in the current evidence list.
