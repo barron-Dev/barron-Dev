@@ -380,3 +380,48 @@ def test_native_onion_seed_status_requires_request_and_digest_binding():
     monitor.seed_route_proofs["seed"]["service_request_id"] = "request-1"
     monitor.seed_route_proofs["seed"]["content_sha256"] = "b" * 64
     assert not _native_onion_seed_route_proven(monitor, "seed")
+
+
+def test_ransomwatch_current_feed_only_alerts_for_exact_customer_target():
+    from types import SimpleNamespace
+    from cyclothone.darkweb.request_worker import _partition_ransomwatch_findings
+
+    exact = SimpleNamespace(
+        kind="company_name",
+        matched_value="acme corp",
+        source_url="https://example.invalid/post",
+        metadata={"temporal_class": "current_feed", "victim_name": "acme corp"},
+    )
+    unrelated = SimpleNamespace(
+        kind="company_name",
+        matched_value="other corp",
+        source_url="https://example.invalid/post-2",
+        metadata={"temporal_class": "current_feed", "victim_name": "other corp"},
+    )
+    current, historical, future = _partition_ransomwatch_findings(
+        [exact, unrelated], "company_name", "acme corp"
+    )
+    assert current == [exact]
+    assert historical == []
+    assert future == []
+
+
+def test_ransomwatch_historical_and_future_entries_are_not_current_alerts():
+    from types import SimpleNamespace
+    from cyclothone.darkweb.request_worker import _partition_ransomwatch_findings
+
+    def finding(temporal_class):
+        return SimpleNamespace(
+            kind="company_name",
+            matched_value="acme corp",
+            source_url="https://example.invalid/post",
+            metadata={"temporal_class": temporal_class, "victim_name": "acme corp"},
+        )
+
+    current, historical, future = _partition_ransomwatch_findings(
+        [finding("historical_archive"), finding("future_dated")],
+        "company_name", "acme corp"
+    )
+    assert current == []
+    assert len(historical) == 1
+    assert len(future) == 1
