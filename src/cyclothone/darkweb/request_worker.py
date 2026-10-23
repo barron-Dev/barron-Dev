@@ -256,6 +256,7 @@ class DarkWebRequestWorker:
         tenant_id: str,
         watchlist_id: str,
         service_request_id: str,
+        expected_attempt: int,
         metadata: dict,
     ) -> dict | None:
         """Persist a sanitized native-onion content match before finding success."""
@@ -271,6 +272,7 @@ class DarkWebRequestWorker:
             tenant_id=tenant_id,
             watchlist_id=watchlist_id,
             service_request_id=service_request_id,
+            expected_attempt=expected_attempt,
             source_url=finding.source_url,
             sanitized_page_text=excerpt,
             observed_at=str(metadata.get("observed_at") or datetime.now(UTC).isoformat()),
@@ -612,6 +614,7 @@ class DarkWebRequestWorker:
                     tenant_id=tenant_id,
                     watchlist_id=watch_id,
                     service_request_id=request_id,
+                    expected_attempt=int(request["attempts"]),
                     metadata=meta,
                 )
                 recorded = await supabase.rpc("record_dw_finding", {
