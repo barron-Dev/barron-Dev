@@ -153,6 +153,12 @@ _REQUIRED_ONION_ROUTE_PROOFS = (
     "stream_circuit_bound",
 )
 
+_REQUIRED_ONION_CONTROL_ASSERTIONS = (
+    "tor_control_authenticated",
+    "tor_bootstrap_complete",
+    "hsfetch_accepted",
+)
+
 
 def _native_onion_route_proof_missing(monitor: object) -> list[str]:
     """Require per-seed Tor proof bound to the content actually inspected."""
@@ -174,6 +180,7 @@ def _native_onion_route_proof_missing(monitor: object) -> list[str]:
             not getattr(monitor, "service_request_id", "")
             or str(proof.get("service_request_id") or "") != str(monitor.service_request_id)
             or str(proof.get("content_sha256") or "").lower() != str(content_hashes[seed]).lower()
+            or any(proof.get(field) is not True for field in _REQUIRED_ONION_CONTROL_ASSERTIONS)
         ):
             missing.update(_REQUIRED_ONION_ROUTE_PROOFS)
             continue
@@ -202,6 +209,8 @@ def _native_onion_seed_route_proven(monitor: object, seed: str) -> bool:
     if str(proof.get("service_request_id") or "") != str(monitor.service_request_id):
         return False
     if str(proof.get("content_sha256") or "").lower() != digest.lower():
+        return False
+    if any(proof.get(field) is not True for field in _REQUIRED_ONION_CONTROL_ASSERTIONS):
         return False
     return all(proof.get(field) is True for field in _REQUIRED_ONION_ROUTE_PROOFS)
 
