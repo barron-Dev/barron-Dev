@@ -13,13 +13,13 @@ create table if not exists public.dw_table_security_policy (
 
 insert into public.dw_table_security_policy(tablename, append_only, grants_to_service_role, notes)
 values
- ('dw_onion_probe_evidence', true, array['SELECT','INSERT'], 'Raw probe evidence is immutable'),
- ('dw_source_health_events', true, array['SELECT','INSERT'], 'Source health observations are immutable'),
- ('dw_evidence_log', true, array['SELECT','INSERT'], 'Hash-chained WARC evidence manifest'),
- ('dw_evidence_ots_receipts', false, array['SELECT','INSERT','UPDATE'], 'Mutable verifier state machine; never delete receipts'),
- ('dw_evidence_tsa_receipts', false, array['SELECT','INSERT','UPDATE'], 'Mutable timestamp-token verification state'),
- ('dw_merkle_anchors', false, array['SELECT','INSERT','UPDATE'], 'Anchor state may advance after external verification'),
- ('dw_sanitized_content', true, array['SELECT','INSERT'], 'Versioned derived content; replace by new version')
+ ('dw_onion_probe_evidence', true, array['SELECT'], 'Raw probe evidence is written only by the proof-bound RPC'),
+ ('dw_source_health_events', true, array['SELECT'], 'Source health observations are written only by trusted RPCs'),
+ ('dw_evidence_log', true, array['SELECT'], 'Hash-chained evidence; direct app writes stay disabled until trusted writer exists'),
+ ('dw_evidence_ots_receipts', false, array['SELECT'], 'Mutable verifier state machine; only trusted verifier may write'),
+ ('dw_evidence_tsa_receipts', false, array['SELECT'], 'Timestamp-token verification; direct app writes stay disabled'),
+ ('dw_merkle_anchors', false, array['SELECT'], 'Anchor state may advance only through trusted verifier'),
+ ('dw_sanitized_content', true, array['SELECT'], 'Versioned derived content; trusted sanitizer writer is not yet wired')
 on conflict (tablename) do update
 set append_only = excluded.append_only,
     grants_to_service_role = excluded.grants_to_service_role,
@@ -92,6 +92,7 @@ begin
 end $$;
 
 revoke all on public.dw_table_security_policy from public, anon, authenticated, service_role;
+revoke all on sequence public.dw_evidence_log_seq_seq from public, anon, authenticated, service_role;
 alter table public.dw_table_security_policy enable row level security;
 comment on table public.dw_table_security_policy is
   'Fail-closed registry for DW evidence table RLS, service-role grants, and mutability policy. Every dw_*evidence* table must be registered.';
