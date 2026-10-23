@@ -85,8 +85,8 @@ create table if not exists public.dw_merkle_anchors (
 );
 create table if not exists public.dw_evidence_ots_receipts (
  id uuid primary key default gen_random_uuid(),
- evidence_seq bigint references public.dw_evidence_log(seq) on delete restrict,
- anchor_id uuid references public.dw_merkle_anchors(id) on delete restrict,
+ evidence_seq bigint not null references public.dw_evidence_log(seq) on delete restrict,
+ anchor_id uuid not null references public.dw_merkle_anchors(id) on delete restrict,
  proof_uri text not null,
  proof_sha256 text not null check(proof_sha256 ~ '^[0-9a-f]{64}$'),
  verification_status text not null check(verification_status in ('pending','confirmed','verification_failed')),
@@ -94,7 +94,7 @@ create table if not exists public.dw_evidence_ots_receipts (
  verified_at timestamptz,
  verifier_version text not null,
  created_at timestamptz not null default now(),
- check((evidence_seq is null) <> (anchor_id is null))
+ unique(evidence_seq, anchor_id)
 );
 create table if not exists public.dw_evidence_tsa_receipts (
  id uuid primary key default gen_random_uuid(),
