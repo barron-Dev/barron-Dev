@@ -251,6 +251,20 @@ async def record_target_matched_onion_evidence(
             "classification": "candidate_evidence_not_verified",
         },
     })
+    # SECURITY DEFINER RPC success is not enough: verify the returned row is
+    # the exact tenant/subject/object/hash tuple we just submitted.
+    if isinstance(evidence, list):
+        evidence = evidence[0] if evidence else None
+    if (
+        not isinstance(evidence, dict)
+        or not evidence.get("id")
+        or str(evidence.get("tenant_id")) != str(tenant_id)
+        or str(evidence.get("subject_id")) != subject_id
+        or str(evidence.get("content_uri")) != uri
+        or str(evidence.get("content_hash")) != stored.sha256
+        or str(evidence.get("source_id")) != source_url
+    ):
+        raise RuntimeError("dw_evidence_rpc_returned_unbound_record")
     return {
         "subject_id": subject_id,
         "evidence": evidence,
