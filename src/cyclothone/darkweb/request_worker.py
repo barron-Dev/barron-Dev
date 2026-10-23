@@ -114,12 +114,13 @@ def _is_current_finding(item: dict, request_id: str) -> bool:
     if str(item.get("finding_class") or "") != "historical_archive":
         return True
     metadata = item.get("source_metadata")
-    return bool(
-        source_id == "native_onion"
-        and isinstance(metadata, dict)
-        and str(metadata.get("service_request_id") or "") == str(request_id)
-        and isinstance(metadata.get("durable_evidence"), dict)
-    )
+    if not isinstance(metadata, dict) or str(metadata.get("service_request_id") or "") != str(request_id):
+        return False
+    # Surface findings are bound by the successful finding RPC for this request.
+    # Native onion additionally requires its separately stored durable evidence.
+    if source_id == "native_onion":
+        return isinstance(metadata.get("durable_evidence"), dict)
+    return True
 
 
 _REQUIRED_ONION_ROUTE_PROOFS = (
