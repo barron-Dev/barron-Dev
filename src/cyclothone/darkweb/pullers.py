@@ -74,8 +74,11 @@ class RansomwatchPuller:
     """
     SOURCE = "ransomwatch"
     FEED = "https://raw.githubusercontent.com/joshhighet/ransomwatch/main/posts.json"
+    # "Current" means a recent, timestamped aggregator-feed observation,
+    # not a direct live onion check. Keep this distinct from source availability.
     CURRENT_WINDOW_DAYS = 30
     FUTURE_CLOCK_SKEW_SECONDS = 300
+    MAX_FEED_ENTRIES = 5000
 
     def __init__(self) -> None:
         self.feed_checked = False
@@ -129,7 +132,7 @@ class RansomwatchPuller:
         self.feed_observed_at = observed.isoformat()
         self.feed_entries_count = len(posts)
         out: list[Finding] = []
-        for post in posts[:5000]:
+        for post in posts[:self.MAX_FEED_ENTRIES]:
             if not isinstance(post, dict):
                 continue
             self.posts_checked += 1
