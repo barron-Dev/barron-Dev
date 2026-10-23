@@ -56,3 +56,20 @@ def test_ransomwatch_current_hits_are_separated_from_history_and_future():
     assert len(future) == 1
     assert historical[0]["label"].startswith("historical feed match")
     assert future[0]["label"].startswith("future-dated feed entry")
+
+
+def test_global_ransomwatch_alert_pipeline_quarantines_historical_and_future_rows():
+    from cyclothone.darkweb.pullers import Finding
+    from cyclothone.darkweb.scheduler import _current_ransomwatch_findings
+
+    def row(temporal_class):
+        return Finding(
+            "ransomwatch", "company_name", "example victim", "feed", "critical",
+            "https://feed.example/post", {"temporal_class": temporal_class},
+        )
+
+    current = row("current_feed")
+    result = _current_ransomwatch_findings([
+        current, row("historical_archive"), row("future_dated"), row("unknown"),
+    ])
+    assert result == [current]
