@@ -45,6 +45,7 @@ class TorControlProofCollector:
         self.tor_version: str | None = None
         self._lock = threading.RLock()
         self._starts: dict[str, float] = {}
+        self._hsfetch_accepted: set[str] = set()
         self._descriptor_events: dict[str, list[tuple[float, str, bool]]] = {}
         self._streams: list[tuple[float, str, str, str]] = []
         self._circuits: list[tuple[float, str, str, str]] = []
@@ -167,7 +168,10 @@ class TorControlProofCollector:
         # consumed only as a Boolean proof and is never written to logs/storage.
         try:
             reply = self.controller.msg(f"HSFETCH {host[:-6]}")
-            if not reply.is_ok():
+            if reply.is_ok():
+                with self._lock:
+                    self._hsfetch_accepted.add(host)
+            else:
                 logger.info("Tor HSFETCH was rejected for a configured seed")
         except Exception as exc:
             logger.info("Tor HSFETCH command failed error=%s", type(exc).__name__)
@@ -188,18 +192,28 @@ class TorControlProofCollector:
                 item for item in self._circuits
                 if item[0] >= started and item[2] == "BUILT" and item[3] in {"HS_CLIENT_REND", "HS_CLIENT_REND_JOINED"}
             ]
-        descriptor_fetched = any(action == "RECEIVED" and has_id for _, action, has_id in descriptor_events)
-        content_received = any(action == "CONTENT" and has_content for _, action, has_content in descriptor_events)
+        with self._lock:
+            hsfetch_accepted = host in self._hsfetch_accepted
+        descriptor_fetched = hsfetch_accepted and any(
+            action == "RECEIVED" and has_id for _, action, has_id in descriptor_events
+        )
+        content_received = hsfetch_accepted and any(
+            action == "CONTENT" and has_content for _, action, has_content in descriptor_events
+        )
         built_circuit_ids = {circ_id for _, circ_id, _, _ in circuits}
         bound_stream = next((stream for stream in streams if stream[3] in built_circuit_ids), None)
         rendezvous_verified = bound_stream is not None
-        route_verified = bool(self.controller is not None and self.bootstrapped and bound_stream is not None)
+        route_verified = bool(
+            self.controller is not None and self.bootstrapped and hsfetch_accepted
+            and descriptor_fetched and content_received and rendezvous_verified
+        )
         return {
             "service_request_id": self.request_id,
             "content_sha256": str(content_sha256).lower(),
             "tor_control_authenticated": self.controller is not None,
             "tor_bootstrap_complete": self.bootstrapped,
             "tor_version": self.tor_version,
+            "hsfetch_accepted": hsfetch_accepted,
             "route_verified": route_verified,
             "hs_desc_content_received": content_received,
             "descriptor_fetched": descriptor_fetched,
