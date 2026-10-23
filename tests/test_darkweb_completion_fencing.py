@@ -201,3 +201,43 @@ def test_surface_public_findings_remain_separate_from_historical_archive():
         {"source_id": "telegram_public", "finding_class": "surface_public"},
         "request-1",
     )
+
+
+def test_native_onion_requires_every_tor_protocol_proof():
+    from types import SimpleNamespace
+    from cyclothone.darkweb.request_worker import _native_onion_route_proof_missing
+
+    missing = _native_onion_route_proof_missing(SimpleNamespace())
+    assert set(missing) == {
+        "route_verified",
+        "hs_desc_content_received",
+        "descriptor_fetched",
+        "rendezvous_hop_verified",
+        "stream_circuit_bound",
+    }
+
+    proven = SimpleNamespace(
+        route_verified=True,
+        hs_desc_content_received=True,
+        descriptor_fetched=True,
+        rendezvous_hop_verified=True,
+        stream_circuit_bound=True,
+    )
+    assert _native_onion_route_proof_missing(proven) == []
+
+
+def test_truthy_non_boolean_tor_proof_is_not_accepted():
+    from types import SimpleNamespace
+    from cyclothone.darkweb.request_worker import _native_onion_route_proof_missing
+
+    monitor = SimpleNamespace(
+        route_verified=1,
+        hs_desc_content_received="true",
+        descriptor_fetched=True,
+        rendezvous_hop_verified=True,
+        stream_circuit_bound=True,
+    )
+    assert _native_onion_route_proof_missing(monitor) == [
+        "route_verified",
+        "hs_desc_content_received",
+    ]
