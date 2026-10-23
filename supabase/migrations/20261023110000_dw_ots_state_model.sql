@@ -60,6 +60,13 @@ language plpgsql
 set search_path = pg_catalog, public
 as $$
 begin
+  if tg_op = 'INSERT' then
+    if new.state <> 'pending' or new.verification_status <> 'pending' then
+      raise exception 'new OTS receipts must start pending' using errcode='22023';
+    end if;
+    return new;
+  end if;
+
   if new.evidence_seq is distinct from old.evidence_seq
      or new.anchor_id is distinct from old.anchor_id
      or new.proof_uri is distinct from old.proof_uri
@@ -92,7 +99,7 @@ $;
 
 drop trigger if exists dw_evidence_ots_state_guard on public.dw_evidence_ots_receipts;
 create trigger dw_evidence_ots_state_guard
-before update on public.dw_evidence_ots_receipts
+before insert or update on public.dw_evidence_ots_receipts
 for each row execute function public.dw_evidence_ots_guard_transition();
 
 comment on column public.dw_evidence_ots_receipts.state is
