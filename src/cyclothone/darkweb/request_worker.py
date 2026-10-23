@@ -404,17 +404,31 @@ class DarkWebRequestWorker:
                         monitor.seed_state_persistence = "unavailable"
                         logger.warning("onion seed registry persistence unavailable request_id=%s", request_id, exc_info=True)
                     missing_route_proof = _native_onion_route_proof_missing(monitor)
-                    if missing_route_proof:
+                    seed_digests = [
+                        str(digest).lower()
+                        for digest in getattr(monitor, "seed_content_hash", {}).values()
+                        if isinstance(digest, str)
+                        and len(digest) == 64
+                        and all(char in "0123456789abcdefABCDEF" for char in digest)
+                    ]
+                    inspected_pages = int(getattr(monitor, "pages_checked", 0) or 0)
+                    missing_content_proof = []
+                    if not seed_digests:
+                        missing_content_proof.append("content_sha256")
+                    if inspected_pages <= 0:
+                        missing_content_proof.append("inspected_items")
+                    if missing_route_proof or missing_content_proof:
                         # HTTP reachability is not proof that this response used
                         # a verified Tor circuit to a fetched v3 hidden service.
                         # Never persist matches or count pages as dark-web checked
-                        # until every required protocol proof is explicitly true.
+                        # until protocol proof and inspected-content proof are present.
                         return {
                             "source": source_id,
                             "state": "unavailable",
-                            "reason": "tor_route_proof_unavailable",
+                            "reason": "tor_route_proof_unavailable" if missing_route_proof else "onion_content_proof_unavailable",
                             "route_proof_missing": missing_route_proof,
-                            "unverified_page_responses": int(getattr(monitor, "pages_checked", 0) or 0),
+                            "content_proof_missing": missing_content_proof,
+                            "unverified_page_responses": inspected_pages,
                             "seed_state_persistence": getattr(monitor, "seed_state_persistence", "not_attempted"),
                             **{field: getattr(monitor, field, False) is True for field in _REQUIRED_ONION_ROUTE_PROOFS},
                         }, []
@@ -480,6 +494,11 @@ class DarkWebRequestWorker:
                         "pages_failed": pages_failed,
                         "seed_state_persistence": getattr(monitor, "seed_state_persistence", "not_attempted"),
                         "matches": getattr(monitor, "matches", 0),
+                        "content_sha256": next((
+                            str(digest).lower() for digest in getattr(monitor, "seed_content_hash", {}).values()
+                            if isinstance(digest, str) and len(digest) == 64
+                            and all(char in "0123456789abcdefABCDEF" for char in digest)
+                        ), None),
                         **{field: getattr(monitor, field, False) is True for field in _REQUIRED_ONION_ROUTE_PROOFS},
                     }, findings
                 if source_id == "pastebin_public":
@@ -576,8 +595,8 @@ class DarkWebRequestWorker:
                     "availability": definition.availability,
                 }
             sources.append(status)
-        # Persist every real provider attempt. Missing protocol/content proof stays
-        # missing; the ledger RPC hard-fences native onion Tor proof flags to false.
+        # Persist every real provider attempt. Protocol/content proof fields remain false
+        # unless the collector explicitly supplies verified evidence.
         for source in sources:
             state = str(source.get("state") or "failed").lower()
             attempt_status = {
@@ -602,7 +621,7 @@ class DarkWebRequestWorker:
                 await supabase.rpc("record_dw_source_attempt", {
                     "p_source_id": str(source.get("source") or ""),
                     "p_status": attempt_status,
-                    "p_content_sha256": None,
+                    "p_content_sha256": source.get("content_sha256"),
                     "p_inspected_items": inspected_items,
                     "p_error_code": error_code,
                     "p_metadata": {
