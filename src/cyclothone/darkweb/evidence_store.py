@@ -240,7 +240,11 @@ async def record_target_matched_onion_evidence(
     if not pattern.search(readback_text):
         raise RuntimeError("dw_evidence_independent_target_match_failed")
     uri = f"supabase://{stored.bucket}/{stored.object_path}"
-    evidence = await service_client.rpc("trust_record_evidence", {
+    evidence = await service_client.rpc("dw_record_evidence_if_current_attempt", {
+        "p_service_request_id": service_request_id,
+        "p_expected_attempt": expected_attempt,
+        "p_tenant_id": tenant_id,
+        "p_watchlist_id": str(target["id"]),
         "p_subject_id": subject_id,
         "p_evidence_type": "dark_web_page_match",
         "p_source_type": "native_onion",
