@@ -75,30 +75,52 @@ def test_global_ransomwatch_alert_pipeline_quarantines_historical_and_future_row
     assert result == [current]
 
 
-def test_ransomwatch_temporal_record_has_stable_source_identity(monkeypatch):
-    import hashlib
+@pytest.mark.asyncio
+async def test_ransomwatch_pull_emits_durable_temporal_record(monkeypatch):
+    import json
+    from datetime import UTC, datetime, timedelta
     from cyclothone.darkweb.pullers import RansomwatchPuller
 
-    puller = RansomwatchPuller()
-    puller.feed_observed_at = "2026-10-23T00:00:00+00:00"
-    puller.feed_content_sha256 = "a" * 64
-    identity = chr(31).join((
-        "https://example.invalid/post",
-        "example corporation",
-        "group-a",
-        "2026-10-22T00:00:00+00:00",
-    ))
-    record = {
-        "record_key": hashlib.sha256(identity.encode("utf-8")).hexdigest(),
-        "source_url": "https://example.invalid/post",
-        "victim_name": "Example Corporation",
-        "victim_domain": "example.com",
+    post = {
+        "post_title": "Example Corporation",
+        "post_url": "https://example.invalid/post",
         "group_name": "group-a",
-        "published_at": "2026-10-22T00:00:00+00:00",
-        "temporal_class": "current_feed",
-        "feed_observed_at": puller.feed_observed_at,
-        "feed_content_sha256": puller.feed_content_sha256,
+        "discovered": (datetime.now(UTC) - timedelta(days=1)).isoformat(),
     }
+    body = json.dumps([post]).encode()
+
+    class Response:
+        content = body
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return [post]
+
+    class Client:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        async def get(self, url):
+            assert url == RansomwatchPuller.FEED
+            return Response()
+
+    monkeypatch.setattr("cyclothone.darkweb.pullers.httpx.AsyncClient", Client)
+    puller = RansomwatchPuller()
+    findings = await puller.pull()
+
+    assert puller.feed_checked is True
+    assert len(puller.temporal_records) == 1
+    record = puller.temporal_records[0]
     assert len(record["record_key"]) == 64
-    assert record["temporal_class"] in {"current_feed", "historical_archive", "future_dated"}
-    assert record["feed_content_sha256"] == "a" * 64
+    assert record["temporal_class"] == "current_feed"
+    assert record["feed_content_sha256"] == __import__("hashlib").sha256(body).hexdigest()
+    assert record["victim_name"] == "Example Corporation"
+    assert findings
