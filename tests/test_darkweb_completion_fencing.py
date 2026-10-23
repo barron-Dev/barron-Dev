@@ -240,6 +240,9 @@ def test_native_onion_requires_per_seed_tor_protocol_proof():
         "seed-a": {
             "service_request_id": "request-1",
             "content_sha256": "a" * 64,
+            "tor_control_authenticated": True,
+            "tor_bootstrap_complete": True,
+            "hsfetch_accepted": True,
             "route_verified": True,
             "hs_desc_content_received": True,
             "descriptor_fetched": True,
@@ -333,6 +336,9 @@ def test_native_onion_route_proof_without_inspected_content_is_unavailable():
             "seed-a": {
                 "service_request_id": "request-1",
                 "content_sha256": "a" * 64,
+                "tor_control_authenticated": True,
+                "tor_bootstrap_complete": True,
+                "hsfetch_accepted": True,
                 "route_verified": True,
                 "hs_desc_content_received": True,
                 "descriptor_fetched": True,
