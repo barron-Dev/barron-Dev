@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+from email.utils import parsedate_to_datetime
 import logging
 import re
 from datetime import UTC, datetime
@@ -78,6 +79,7 @@ class RansomwatchPuller:
     # not a direct live onion check. Keep this distinct from source availability.
     CURRENT_WINDOW_DAYS = 30
     FUTURE_CLOCK_SKEW_SECONDS = 300
+    MAX_FEED_STALENESS_SECONDS = 3600
     MAX_FEED_BYTES = 10_000_000
     MAX_FEED_ENTRIES = 5000
 
@@ -85,6 +87,9 @@ class RansomwatchPuller:
         self.feed_checked = False
         self.feed_observed_at: str | None = None
         self.feed_content_sha256: str | None = None
+        self.feed_response_date: str | None = None
+        self.feed_age_seconds: int | None = None
+        self.feed_freshness_verified = False
         self.feed_entries_count = 0
         self.posts_checked = 0
         self.current_post_count = 0
@@ -127,11 +132,43 @@ class RansomwatchPuller:
 
     async def pull(self) -> list[Finding]:
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                response = await client.get(self.FEED)
+            async with httpx.AsyncClient(timeout=30.0, follow_redirects=False) as client:
+                response = await client.get(
+                    self.FEED,
+                    headers={
+                        "user-agent": "Cyclothone-Ransomwatch-Monitor/1.0",
+                        "cache-control": "no-cache",
+                        "pragma": "no-cache",
+                    },
+                )
                 response.raise_for_status()
                 if len(response.content) > self.MAX_FEED_BYTES:
                     raise RuntimeError("Ransomwatch feed exceeded configured size limit")
+                now = datetime.now(UTC)
+                date_header = str(response.headers.get("date") or "").strip()
+                if not date_header:
+                    raise RuntimeError("Ransomwatch feed response date missing")
+                try:
+                    response_date = parsedate_to_datetime(date_header)
+                    if response_date.tzinfo is None:
+                        response_date = response_date.replace(tzinfo=UTC)
+                    response_date = response_date.astimezone(UTC)
+                except (TypeError, ValueError, OverflowError) as exc:
+                    raise RuntimeError("Ransomwatch feed response date invalid") from exc
+                age_header = str(response.headers.get("age") or "").strip()
+                if age_header and not age_header.isdigit():
+                    raise RuntimeError("Ransomwatch feed age header invalid")
+                age_seconds = int(age_header) if age_header else 0
+                date_age = (now - response_date).total_seconds()
+                if (
+                    age_seconds > self.MAX_FEED_STALENESS_SECONDS
+                    or date_age > self.MAX_FEED_STALENESS_SECONDS
+                    or date_age < -self.FUTURE_CLOCK_SKEW_SECONDS
+                ):
+                    raise RuntimeError("Ransomwatch feed response stale or clock-invalid")
+                self.feed_response_date = response_date.isoformat()
+                self.feed_age_seconds = max(age_seconds, int(max(0, date_age)))
+                self.feed_freshness_verified = True
                 self.feed_content_sha256 = hashlib.sha256(response.content).hexdigest()
                 posts = response.json()
         except Exception as exc:
@@ -174,6 +211,9 @@ class RansomwatchPuller:
                 "temporal_class": temporal_class,
                 "feed_observed_at": self.feed_observed_at,
                 "feed_content_sha256": self.feed_content_sha256,
+                "feed_response_date": self.feed_response_date,
+                "feed_age_seconds": self.feed_age_seconds,
+                "feed_freshness_verified": self.feed_freshness_verified,
                 "feed_source": "ransomwatch_public_aggregated_feed",
                 "direct_onion_access_verified": False,
             }
@@ -190,6 +230,9 @@ class RansomwatchPuller:
                 "temporal_class": temporal_class,
                 "feed_observed_at": self.feed_observed_at,
                 "feed_content_sha256": self.feed_content_sha256,
+                "feed_response_date": self.feed_response_date,
+                "feed_age_seconds": self.feed_age_seconds,
+                "feed_freshness_verified": self.feed_freshness_verified,
             })
             if victim_domain:
                 out.append(Finding(
