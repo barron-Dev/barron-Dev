@@ -11,7 +11,7 @@ WHERE id = 'ransomwatch';
 UPDATE public.dw_findings
 SET web_layer = 'breach_intel'
 WHERE source_id = 'ransomwatch'
-  AND web_layer IS DISTINCT FROM 'surface';
+  AND web_layer IS DISTINCT FROM 'breach_intel';
 
 COMMENT ON COLUMN public.dw_findings.finding_class IS
   'Evidence class; Ransomwatch feed entries remain historical_archive unless the application exposes a fresh, dated current_feed entry as current surface-feed intelligence.';
