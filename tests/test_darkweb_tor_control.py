@@ -12,8 +12,10 @@ def _collector():
     collector = TorControlProofCollector("request-1", host="127.0.0.1", port=9051)
     collector.controller = object()
     collector.bootstrapped = True
+    collector.socks_auth_isolation_configured = True
     host = "a" * 56 + ".onion"
     collector._starts[host] = time.monotonic() - 2
+    collector._hsfetch_accepted.add(host)
     return collector, "http://" + host + "/"
 
 
@@ -26,7 +28,7 @@ def test_tor_proof_requires_descriptor_content_and_matching_rendezvous_stream():
         (now, "CONTENT", True),
     ]
     collector._circuits = [(now, "17", "BUILT", "HS_CLIENT_REND")]
-    collector._streams = [(now, host, "SUCCEEDED", "17")]
+    collector._streams = [(now, host, "SUCCEEDED", "17", collector._socks_username)]
 
     proof = collector.proof_for(seed, "A" * 64)
     assert proof["route_verified"] is True
