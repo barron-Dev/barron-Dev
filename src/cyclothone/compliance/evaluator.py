@@ -49,7 +49,6 @@ class ComplianceEvaluator:
                     "status": status,
                     "score": score,
                     "last_evaluated": now.isoformat(),
-                    "freshness_status": "fresh" if status != "unknown" else "unknown",
                     "evidence": evidence,
                     "updated_at": now.isoformat(),
                 })
