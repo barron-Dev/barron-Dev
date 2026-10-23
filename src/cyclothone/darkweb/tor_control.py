@@ -175,10 +175,12 @@ class TorControlProofCollector:
         host = self._host_from_event(event)
         if not host:
             return
+        # Stem parses HS_DESC_CONTENT into a descriptor object (not a raw
+        # string). Keep only its presence bit; never serialize or persist it.
         descriptor = getattr(event, "descriptor", None)
         with self._lock:
             self._descriptor_events.setdefault(host, []).append(
-                (time.monotonic(), "CONTENT", isinstance(descriptor, str) and bool(descriptor.strip()))
+                (time.monotonic(), "CONTENT", descriptor is not None)
             )
 
     def _on_stream(self, event: object) -> None:
