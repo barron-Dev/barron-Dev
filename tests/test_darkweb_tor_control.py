@@ -194,3 +194,21 @@ def test_tor_proof_rejects_events_after_response_window():
     assert proof["response_window_bound"] is True
     assert proof["route_verified"] is False
     assert proof["descriptor_fetched"] is False
+
+
+def test_hs_desc_content_event_accepts_stem_descriptor_object_without_retaining_it():
+    collector, seed = _collector()
+    host = "a" * 56 + ".onion"
+    event = SimpleNamespace(address="a" * 56, descriptor=object())
+    collector._on_hs_desc_content(event)
+    recorded = collector._descriptor_events[host][-1]
+    assert recorded[1] == "CONTENT"
+    assert recorded[2] is True
+    assert len(recorded) == 3
+
+
+def test_hs_desc_content_event_rejects_empty_descriptor():
+    collector, _ = _collector()
+    host = "a" * 56 + ".onion"
+    collector._on_hs_desc_content(SimpleNamespace(address="a" * 56, descriptor=None))
+    assert collector._descriptor_events[host][-1][2] is False
