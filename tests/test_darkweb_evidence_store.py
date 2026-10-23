@@ -306,6 +306,35 @@ async def test_trust_evidence_rpc_return_for_wrong_tenant_fails_closed():
 
 
 @pytest.mark.asyncio
+async def test_expired_request_lease_cannot_write_evidence():
+    storage = _Storage()
+    service = _ServiceClient(storage)
+    original_select_one = service.select_one
+
+    async def expired_lease(table, columns, **filters):
+        row = await original_select_one(table, columns, **filters)
+        if table == "service_requests":
+            row["locked_until"] = (datetime.now(UTC) - timedelta(minutes=1)).isoformat()
+        return row
+
+    service.select_one = expired_lease
+    host = "f" * 56 + ".onion"
+    with pytest.raises(RuntimeError, match="dw_evidence_request_lease_expired"):
+        await record_target_matched_onion_evidence(
+            service,
+            tenant_id="tenant-1",
+            watchlist_id="watchlist-1",
+            service_request_id="request-1",
+            expected_attempt=1,
+            source_url=f"http://{host}/leak",
+            sanitized_page_text="Public page mentions owned-example.com in the body.",
+            observed_at="2026-10-22T00:00:00+00:00",
+        )
+    assert storage.bucket.stored is None
+    assert service.rpc_calls == []
+
+
+@pytest.mark.asyncio
 async def test_existing_evidence_object_with_different_bytes_fails_closed():
     storage = _Storage()
     storage.bucket.path = "tenant/subject/request/evidence.txt"
