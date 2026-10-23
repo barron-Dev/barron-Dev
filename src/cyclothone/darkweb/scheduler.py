@@ -29,6 +29,7 @@ def _current_ransomwatch_findings(findings: list) -> list:
         finding for finding in findings
         if isinstance(getattr(finding, "metadata", None), dict)
         and finding.metadata.get("temporal_class") == "current_feed"
+        and finding.metadata.get("feed_freshness_verified") is True
     ]
 
 
