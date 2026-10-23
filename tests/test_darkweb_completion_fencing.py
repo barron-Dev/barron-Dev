@@ -425,3 +425,53 @@ def test_ransomwatch_historical_and_future_entries_are_not_current_alerts():
     assert current == []
     assert len(historical) == 1
     assert len(future) == 1
+
+
+def test_tor_control_proof_requires_hsfetch_descriptor_content_and_bound_rendezvous():
+    from cyclothone.darkweb.tor_control import TorControlProofCollector
+
+    host = "a" * 56 + ".onion"
+    collector = TorControlProofCollector("request-1", host="127.0.0.1", port=9051)
+    collector.controller = object()
+    collector.bootstrapped = True
+    collector.tor_version = "test-version"
+    collector._starts[host] = 1.0
+    collector._hsfetch_accepted.add(host)
+    collector._descriptor_events[host] = [
+        (2.0, "RECEIVED", True),
+        (2.1, "CONTENT", True),
+    ]
+    collector._circuits = [(2.5, "77", "BUILT", "HS_CLIENT_REND")]
+    collector._streams = [(3.0, host, "SUCCEEDED", "77")]
+
+    proof = collector.proof_for("http://" + host + "/", "b" * 64)
+    assert proof["route_verified"] is True
+    assert proof["hs_desc_content_received"] is True
+    assert proof["descriptor_fetched"] is True
+    assert proof["rendezvous_hop_verified"] is True
+    assert proof["stream_circuit_bound"] is True
+    assert proof["hsfetch_accepted"] is True
+    assert proof["service_request_id"] == "request-1"
+    assert proof["content_sha256"] == "b" * 64
+
+
+def test_tor_control_proof_fails_closed_without_accepted_hsfetch():
+    from cyclothone.darkweb.tor_control import TorControlProofCollector
+
+    host = "a" * 56 + ".onion"
+    collector = TorControlProofCollector("request-1", host="127.0.0.1", port=9051)
+    collector.controller = object()
+    collector.bootstrapped = True
+    collector._starts[host] = 1.0
+    collector._descriptor_events[host] = [
+        (2.0, "RECEIVED", True),
+        (2.1, "CONTENT", True),
+    ]
+    collector._circuits = [(2.5, "77", "BUILT", "HS_CLIENT_REND")]
+    collector._streams = [(3.0, host, "SUCCEEDED", "77")]
+
+    proof = collector.proof_for("http://" + host + "/", "b" * 64)
+    assert proof["hsfetch_accepted"] is False
+    assert proof["route_verified"] is False
+    assert proof["descriptor_fetched"] is False
+    assert proof["hs_desc_content_received"] is False
