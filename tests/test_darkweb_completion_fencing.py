@@ -354,3 +354,29 @@ def test_inspected_item_ledger_count_uses_only_actual_content_counts():
     assert _source_inspected_items({"items_inspected": 4}) == 4
     assert _source_inspected_items({"pages_checked": 3, "posts_checked": 8}) == 8
     assert _source_inspected_items({"seed_count": 20, "matches": 2}) == 0
+
+
+def test_native_onion_seed_status_requires_request_and_digest_binding():
+    from types import SimpleNamespace
+    from cyclothone.darkweb.request_worker import _native_onion_seed_route_proven
+
+    fields = {
+        "service_request_id": "request-1",
+        "content_sha256": "a" * 64,
+        "route_verified": True,
+        "hs_desc_content_received": True,
+        "descriptor_fetched": True,
+        "rendezvous_hop_verified": True,
+        "stream_circuit_bound": True,
+    }
+    monitor = SimpleNamespace(
+        service_request_id="request-1",
+        seed_content_hash={"seed": "a" * 64},
+        seed_route_proofs={"seed": dict(fields)},
+    )
+    assert _native_onion_seed_route_proven(monitor, "seed")
+    monitor.seed_route_proofs["seed"]["service_request_id"] = "request-2"
+    assert not _native_onion_seed_route_proven(monitor, "seed")
+    monitor.seed_route_proofs["seed"]["service_request_id"] = "request-1"
+    monitor.seed_route_proofs["seed"]["content_sha256"] = "b" * 64
+    assert not _native_onion_seed_route_proven(monitor, "seed")
