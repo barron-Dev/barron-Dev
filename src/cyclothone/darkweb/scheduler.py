@@ -97,12 +97,12 @@ class DarkWebScheduler:
 
     async def _global_tick(self) -> None:
         enabled = await self._enabled_sources()
-        # Poll the public aggregate feed on its 30-minute cadence. Current dated
+        # Poll the public aggregate feed on a 15-minute cadence. Current dated
         # entries are live feed intelligence; older entries remain historical, and
         # this is never represented as direct Tor access to a leak site.
         if (
             "ransomwatch" in enabled
-            and time.monotonic() - self._last_ransomwatch_pull >= 30 * 60
+            and time.monotonic() - self._last_ransomwatch_pull >= 15 * 60
         ):
             ransomwatch = RansomwatchPuller()
             await self._run_pull("ransomwatch", ransomwatch.pull, monitor=ransomwatch)
@@ -184,8 +184,12 @@ class DarkWebScheduler:
             findings = await pull()
             monitor = monitor or getattr(pull, "__self__", None)
             if source_id == "ransomwatch":
-                if monitor is None or not getattr(monitor, "feed_checked", False):
-                    raise RuntimeError("ransomwatch_feed_not_confirmed")
+                if (
+                    monitor is None
+                    or not getattr(monitor, "feed_checked", False)
+                    or getattr(monitor, "feed_freshness_verified", False) is not True
+                ):
+                    raise RuntimeError("ransomwatch_feed_freshness_not_confirmed")
                 temporal_records = getattr(monitor, "temporal_records", None)
                 if not isinstance(temporal_records, list):
                     raise RuntimeError("ransomwatch_temporal_records_missing")
