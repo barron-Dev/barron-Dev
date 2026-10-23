@@ -34,12 +34,13 @@ export async function GET(req: NextRequest) {
     probe("GitHub", "GitHub REST API", async () => {
       const h: Record<string,string> = { Accept: "application/vnd.github+json" };
       if (process.env.GITHUB_READ_TOKEN) h.Authorization = "Bearer " + process.env.GITHUB_READ_TOKEN;
-      const [r, p] = await Promise.all([
+      const [r, ref, p] = await Promise.all([
         json("https://api.github.com/repos/" + repo, h),
+        json("https://api.github.com/repos/" + repo + "/git/ref/heads/main", h),
         json("https://api.github.com/repos/" + repo + "/pulls?state=open&per_page=100", h),
       ]);
-      return { repository: repo, defaultBranch: r.default_branch, lastPushedAt: r.pushed_at, openPullRequests: (Array.isArray(p) ? p : []).map((x: any) => ({ number: x.number, title: x.title, draft: x.draft, head: x.head?.ref, base: x.base?.ref })) };
-    }, d => "Repository reachable; " + d.openPullRequests.length + " open pull request(s)."),
+      return { repository: repo, defaultBranch: r.default_branch, mainSha: ref.object?.sha ?? null, lastPushedAt: r.pushed_at, openPullRequests: (Array.isArray(p) ? p : []).map((x: any) => ({ number: x.number, title: x.title, draft: x.draft, head: x.head?.ref, base: x.base?.ref })) };
+    }, d => "Repository reachable; main SHA retrieved; " + d.openPullRequests.length + " open pull request(s)."),
     probe("Vercel", "Vercel REST API", async () => {
       if (!process.env.VERCEL_API_TOKEN) throw new Error("VERCEL_API_TOKEN is not configured");
       const d = await json("https://api.vercel.com/v6/deployments?projectId=" + project + "&teamId=" + team + "&limit=5", { Authorization: "Bearer " + process.env.VERCEL_API_TOKEN });
@@ -54,8 +55,8 @@ export async function GET(req: NextRequest) {
         json("https://api.supabase.com/v1/projects/" + supabaseRef, h),
         json("https://api.supabase.com/v1/projects/" + supabaseRef + "/database/migrations", h),
       ]);
-      const rows = Array.isArray(m) ? m : [];
-      return { projectRef: supabaseRef, status: p.status, region: p.region, migrationCount: rows.length, latestMigration: rows.length ? rows[rows.length - 1] : null };
+      if (!Array.isArray(m)) throw new Error("Unexpected migrations response format; migration state is unknown");
+      return { projectRef: supabaseRef, status: p.status, region: p.region, migrationCount: m.length, latestMigration: m.length ? m[m.length - 1] : null };
     }, d => "Project metadata reachable; " + d.migrationCount + " migration record(s) returned."),
   ]);
   checks.push({ provider: "Railway", status: "blocked", checkedAt: new Date().toISOString(), source: "operator_report", summary: "Checks intentionally deferred until the Railway trial is upgraded.", details: { liveChecked: false, nextAction: "After upgrade, inspect service identity, deployment history, runtime logs, variable names/presence, and health endpoint before proposing any repair." } });
