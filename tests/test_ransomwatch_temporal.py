@@ -65,3 +65,13 @@ def test_ransomwatch_exact_matching_supports_brand_and_url_host_without_fuzzy_ma
     )
     assert live_brand == [current_brand]
     assert live_url == [current_domain]
+
+
+def test_ransomwatch_is_an_implemented_feed_not_a_historical_only_provider():
+    from cyclothone.darkweb.source_catalog import get_source
+
+    source = get_source("ransomwatch")
+    assert source is not None
+    assert source.availability == "implemented"
+    assert source.layer == "breach_intel"
+    assert source.access_mode == "public_feed"
