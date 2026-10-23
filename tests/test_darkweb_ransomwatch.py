@@ -73,3 +73,32 @@ def test_global_ransomwatch_alert_pipeline_quarantines_historical_and_future_row
         current, row("historical_archive"), row("future_dated"), row("unknown"),
     ])
     assert result == [current]
+
+
+def test_ransomwatch_temporal_record_has_stable_source_identity(monkeypatch):
+    import hashlib
+    from cyclothone.darkweb.pullers import RansomwatchPuller
+
+    puller = RansomwatchPuller()
+    puller.feed_observed_at = "2026-10-23T00:00:00+00:00"
+    puller.feed_content_sha256 = "a" * 64
+    identity = chr(31).join((
+        "https://example.invalid/post",
+        "example corporation",
+        "group-a",
+        "2026-10-22T00:00:00+00:00",
+    ))
+    record = {
+        "record_key": hashlib.sha256(identity.encode("utf-8")).hexdigest(),
+        "source_url": "https://example.invalid/post",
+        "victim_name": "Example Corporation",
+        "victim_domain": "example.com",
+        "group_name": "group-a",
+        "published_at": "2026-10-22T00:00:00+00:00",
+        "temporal_class": "current_feed",
+        "feed_observed_at": puller.feed_observed_at,
+        "feed_content_sha256": puller.feed_content_sha256,
+    }
+    assert len(record["record_key"]) == 64
+    assert record["temporal_class"] in {"current_feed", "historical_archive", "future_dated"}
+    assert record["feed_content_sha256"] == "a" * 64
