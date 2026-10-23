@@ -162,6 +162,28 @@ def _native_onion_content_proof_missing(monitor: object) -> list[str]:
     return missing
 
 
+def _native_onion_unavailability(monitor: object) -> tuple[str | None, list[str], list[str]]:
+    """Decide whether native onion results may be treated as checked."""
+    route_missing = _native_onion_route_proof_missing(monitor)
+    content_missing = _native_onion_content_proof_missing(monitor)
+    if route_missing:
+        return "tor_route_proof_unavailable", route_missing, content_missing
+    if content_missing:
+        return "onion_content_proof_unavailable", route_missing, content_missing
+    return None, [], []
+
+
+def _source_inspected_items(source: dict) -> int:
+    """Count only source-reported inspected content/pages, never seed inventory."""
+    return max(
+        int(source.get("pages_checked") or 0),
+        int(source.get("posts_checked") or 0),
+        int(source.get("items_checked") or 0),
+        int(source.get("documents_checked") or 0),
+        int(source.get("items_inspected") or 0),
+    )
+
+
 def _finding_matches_target(finding: object, watch_kind: str, watch_value: str) -> bool:
     """Match a provider finding or persisted row without fuzzy guesses."""
     if isinstance(finding, dict):
@@ -444,10 +466,9 @@ class DarkWebRequestWorker:
                         # optional discovered-seed registry could not be updated.
                         monitor.seed_state_persistence = "unavailable"
                         logger.warning("onion seed registry persistence unavailable request_id=%s", request_id, exc_info=True)
-                    missing_route_proof = _native_onion_route_proof_missing(monitor)
-                    missing_content_proof = _native_onion_content_proof_missing(monitor)
+                    proof_reason, missing_route_proof, missing_content_proof = _native_onion_unavailability(monitor)
                     inspected_pages = int(getattr(monitor, "pages_checked", 0) or 0)
-                    if missing_route_proof or missing_content_proof:
+                    if proof_reason:
                         # HTTP reachability is not proof that this response used
                         # a verified Tor circuit to a fetched v3 hidden service.
                         # Never persist matches or count pages as dark-web checked
@@ -455,7 +476,7 @@ class DarkWebRequestWorker:
                         return {
                             "source": source_id,
                             "state": "unavailable",
-                            "reason": "tor_route_proof_unavailable" if missing_route_proof else "onion_content_proof_unavailable",
+                            "reason": proof_reason,
                             "route_proof_missing": missing_route_proof,
                             "content_proof_missing": missing_content_proof,
                             "unverified_page_responses": inspected_pages,
@@ -639,13 +660,7 @@ class DarkWebRequestWorker:
                 "failed": "failed",
                 "timeout": "timeout",
             }.get(state, "failed")
-            inspected_items = max(
-                int(source.get("pages_checked") or 0),
-                int(source.get("posts_checked") or 0),
-                int(source.get("items_checked") or 0),
-                int(source.get("documents_checked") or 0),
-                int(source.get("items_inspected") or 0),
-            )
+            inspected_items = _source_inspected_items(source)
             reason = str(source.get("reason") or "")
             error_code = reason if reason and all(
                 char.isalnum() or char in "_.:-" for char in reason
