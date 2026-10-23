@@ -42,6 +42,9 @@ class DwClassLevelTrustControlsTests(unittest.TestCase):
         self.assertIn("dw_evidence_ots_confirmed_has_block", sql)
         self.assertIn("dw_evidence_ots_failed_has_reason", sql)
         self.assertIn("invalid ots state transition", sql)
+        self.assertIn("legacy \"confirmed\" is only a caller-attested status", sql)
+        self.assertIn("when verification_status = 'confirmed' then 'pending'", sql)
+        self.assertIn("verified_at is not null", sql)
 
     def test_probe_rpc_uses_artifact_references_not_attestation_booleans(self):
         sql = read("20261023120000_dw_proof_bound_probe_rpc.sql").lower()
