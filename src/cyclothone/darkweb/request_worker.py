@@ -1043,8 +1043,15 @@ class DarkWebRequestWorker:
         coverage = _coverage_state(sources)
         dark_sources = [x for x in sources if x.get("layer") == "dark"]
         surface_sources = [x for x in sources if x.get("layer") == "surface"]
+        breach_intel_sources = [x for x in sources if x.get("layer") == "breach_intel"]
         dark_findings = [f for f in current_persisted if str(f.get("source_id") or "") == "native_onion"]
-        surface_findings = [f for f in current_persisted if str(f.get("source_id") or "") != "native_onion"]
+        surface_findings = [
+            f for f in current_persisted
+            if str(f.get("source_id") or "") not in {"native_onion", "ransomwatch"}
+        ]
+        breach_intel_findings = [
+            f for f in current_persisted if str(f.get("source_id") or "") == "ransomwatch"
+        ]
         native_status = next((x for x in dark_sources if x.get("source") == "native_onion"), None)
         result = {
             "service": "dark_web_monitoring", "target": watch_value, "target_type": target_type,
@@ -1056,12 +1063,35 @@ class DarkWebRequestWorker:
                 "findings": dark_findings[:200],
             },
             "surface_web": {"sources": surface_sources, "findings": surface_findings[:200]},
+            "breach_intelligence": {
+                "sources": breach_intel_sources,
+                "findings": breach_intel_findings[:200],
+                "historical_candidates": [
+                    item for item in historical_candidates
+                    if item.get("source") == "ransomwatch"
+                ][:200],
+                "future_dated_candidates": future_dated_candidates[:200],
+                "temporal_summary": next((
+                    {
+                        "feed_observed_at": source.get("feed_observed_at"),
+                        "feed_entries": source.get("feed_entries", 0),
+                        "current_feed_entries": source.get("current_feed_entries", 0),
+                        "historical_entries": source.get("historical_entries", 0),
+                        "future_dated_entries": source.get("future_dated_entries", 0),
+                    }
+                    for source in sources if source.get("source") == "ransomwatch"
+                ), {"state": "unavailable"}),
+            },
             "source_summary": {
                 "checked_count": len(checked_sources),
                 "unavailable_count": len(unavailable_sources),
                 "checked_source_ids": [x.get("source") for x in checked_sources],
                 "unavailable_source_ids": [x.get("source") for x in unavailable_sources],
-                "layers": {"dark_web": dark_sources, "surface_web": surface_sources},
+                "layers": {
+                    "dark_web": dark_sources,
+                    "surface_web": surface_sources,
+                    "breach_intelligence": breach_intel_sources,
+                },
             },
             "findings": current_persisted[:200],
             "historical_candidates": historical_candidates[:200],
