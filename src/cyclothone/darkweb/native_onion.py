@@ -313,6 +313,14 @@ class NativeOnionCrawler:
                                     self.pages_failed += 1
                                     continue
                                 body = b"".join(chunks)
+                                # Close the Tor event window immediately after the
+                                # bounded response body is read, before HTML parsing
+                                # or any subsequent crawl work can contaminate proof.
+                                if url == seed and collector is not None:
+                                    response_digest = hashlib.sha256(body).hexdigest()
+                                    await asyncio.to_thread(
+                                        collector.complete_seed_response, seed, response_digest
+                                    )
                                 text = body.decode(response.encoding or "utf-8", errors="replace")
                             if not body.strip():
                                 self.pages_failed += 1
@@ -326,7 +334,6 @@ class NativeOnionCrawler:
                             body_hash = hashlib.sha256(body).hexdigest()
                             self.seed_content_hash.setdefault(seed, body_hash)
                             if url == seed and collector is not None:
-                                await asyncio.to_thread(collector.complete_seed_response, seed, body_hash)
                                 self.seed_route_proofs[seed] = await asyncio.to_thread(
                                     collector.wait_for_proof,
                                     seed,
