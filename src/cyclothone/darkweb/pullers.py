@@ -119,7 +119,10 @@ class RansomwatchPuller:
         age_seconds = (observed_at - parsed).total_seconds()
         if age_seconds < -cls.FUTURE_CLOCK_SKEW_SECONDS:
             return "future_dated", parsed.isoformat()
-        if 0 <= age_seconds <= cls.CURRENT_WINDOW_DAYS * 86400:
+        # Small publisher/collector clock skew is tolerated, but only inside
+        # the explicit five-minute window. The customer alert guard uses the
+        # same bound, so near-future timestamps are not silently archived.
+        if -cls.FUTURE_CLOCK_SKEW_SECONDS <= age_seconds <= cls.CURRENT_WINDOW_DAYS * 86400:
             return "current_feed", parsed.isoformat()
         return "historical_archive", parsed.isoformat()
 
