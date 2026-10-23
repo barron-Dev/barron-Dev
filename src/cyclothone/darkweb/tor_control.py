@@ -49,6 +49,9 @@ class TorControlProofCollector:
         self.tor_version: str | None = None
         self._lock = threading.RLock()
         self._starts: dict[str, float] = {}
+        # Only events inside the exact HTTP response window may attest a seed.
+        # The digest is registered after bounded body read and must match proof_for.
+        self._response_windows: dict[str, tuple[float, float, str]] = {}
         self._hsfetch_accepted: set[str] = set()
         self._descriptor_events: dict[str, list[tuple[float, str, bool]]] = {}
         self._streams: list[tuple[float, str, str, str, str]] = []
@@ -222,6 +225,22 @@ class TorControlProofCollector:
         except Exception as exc:
             logger.info("Tor HSFETCH command failed error=%s", type(exc).__name__)
 
+    def complete_seed_response(self, seed_url: str, content_sha256: str) -> None:
+        """Bind a response digest to the observed request window for one seed."""
+        parsed = urlsplit(seed_url)
+        host = (parsed.hostname or "").lower()
+        started = self._starts.get(host)
+        digest = str(content_sha256 or "").lower()
+        if not _ONION_HOST.fullmatch(host) or started is None:
+            raise RuntimeError("tor_control_seed_window_missing")
+        if not re.fullmatch(r"[0-9a-f]{64}", digest):
+            raise ValueError("tor_control_response_digest_invalid")
+        ended = time.monotonic()
+        if ended < started:
+            raise RuntimeError("tor_control_seed_window_invalid")
+        with self._lock:
+            self._response_windows[host] = (started, ended, digest)
+
     def wait_for_proof(
         self,
         seed_url: str,
@@ -248,14 +267,24 @@ class TorControlProofCollector:
     def proof_for(self, seed_url: str, content_sha256: str) -> dict[str, object]:
         parsed = urlsplit(seed_url)
         host = (parsed.hostname or "").lower()
-        started = self._starts.get(host, float("inf"))
         with self._lock:
+            response_window = self._response_windows.get(host)
+            if response_window is None:
+                started, ended, bound_digest = float("inf"), float("-inf"), ""
+            else:
+                started, ended, bound_digest = response_window
+            digest_matches_window = (
+                bool(response_window)
+                and re.fullmatch(r"[0-9a-f]{64}", str(content_sha256 or "").lower()) is not None
+                and str(content_sha256).lower() == bound_digest
+            )
             descriptor_events = [
-                item for item in self._descriptor_events.get(host, []) if item[0] >= started
+                item for item in self._descriptor_events.get(host, [])
+                if started <= item[0] <= ended
             ]
             streams = [
                 item for item in self._streams
-                if item[0] >= started
+                if started <= item[0] <= ended
                 and item[1] == host
                 and item[2] == "SUCCEEDED"
                 and item[3] not in {"", "0"}
@@ -263,7 +292,9 @@ class TorControlProofCollector:
             ]
             circuits = [
                 item for item in self._circuits
-                if item[0] >= started and item[2] == "BUILT" and item[3] in {"HS_CLIENT_REND", "HS_CLIENT_REND_JOINED"}
+                if started <= item[0] <= ended
+                and item[2] == "BUILT"
+                and item[3] in {"HS_CLIENT_REND", "HS_CLIENT_REND_JOINED"}
             ]
         with self._lock:
             hsfetch_accepted = host in self._hsfetch_accepted
@@ -277,13 +308,15 @@ class TorControlProofCollector:
         bound_stream = next((stream for stream in streams if stream[3] in built_circuit_ids), None)
         rendezvous_verified = bound_stream is not None
         route_verified = bool(
-            self.controller is not None and self.bootstrapped and hsfetch_accepted
+            digest_matches_window
+            and self.controller is not None and self.bootstrapped and hsfetch_accepted
             and self.socks_auth_isolation_configured
             and descriptor_fetched and content_received and rendezvous_verified
         )
         return {
             "service_request_id": self.request_id,
-            "content_sha256": str(content_sha256).lower(),
+            "content_sha256": str(content_sha256).lower() if digest_matches_window else None,
+            "response_window_bound": digest_matches_window,
             "tor_control_authenticated": self.controller is not None,
             "tor_bootstrap_complete": self.bootstrapped,
             "tor_socks_auth_isolation_configured": self.socks_auth_isolation_configured,
