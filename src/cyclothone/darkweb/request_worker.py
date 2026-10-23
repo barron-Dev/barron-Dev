@@ -109,12 +109,12 @@ def _require_recorded_finding(response: object) -> dict:
 def _tenant_finding_content_hash(source_id: str, matched_value: str, watchlist_id: str, metadata: dict) -> str:
     """Hash a tenant match with its stable source-record identity when available."""
     matched_hash = hashlib.sha256(str(matched_value).strip().lower().encode()).hexdigest()
-    source_record_key = ""
+    material = f"{source_id}:{matched_hash}:{watchlist_id}"
     if str(source_id).lower() == "ransomwatch":
         source_record_key = str(metadata.get("record_key") or "")
         if len(source_record_key) != 64 or any(ch not in "0123456789abcdef" for ch in source_record_key.lower()):
             raise RuntimeError("ransomwatch_record_key_missing")
-    material = f"{source_id}:{matched_hash}:{watchlist_id}:{source_record_key}"
+        material = f"{material}:{source_record_key}"
     return hashlib.sha256(material.encode()).hexdigest()
 
 
