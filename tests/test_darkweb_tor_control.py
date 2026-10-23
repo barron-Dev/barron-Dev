@@ -74,3 +74,9 @@ def test_tor_control_endpoint_rejects_public_hosts(host):
 @pytest.mark.parametrize("host", ["127.0.0.1", "::1", "tor", "tor.railway.internal"])
 def test_tor_control_endpoint_accepts_loopback_or_private_service_names(host):
     assert _private_control_host(host) is True
+
+
+def test_tor_descriptor_events_without_onion_suffix_normalize_to_seed_host():
+    collector, _ = _collector()
+    address = "a" * 56
+    assert collector._host_from_event(SimpleNamespace(address=address)) == address + ".onion"
