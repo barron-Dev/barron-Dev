@@ -464,10 +464,11 @@ class DarkWebRequestWorker:
         })
         watch_id = str(watch["id"])
 
-        # Exact retro-sweep only; findings are labeled as review candidates.
+        # Exact retro-sweep only; historical and future-dated feed records are
+        # review-only and must never be silently promoted to current alerts.
         historical = await supabase.select(
             "dw_findings",
-            "id,source_id,content_hash,kind,matched_value,context,source_url,severity,first_seen,collected_at,tenant_id,watchlist_id",
+            "id,source_id,content_hash,kind,matched_value,context,source_url,severity,first_seen,collected_at,tenant_id,watchlist_id,source_metadata,finding_class",
             tenant_id=tenant_id,
         )
         exact = [f for f in historical if _finding_matches_target(f, watch_kind, watch_value)]
@@ -477,6 +478,10 @@ class DarkWebRequestWorker:
                 "collected_at": item.get("collected_at") or item.get("first_seen"),
                 "content_hash": item.get("content_hash"), "source_url": item.get("source_url"),
                 "severity": item.get("severity"),
+                "temporal_class": (
+                    item.get("source_metadata", {}).get("temporal_class")
+                    if isinstance(item.get("source_metadata"), dict) else "historical_archive"
+                ),
                 "label": "historical match — review; not checked during this request",
             }
             for item in exact
@@ -670,7 +675,7 @@ class DarkWebRequestWorker:
         # Ransomwatch is a live-polled public aggregator feed with three
         # separate temporal classes. It is not direct proof of onion-site access.
         ransom_reason = (
-            None if target_type in {"domain", "url", "brand", "username", "other"}
+            None if target_type in {"domain", "url", "brand"}
             else "unsupported_target_type"
         )
         public_target_supported = target_type in {"domain", "url", "email"}
@@ -712,6 +717,48 @@ class DarkWebRequestWorker:
             run_source(source_id, pull, timeout, reason)
             for source_id, pull, timeout, reason in provider_specs
         ))
+
+        # Keep the feed's three time classes distinct. Current dated records may
+        # enter the current finding/alert path; historical records are returned as
+        # review-only candidates; future-dated records are quarantined from alerts.
+        future_dated_candidates = []
+        feed_historical_candidates = []
+        normalized_provider_results = []
+        for status, batch in provider_results:
+            if str(status.get("source") or "") != "ransomwatch":
+                normalized_provider_results.append((status, batch))
+                continue
+            current_batch = []
+            for finding in batch:
+                metadata = finding.metadata if isinstance(finding.metadata, dict) else {}
+                temporal_class = str(metadata.get("temporal_class") or "historical_archive")
+                if temporal_class in {"historical_archive", "future_dated"} and _finding_matches_target(
+                    finding, watch_kind, watch_value
+                ):
+                    candidate = {
+                        "source": "ransomwatch",
+                        "source_url": finding.source_url,
+                        "published": metadata.get("published"),
+                        "feed_observed_at": metadata.get("feed_observed_at"),
+                        "victim_name": metadata.get("victim_name") or finding.matched_value,
+                        "group": metadata.get("group"),
+                        "temporal_class": temporal_class,
+                        "label": (
+                            "future-dated feed entry — quarantined, not an alert"
+                            if temporal_class == "future_dated"
+                            else "historical feed match — review; not a current exposure alert"
+                        ),
+                    }
+                    if temporal_class == "future_dated":
+                        future_dated_candidates.append(candidate)
+                    else:
+                        feed_historical_candidates.append(candidate)
+                if temporal_class == "current_feed":
+                    current_batch.append(finding)
+            normalized_provider_results.append((status, current_batch))
+        provider_results = normalized_provider_results
+        historical_candidates = (feed_historical_candidates + historical_candidates)[:1000]
+
         sources = []
         for status, _ in provider_results:
             definition = get_source(str(status.get("source") or ""))
@@ -946,6 +993,19 @@ class DarkWebRequestWorker:
             "findings": current_persisted[:200],
             "historical_candidates": historical_candidates[:200],
             "historical_candidate_count": len(historical_candidates),
+            "future_dated_candidates": future_dated_candidates[:200],
+            "future_dated_candidate_count": len(future_dated_candidates),
+            "ransomwatch_temporal_summary": next((
+                {
+                    "feed_observed_at": source.get("feed_observed_at"),
+                    "feed_entries": source.get("feed_entries", 0),
+                    "current_feed_entries": source.get("current_feed_entries", 0),
+                    "historical_entries": source.get("historical_entries", 0),
+                    "future_dated_entries": source.get("future_dated_entries", 0),
+                    "direct_onion_access_verified": False,
+                }
+                for source in sources if source.get("source") == "ransomwatch"
+            ), {"state": "unavailable"}),
             "evidence": evidence[:200], "alerts": relevant_alerts[:200],
             "case_id": case_id, "recommendations": (
                 ["Review each possible match against the source evidence.", "Rotate exposed credentials and investigate affected accounts."]
