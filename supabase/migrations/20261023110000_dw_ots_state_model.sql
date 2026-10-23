@@ -15,10 +15,28 @@ $$;
 alter table public.dw_evidence_ots_receipts
   add column if not exists state public.dw_ots_state;
 alter table public.dw_evidence_ots_receipts
-  add column if not exists failure_reason text;
+  add column if not exists failure_reason text,
+  add column if not exists demoted_at timestamptz,
+  add column if not exists demoted_from_state public.dw_ots_state,
+  add column if not exists demotion_reason text;
 
--- Never promote a legacy "confirmed" receipt without a block height to confirmed.
--- Legacy "confirmed" is only a caller-attested status; require fresh verifier work.
+-- Preserve the legacy caller claim before demoting it. The old state column is
+-- newly introduced and NULL here, so provenance must be captured from the
+-- legacy verification_status value, not from state.
+update public.dw_evidence_ots_receipts
+   set demoted_at = coalesce(demoted_at, now()),
+       demoted_from_state = coalesce(demoted_from_state, 'confirmed'::public.dw_ots_state),
+       demotion_reason = coalesce(
+         demotion_reason,
+         'legacy_confirmation_unverified_at_branch_df3c'
+       ),
+       state = 'pending',
+       verification_status = 'pending',
+       verified_at = null
+ where state is null
+   and verification_status = 'confirmed';
+
+-- Map remaining legacy states without rewriting a preserved confirmation claim.
 update public.dw_evidence_ots_receipts
    set state = case
      when verification_status = 'verification_failed' then 'failed'::public.dw_ots_state
@@ -27,14 +45,6 @@ update public.dw_evidence_ots_receipts
    failure_reason = case
      when verification_status = 'verification_failed' then coalesce(failure_reason, 'legacy_verification_failed')
      else failure_reason
-   end,
-   verification_status = case
-     when verification_status = 'confirmed' then 'pending'
-     else verification_status
-   end,
-   verified_at = case
-     when verification_status = 'confirmed' then null
-     else verified_at
    end
  where state is null;
 
