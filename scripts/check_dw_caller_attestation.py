@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Warning-only DW trust lint: caller-attested booleans and evidence-policy drift."""
+"""Blocking DW trust lint: caller-attested booleans and evidence-policy drift."""
 from __future__ import annotations
 
 import pathlib
@@ -48,7 +48,7 @@ def main() -> int:
     dropped_names: set[str] = set()
 
     # Process in migration order; a later DROP removes the legacy signature from
-    # the effective API surface. The scan remains warning-only during rollout.
+    # the effective API surface. Findings return nonzero and fail CI.
     for path, source in source_by_file:
         for match in FUNC_START.finditer(source):
             name, args = match.group(1), match.group(2)
@@ -79,7 +79,7 @@ def main() -> int:
         )
 
     if findings:
-        print("DW TRUST LINT WARNINGS (warning-only rollout):", file=sys.stderr)
+        print("DW TRUST LINT FAILED:", file=sys.stderr)
         print("\n".join(findings), file=sys.stderr)
         return 1
     print("No active caller-attestation booleans or evidence/proof policy-registry drift found.")
