@@ -23,6 +23,15 @@ def _configured_telegram_channels() -> list[str]:
     return configured_telegram_channels()
 
 
+def _current_ransomwatch_findings(findings: list) -> list:
+    """Only fresh, dated feed records may enter the global current-alert pipeline."""
+    return [
+        finding for finding in findings
+        if isinstance(getattr(finding, "metadata", None), dict)
+        and finding.metadata.get("temporal_class") == "current_feed"
+    ]
+
+
 class DarkWebScheduler:
     GLOBAL_INTERVAL = 15 * 60
     DOMAIN_INTERVAL = 6 * 3600
@@ -165,11 +174,7 @@ class DarkWebScheduler:
                 # The scheduler is the current-alert path. Archive entries remain
                 # available as request-level historical candidates, and future-dated
                 # entries are quarantined; neither may create a current alert.
-                findings = [
-                    finding for finding in findings
-                    if isinstance(getattr(finding, "metadata", None), dict)
-                    and finding.metadata.get("temporal_class") == "current_feed"
-                ]
+                findings = _current_ransomwatch_findings(findings)
             if (
                 source_id == "native_onion"
                 and monitor is not None
