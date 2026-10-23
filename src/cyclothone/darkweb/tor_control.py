@@ -249,20 +249,14 @@ class TorControlProofCollector:
         timeout_seconds: float = 3.0,
         poll_interval_seconds: float = 0.1,
     ) -> dict[str, object]:
-        """Wait briefly for asynchronous Tor events tied to this response."""
-        deadline = time.monotonic() + max(0.0, min(float(timeout_seconds), 5.0))
-        proof = self.proof_for(seed_url, content_sha256)
-        required = (
-            "route_verified", "hs_desc_content_received", "descriptor_fetched",
-            "rendezvous_hop_verified", "stream_circuit_bound",
-        )
-        while not all(proof.get(field) is True for field in required):
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                break
-            time.sleep(min(max(0.01, poll_interval_seconds), remaining))
-            proof = self.proof_for(seed_url, content_sha256)
-        return proof
+        """Evaluate proof only for events observed before the response window closed.
+
+        Do not sleep waiting for later events: once the body is complete, events
+        outside its bounded interval cannot attest that response and waiting would
+        add up to several minutes across the seed budget.
+        """
+        del timeout_seconds, poll_interval_seconds
+        return self.proof_for(seed_url, content_sha256)
 
     def proof_for(self, seed_url: str, content_sha256: str) -> dict[str, object]:
         parsed = urlsplit(seed_url)
