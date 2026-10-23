@@ -230,7 +230,7 @@ begin
     if not found then
       raise exception 'independent corroboration proof missing or mismatched to source/evidence' using errcode='42501';
     end if;
-    if lower(regexp_replace(v_corroboration.independent_source_url, '^https?://([^/:]+).*$', '\\1')) = lower(v_seed.hostname)
+    if lower(regexp_replace(v_corroboration.independent_source_url, '^https?://([^/:]+).*$', '\1')) = lower(v_seed.hostname)
        or lower(v_corroboration.independent_source_url) = lower(p_request_url) then
       raise exception 'corroboration source is not independent of the onion target' using errcode='22023';
     end if;
