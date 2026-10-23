@@ -69,6 +69,8 @@ class TorControlProofCollector:
         )
 
     def start(self) -> None:
+        if not self.request_id.strip():
+            raise RuntimeError("tor_control_request_id_required")
         if self.controller is not None:
             return
         try:
