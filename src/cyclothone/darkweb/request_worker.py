@@ -115,7 +115,10 @@ def _is_current_finding(item: dict, request_id: str) -> bool:
             return False
         if str(metadata.get("temporal_class") or "") != "current_feed":
             return False
-        if str(metadata.get("service_request_id") or "") != str(request_id):
+        # Scheduled global polling has no customer request ID; request-triggered
+        # checks do. If present, the request binding must match exactly.
+        bound_request = str(metadata.get("service_request_id") or "")
+        if bound_request and bound_request != str(request_id):
             return False
         try:
             observed = datetime.fromisoformat(str(metadata.get("feed_observed_at") or "").replace("Z", "+00:00"))
