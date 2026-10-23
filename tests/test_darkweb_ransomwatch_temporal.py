@@ -134,3 +134,21 @@ def test_current_ransomwatch_classification_requires_exact_tenant_row():
                 invalid, finding_id="finding-1", tenant_id="tenant-1",
                 watchlist_id="watch-1", record_key="a" * 64,
             )
+
+
+def test_current_ransomwatch_finding_requires_this_request_binding():
+    from cyclothone.darkweb.request_worker import _is_current_finding
+
+    row = {
+        "source_id": "ransomwatch",
+        "source_metadata": {
+            "temporal_class": "current_feed",
+            "feed_observed_at": datetime.now(UTC).isoformat(),
+            "published": datetime.now(UTC).isoformat(),
+        },
+    }
+    assert not _is_current_finding(row, "request-1")
+    row["source_metadata"]["service_request_id"] = "request-2"
+    assert not _is_current_finding(row, "request-1")
+    row["source_metadata"]["service_request_id"] = "request-1"
+    assert _is_current_finding(row, "request-1")
