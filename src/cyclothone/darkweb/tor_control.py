@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 _ONION_HOST = re.compile(r"^[a-z2-7]{56}\.onion$", re.IGNORECASE)
 def _bootstrap_complete(value: str) -> bool:
     """Parse Tor's bootstrap status without treating partial progress as ready."""
-    return bool(re.search(r"(?:^|\\s)PROGRESS=100(?:\\s|$)", str(value or "")))
+    return bool(re.search(r"(?:^|\s)PROGRESS=100(?:\s|$)", str(value or "")))
 
 
 def _private_control_host(host: str) -> bool:
@@ -91,7 +91,7 @@ class TorControlProofCollector:
                 controller.authenticate()
             self.tor_version = str(controller.get_version())
             bootstrap = str(controller.get_info("status/bootstrap-phase", ""))
-            self.bootstrapped = bool(re.search(r"(?:^|\s)PROGRESS=100(?:\s|$)", bootstrap))
+            self.bootstrapped = _bootstrap_complete(bootstrap)
             controller.add_event_listener(self._on_hs_desc, EventType.HS_DESC)
             controller.add_event_listener(self._on_hs_desc_content, EventType.HS_DESC_CONTENT)
             controller.add_event_listener(self._on_stream, EventType.STREAM)
@@ -181,6 +181,29 @@ class TorControlProofCollector:
                 logger.info("Tor HSFETCH was rejected for a configured seed")
         except Exception as exc:
             logger.info("Tor HSFETCH command failed error=%s", type(exc).__name__)
+
+    def wait_for_proof(
+        self,
+        seed_url: str,
+        content_sha256: str,
+        *,
+        timeout_seconds: float = 3.0,
+        poll_interval_seconds: float = 0.1,
+    ) -> dict[str, object]:
+        """Wait briefly for asynchronous Tor events tied to this response."""
+        deadline = time.monotonic() + max(0.0, min(float(timeout_seconds), 5.0))
+        proof = self.proof_for(seed_url, content_sha256)
+        required = (
+            "route_verified", "hs_desc_content_received", "descriptor_fetched",
+            "rendezvous_hop_verified", "stream_circuit_bound",
+        )
+        while not all(proof.get(field) is True for field in required):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            time.sleep(min(max(0.01, poll_interval_seconds), remaining))
+            proof = self.proof_for(seed_url, content_sha256)
+        return proof
 
     def proof_for(self, seed_url: str, content_sha256: str) -> dict[str, object]:
         parsed = urlsplit(seed_url)
