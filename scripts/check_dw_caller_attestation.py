@@ -29,6 +29,9 @@ POLICY_ROW = re.compile(
 POLICY_TABLE_PATTERNS = (
     re.compile(r"^dw_.*evidence.*$", re.I),
     re.compile(r"^dw_.*proofs$", re.I),
+    re.compile(r"^dw_.*events$", re.I),
+    re.compile(r"^dw_trust_.*$", re.I),
+    re.compile(r"^dw_.*_(?:health|integrity|fingerprints|embeddings|credentials|assignments|pins|observations)$", re.I),
 )
 
 def main() -> int:
