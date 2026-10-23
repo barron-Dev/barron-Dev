@@ -1,3 +1,5 @@
+import pytest
+
 from datetime import UTC, datetime, timedelta
 
 from cyclothone.darkweb.pullers import RansomwatchPuller
