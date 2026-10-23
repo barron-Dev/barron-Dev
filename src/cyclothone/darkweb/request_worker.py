@@ -133,11 +133,35 @@ _REQUIRED_ONION_ROUTE_PROOFS = (
 
 
 def _native_onion_route_proof_missing(monitor: object) -> list[str]:
-    """Return every required Tor protocol proof not explicitly verified true."""
-    return [
-        field for field in _REQUIRED_ONION_ROUTE_PROOFS
-        if getattr(monitor, field, False) is not True
-    ]
+    """Require per-seed Tor proof bound to the content actually inspected."""
+    content_hashes = getattr(monitor, "seed_content_hash", {})
+    proofs_by_seed = getattr(monitor, "seed_route_proofs", {})
+    if not isinstance(content_hashes, dict) or not content_hashes:
+        return list(_REQUIRED_ONION_ROUTE_PROOFS)
+    if not isinstance(proofs_by_seed, dict):
+        return list(_REQUIRED_ONION_ROUTE_PROOFS)
+    missing: set[str] = set()
+    for seed in content_hashes:
+        proof = proofs_by_seed.get(seed)
+        if not isinstance(proof, dict):
+            missing.update(_REQUIRED_ONION_ROUTE_PROOFS)
+            continue
+        for field in _REQUIRED_ONION_ROUTE_PROOFS:
+            if proof.get(field) is not True:
+                missing.add(field)
+    return [field for field in _REQUIRED_ONION_ROUTE_PROOFS if field in missing]
+
+
+def _native_onion_route_proof_state(monitor: object) -> dict[str, bool]:
+    """Expose aggregate proof only when every inspected seed has its own proof."""
+    missing = set(_native_onion_route_proof_missing(monitor))
+    return {field: field not in missing for field in _REQUIRED_ONION_ROUTE_PROOFS}
+
+
+def _native_onion_seed_route_proven(monitor: object, seed: str) -> bool:
+    proofs = getattr(monitor, "seed_route_proofs", {})
+    proof = proofs.get(seed) if isinstance(proofs, dict) else None
+    return isinstance(proof, dict) and all(proof.get(field) is True for field in _REQUIRED_ONION_ROUTE_PROOFS)
 
 
 def _native_onion_content_sha256(monitor: object) -> str | None:
@@ -316,7 +340,7 @@ class DarkWebRequestWorker:
             )
             if state == "disabled":
                 inventory_status, last_status, last_checked = "disabled", "disabled", None
-            elif not route_proven:
+            elif not _native_onion_seed_route_proven(crawler, url):
                 inventory_status, last_status, last_checked = "candidate", "tor_route_unverified", None
             elif state == "checked" and not digest_valid:
                 inventory_status, last_status, last_checked = "candidate", "content_digest_missing", None
@@ -481,7 +505,7 @@ class DarkWebRequestWorker:
                             "content_proof_missing": missing_content_proof,
                             "unverified_page_responses": inspected_pages,
                             "seed_state_persistence": getattr(monitor, "seed_state_persistence", "not_attempted"),
-                            **{field: getattr(monitor, field, False) is True for field in _REQUIRED_ONION_ROUTE_PROOFS},
+                            **_native_onion_route_proof_state(monitor),
                         }, []
                 if source_id == "pastebin_public" and not getattr(monitor, "feed_checked", False):
                     return {
