@@ -555,3 +555,13 @@ def test_temporal_observation_rpc_response_must_bind_tenant_request_and_entry():
             entry_hash="a" * 64,
             temporal_class="historical_archive",
         )
+
+
+def test_ransomwatch_source_is_current_feed_intelligence_not_historical_only():
+    from cyclothone.darkweb.source_catalog import get_source
+
+    source = get_source("ransomwatch")
+    assert source is not None
+    assert source.availability == "implemented"
+    assert source.layer == "breach_intel"
+    assert source.access_mode == "public_feed"
