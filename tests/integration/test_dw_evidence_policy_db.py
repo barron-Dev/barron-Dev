@@ -96,6 +96,7 @@ class DwEvidencePolicyDatabaseTests(unittest.TestCase):
         required = {
             "DW_TEST_SEED_ID": os.getenv("DW_TEST_SEED_ID"),
             "DW_TEST_REQUEST_URL": os.getenv("DW_TEST_REQUEST_URL"),
+            "DW_TEST_RESPONSE_SHA256": os.getenv("DW_TEST_RESPONSE_SHA256"),
             "DW_TEST_VALID_ROUTE_PROOF_ID": os.getenv("DW_TEST_VALID_ROUTE_PROOF_ID"),
             "DW_TEST_VALID_PUBLISHER_PROOF_ID": os.getenv("DW_TEST_VALID_PUBLISHER_PROOF_ID"),
             "DW_TEST_VALID_CORROBORATION_PROOF_ID": os.getenv("DW_TEST_VALID_CORROBORATION_PROOF_ID"),
@@ -108,6 +109,9 @@ class DwEvidencePolicyDatabaseTests(unittest.TestCase):
 
         seed_id = required["DW_TEST_SEED_ID"]
         request_url = required["DW_TEST_REQUEST_URL"]
+        response_sha256 = required["DW_TEST_RESPONSE_SHA256"]
+        if len(response_sha256) != 64 or any(ch not in "0123456789abcdef" for ch in response_sha256):
+            self.fail("DW_TEST_RESPONSE_SHA256 must be a lowercase SHA-256 hex digest")
         valid_route = required["DW_TEST_VALID_ROUTE_PROOF_ID"]
         valid_publisher = required["DW_TEST_VALID_PUBLISHER_PROOF_ID"]
         valid_corroboration = required["DW_TEST_VALID_CORROBORATION_PROOF_ID"]
@@ -151,7 +155,7 @@ class DwEvidencePolicyDatabaseTests(unittest.TestCase):
                                     )""",
                                     (
                                         seed_id, "disposable-integration-test", route_id, request_url, 200,
-                                        "0" * 64, "text/html", 1, publisher_id, corroboration_id, seq,
+                                        response_sha256, "text/html", 1, publisher_id, corroboration_id, seq,
                                         "verified_publisher", None, "{}",
                                     ),
                                 )
