@@ -190,9 +190,20 @@ def _native_onion_route_proof_state(monitor: object) -> dict[str, bool]:
 
 
 def _native_onion_seed_route_proven(monitor: object, seed: str) -> bool:
+    """Require every proof field plus request and exact response-digest binding."""
     proofs = getattr(monitor, "seed_route_proofs", {})
+    hashes = getattr(monitor, "seed_content_hash", {})
     proof = proofs.get(seed) if isinstance(proofs, dict) else None
-    return isinstance(proof, dict) and all(proof.get(field) is True for field in _REQUIRED_ONION_ROUTE_PROOFS)
+    digest = hashes.get(seed) if isinstance(hashes, dict) else None
+    if not isinstance(proof, dict) or not isinstance(digest, str):
+        return False
+    if not getattr(monitor, "service_request_id", ""):
+        return False
+    if str(proof.get("service_request_id") or "") != str(monitor.service_request_id):
+        return False
+    if str(proof.get("content_sha256") or "").lower() != digest.lower():
+        return False
+    return all(proof.get(field) is True for field in _REQUIRED_ONION_ROUTE_PROOFS)
 
 
 def _native_onion_content_sha256(monitor: object) -> str | None:
