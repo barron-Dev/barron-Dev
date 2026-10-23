@@ -364,6 +364,85 @@ def _dedupe_temporal_candidates(candidates: list[dict]) -> list[dict]:
     return list(unique.values())
 
 
+async def _load_persisted_ransomwatch_candidates(
+    tenant_id: str, watchlist_id: str, watch_kind: str, watch_value: str
+) -> tuple[list[dict], list[dict], dict]:
+    """Reload target-bound historical/future observations for durable customer history."""
+    if watch_kind in {"domain", "url"}:
+        candidate = watch_value if "://" in watch_value else f"https://{watch_value}"
+        try:
+            expected_value = (urlsplit(candidate).hostname or "").rstrip(".").lower()
+        except ValueError:
+            expected_value = ""
+        expected_kind = "domain"
+    elif watch_kind == "brand":
+        expected_value = watch_value.strip().lower()
+        expected_kind = "company_name"
+    else:
+        return [], [], {"state": "not_applicable", "reason": "unsupported_target_type"}
+    if not expected_value:
+        return [], [], {"state": "unavailable", "reason": "invalid_target"}
+
+    try:
+        client = await supabase._ensure()
+        response = await (
+            client.table("dw_feed_temporal_observations")
+            .select(
+                "entry_hash,temporal_class,published_at,feed_observed_at,"
+                "feed_content_sha256,victim_name,group_name,source_url,label,"
+                "match_kind,matched_value,last_seen_at,observation_count"
+            )
+            .match({
+                "tenant_id": tenant_id,
+                "watchlist_id": watchlist_id,
+                "source_id": "ransomwatch",
+            })
+            .order("last_seen_at", desc=True)
+            .limit(1000)
+            .execute()
+        )
+        historical, future = [], []
+        for row in response.data or []:
+            temporal_class = str(row.get("temporal_class") or "")
+            if temporal_class not in {"historical_archive", "future_dated"}:
+                continue
+            if (
+                str(row.get("match_kind") or "") != expected_kind
+                or str(row.get("matched_value") or "").strip().lower() != expected_value
+            ):
+                continue
+            candidate_row = {
+                "source": "ransomwatch",
+                "entry_hash": row.get("entry_hash"),
+                "source_url": row.get("source_url"),
+                "published": row.get("published_at"),
+                "feed_observed_at": row.get("feed_observed_at"),
+                "feed_content_sha256": row.get("feed_content_sha256"),
+                "victim_name": row.get("victim_name"),
+                "group": row.get("group_name"),
+                "match_kind": row.get("match_kind"),
+                "matched_value": row.get("matched_value"),
+                "temporal_class": temporal_class,
+                "last_seen_at": row.get("last_seen_at"),
+                "observation_count": row.get("observation_count"),
+                "label": row.get("label") or (
+                    "future-dated feed entry — quarantined, not an alert"
+                    if temporal_class == "future_dated"
+                    else "historical feed match — review; not a current exposure alert"
+                ),
+                "direct_onion_access_verified": False,
+            }
+            (future if temporal_class == "future_dated" else historical).append(candidate_row)
+        return historical, future, {
+            "state": "checked",
+            "historical_records": len(historical),
+            "future_dated_records": len(future),
+        }
+    except Exception as exc:
+        logger.warning("Ransomwatch customer temporal history unavailable error=%s", type(exc).__name__)
+        return [], [], {"state": "unavailable", "reason": "temporal_history_lookup_failed"}
+
+
 def _partition_ransomwatch_findings(findings: list, watch_kind: str, watch_value: str) -> tuple[list, list[dict], list[dict]]:
     """Separate current feed hits from historical review candidates and future quarantine."""
     current = []
@@ -981,10 +1060,19 @@ class DarkWebRequestWorker:
                 entry_hash=entry_hash,
                 temporal_class=str(candidate["temporal_class"]),
             )
+        persisted_historical, persisted_future, temporal_history_status = (
+            await _load_persisted_ransomwatch_candidates(
+                tenant_id, watch_id, watch_kind, watch_value
+            )
+            if _source_is_enabled("ransomwatch", enabled, registered_source_ids)
+            else ([], [], {"state": "disabled"})
+        )
         historical_candidates = _dedupe_temporal_candidates(
-            feed_historical_candidates + historical_candidates
+            feed_historical_candidates + persisted_historical + historical_candidates
         )[:1000]
-        future_dated_candidates = _dedupe_temporal_candidates(future_dated_candidates)[:1000]
+        future_dated_candidates = _dedupe_temporal_candidates(
+            future_dated_candidates + persisted_future
+        )[:1000]
 
         sources = []
         for status, _ in provider_results:
@@ -1063,6 +1151,7 @@ class DarkWebRequestWorker:
                 "historical_candidate_count": len(historical_candidates),
                 "future_dated_candidates": future_dated_candidates[:200],
                 "future_dated_candidate_count": len(future_dated_candidates),
+                "ransomwatch_temporal_history": temporal_history_status,
                 "evidence": historical_candidates[:200],
                 "alerts": [],
                 "completed_at": datetime.now(UTC).isoformat(),
@@ -1229,6 +1318,7 @@ class DarkWebRequestWorker:
                     if item.get("source") == "ransomwatch"
                 ][:200],
                 "future_dated_candidates": future_dated_candidates[:200],
+                "temporal_history": temporal_history_status,
                 "temporal_summary": next((
                     {
                         "feed_observed_at": source.get("feed_observed_at"),
