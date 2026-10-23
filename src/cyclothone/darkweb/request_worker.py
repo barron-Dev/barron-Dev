@@ -298,6 +298,21 @@ def _finding_matches_target(finding: object, watch_kind: str, watch_value: str) 
     expected = watch_value.strip().lower()
     if kind == watch_kind and value == expected:
         return True
+
+    # Ransomware feeds identify organizations and domains, while customer
+    # watchlists commonly call an organization a "brand" and URLs include paths.
+    # Normalize only the relevant identifier form; never use fuzzy/substring match.
+    if watch_kind == "brand" and kind == "company_name" and value == expected:
+        return True
+    if watch_kind in {"domain", "url"} and kind == "domain":
+        candidate = expected if "://" in expected else f"https://{expected}"
+        try:
+            expected_host = (urlsplit(candidate).hostname or "").rstrip(".").lower()
+        except ValueError:
+            expected_host = ""
+        if expected_host and value.rstrip(".") == expected_host:
+            return True
+
     # A domain monitor should also surface historical exact email-address
     # matches at that domain, but must never promote a subdomain/suffix guess.
     if watch_kind == "domain" and kind == "email":
@@ -641,7 +656,7 @@ class DarkWebRequestWorker:
                     return {
                         "source": source_id,
                         "state": "checked",
-                        "coverage": "current_feed_plus_historical_records",
+                        "coverage": "current_historical_and_future_temporal_classification",
                         "feed_observed_at": getattr(monitor, "feed_observed_at", None),
                         "content_sha256": getattr(monitor, "feed_content_sha256", None),
                         "feed_entries": getattr(monitor, "feed_entries_count", 0),
@@ -905,6 +920,8 @@ class DarkWebRequestWorker:
                 "findings": [],
                 "historical_candidates": historical_candidates[:200],
                 "historical_candidate_count": len(historical_candidates),
+                "future_dated_candidates": future_dated_candidates[:200],
+                "future_dated_candidate_count": len(future_dated_candidates),
                 "evidence": historical_candidates[:200],
                 "alerts": [],
                 "completed_at": datetime.now(UTC).isoformat(),
