@@ -24,6 +24,8 @@ class DwClassLevelTrustControlsTests(unittest.TestCase):
         self.assertIn("'dw_evidence_ots_receipts', false", sql.lower())
         self.assertIn("'dw_onion_probe_evidence', true", sql.lower())
         self.assertIn("'dw_trust_canary_events', true", sql.lower())
+        self.assertIn("'dw_discovery_job_runs', false", sql.lower())
+        self.assertIn("'dw_content_translations', true", sql.lower())
         self.assertIn("dw_trust\\_%", sql.lower())
         self.assertIn("create trigger", sql.lower())
 
