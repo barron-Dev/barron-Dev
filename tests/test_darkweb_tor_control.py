@@ -92,3 +92,18 @@ def test_tor_bootstrap_requires_exact_completion_marker(status, expected):
     from cyclothone.darkweb.tor_control import _bootstrap_complete
 
     assert _bootstrap_complete(status) is expected
+
+
+def test_tor_control_start_requires_request_id_before_connecting():
+    collector = TorControlProofCollector("", host="127.0.0.1", port=9051)
+    with pytest.raises(RuntimeError, match="tor_control_request_id_required"):
+        collector.start()
+
+
+def test_tor_control_environment_requires_explicit_auth_material(monkeypatch):
+    monkeypatch.setenv("CYCLOTHONE_DW_TOR_CONTROL_ENABLED", "true")
+    monkeypatch.setenv("CYCLOTHONE_DW_TOR_CONTROL_HOST", "127.0.0.1")
+    monkeypatch.delenv("CYCLOTHONE_DW_TOR_CONTROL_PASSWORD", raising=False)
+    monkeypatch.delenv("CYCLOTHONE_DW_TOR_CONTROL_COOKIE", raising=False)
+    with pytest.raises(RuntimeError, match="tor_control_auth_material_required"):
+        TorControlProofCollector.from_env("request-1")
