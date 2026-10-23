@@ -104,3 +104,33 @@ def test_ransomwatch_hash_fails_closed_without_stable_feed_entry_key():
 
     with pytest.raises(RuntimeError, match="ransomwatch_record_key_missing"):
         _tenant_finding_content_hash("ransomwatch", "owned.example", "watch-1", {})
+
+
+def test_current_ransomwatch_classification_requires_exact_tenant_row():
+    import pytest
+    from cyclothone.darkweb.request_worker import _require_current_breach_intel_classification
+
+    row = {
+        "id": "finding-1",
+        "tenant_id": "tenant-1",
+        "watchlist_id": "watch-1",
+        "source_id": "ransomwatch",
+        "finding_class": "current_breach_intel",
+        "source_metadata": {"record_key": "a" * 64, "temporal_class": "current_feed"},
+    }
+    assert _require_current_breach_intel_classification(
+        row, finding_id="finding-1", tenant_id="tenant-1",
+        watchlist_id="watch-1", record_key="a" * 64,
+    ) == row
+    for field, wrong in (
+        ("tenant_id", "tenant-2"),
+        ("watchlist_id", "watch-2"),
+        ("finding_class", "historical_archive"),
+        ("id", "finding-2"),
+    ):
+        invalid = {**row, field: wrong}
+        with pytest.raises(RuntimeError, match="ransomwatch_current_classification_unconfirmed"):
+            _require_current_breach_intel_classification(
+                invalid, finding_id="finding-1", tenant_id="tenant-1",
+                watchlist_id="watch-1", record_key="a" * 64,
+            )
