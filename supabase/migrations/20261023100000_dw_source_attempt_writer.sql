@@ -23,7 +23,7 @@ BEGIN
       USING ERRCODE = '42501';
   END IF;
   IF p_source_id IS NULL OR length(trim(p_source_id)) = 0
-     OR p_status NOT IN ('ok','unavailable','failed','timeout','disabled','historical_only')
+     OR p_status IS NULL OR p_status NOT IN ('ok','unavailable','failed','timeout','disabled','historical_only')
      OR p_inspected_items IS NULL OR p_inspected_items < 0
      OR (p_content_sha256 IS NOT NULL AND p_content_sha256 !~ '^[0-9a-f]{64}$')
      OR jsonb_typeof(coalesce(p_metadata, '{}'::jsonb)) <> 'object'
