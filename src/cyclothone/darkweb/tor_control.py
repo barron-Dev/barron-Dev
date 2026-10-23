@@ -198,12 +198,14 @@ class TorControlProofCollector:
 
     def _on_circuit(self, event: object) -> None:
         with self._lock:
+            # CIRC events identify circuit ID/status/purpose; they do not
+            # reliably carry the originating SOCKS username. Bind a circuit to
+            # the request-scoped STREAM event by circuit ID instead.
             self._circuits.append((
                 time.monotonic(),
                 str(getattr(event, "id", "") or ""),
                 str(getattr(event, "status", "") or "").upper(),
                 str(getattr(event, "purpose", "") or "").upper(),
-                str(getattr(event, "socks_username", "") or ""),
             ))
 
     def begin_seed(self, seed_url: str) -> None:
@@ -292,7 +294,6 @@ class TorControlProofCollector:
                 if started <= item[0] <= ended
                 and item[2] == "BUILT"
                 and item[3] in {"HS_CLIENT_REND", "HS_CLIENT_REND_JOINED"}
-                and item[4] == self._socks_username
             ]
         with self._lock:
             hsfetch_accepted = host in self._hsfetch_accepted
