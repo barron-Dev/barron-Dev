@@ -257,3 +257,20 @@ def test_truthy_non_boolean_tor_proof_is_not_accepted():
         "route_verified",
         "hs_desc_content_received",
     ]
+
+
+def test_native_onion_content_proof_requires_real_digest_and_inspected_page():
+    from types import SimpleNamespace
+    from cyclothone.darkweb.request_worker import (
+        _native_onion_content_proof_missing,
+        _native_onion_content_sha256,
+    )
+
+    monitor = SimpleNamespace(seed_content_hash={}, pages_checked=0)
+    assert _native_onion_content_proof_missing(monitor) == ["content_sha256", "inspected_items"]
+    assert _native_onion_content_sha256(monitor) is None
+
+    monitor.seed_content_hash = {"seed": "A" * 64}
+    monitor.pages_checked = 1
+    assert _native_onion_content_proof_missing(monitor) == []
+    assert _native_onion_content_sha256(monitor) == "a" * 64
