@@ -79,3 +79,28 @@ def test_ransomwatch_temporal_candidates_deduplicate_by_stable_entry_hash():
     deduped = _dedupe_temporal_candidates(candidates)
     assert len(deduped) == 1
     assert deduped[0]["observation_count"] == 2
+
+
+def test_ransomwatch_findings_are_deduplicated_per_feed_entry_not_per_domain():
+    from cyclothone.darkweb.request_worker import _tenant_finding_content_hash
+
+    base = {
+        "record_key": "a" * 64,
+        "temporal_class": "current_feed",
+        "published": "2026-10-22T00:00:00+00:00",
+    }
+    first = _tenant_finding_content_hash("ransomwatch", "owned.example", "watch-1", base)
+    repeat = _tenant_finding_content_hash("ransomwatch", "owned.example", "watch-1", dict(base))
+    second = _tenant_finding_content_hash(
+        "ransomwatch", "owned.example", "watch-1", {**base, "record_key": "b" * 64}
+    )
+    assert first == repeat
+    assert first != second
+
+
+def test_ransomwatch_hash_fails_closed_without_stable_feed_entry_key():
+    import pytest
+    from cyclothone.darkweb.request_worker import _tenant_finding_content_hash
+
+    with pytest.raises(RuntimeError, match="ransomwatch_record_key_missing"):
+        _tenant_finding_content_hash("ransomwatch", "owned.example", "watch-1", {})
