@@ -104,6 +104,10 @@ class TorControlProofCollector:
     @staticmethod
     def _host_from_event(event: object) -> str:
         raw = str(getattr(event, "address", "") or "").strip().lower().rstrip(".")
+        # Tor's HS_DESC events carry the 56-character address without ".onion";
+        # STREAM events normally carry the full hostname.
+        if re.fullmatch(r"[a-z2-7]{56}", raw):
+            return raw + ".onion"
         if _ONION_HOST.fullmatch(raw):
             return raw
         target = str(getattr(event, "target_address", "") or getattr(event, "target", "") or "").strip()
