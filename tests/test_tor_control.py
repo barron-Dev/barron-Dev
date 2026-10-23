@@ -106,6 +106,7 @@ def test_control_proof_requires_matching_request_socks_auth_and_built_rendezvous
     host = "a" * 56 + ".onion"
     collector.controller = object()
     collector.bootstrapped = True
+    collector.socks_auth_isolation_configured = True
     collector._starts[host] = 0.0
     collector._hsfetch_accepted.add(host)
     now = time.monotonic()
