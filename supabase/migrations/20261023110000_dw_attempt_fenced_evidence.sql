@@ -342,7 +342,7 @@ COMMIT;
   IF p_source_id <> 'native_onion' AND v_any_tor_claim THEN
     RAISE EXCEPTION 'dw_source_attempt_tor_claim_on_non_tor_source';
   END IF;
-  IF p_source_id = 'native_onion' AND v_any_tor_claim THEN
+  IF p_source_id = 'native_onion' AND p_status = 'ok' THEN
     v_seed_proofs := p_metadata->'tor_protocol_evidence'->'seed_proofs';
     IF jsonb_typeof(v_seed_proofs) IS DISTINCT FROM 'array'
        OR jsonb_array_length(v_seed_proofs) = 0 THEN
@@ -887,8 +887,8 @@ COMMIT;
       END IF;
     END LOOP;
     IF NOT EXISTS (
-      SELECT 1 FROM jsonb_array_elements(v_seed_proofs) AS proof
-       WHERE proof->>'content_sha256' = lower(coalesce(p_content_sha256, ''))
+      SELECT 1 FROM jsonb_array_elements(v_seed_proofs) AS items(seed)
+       WHERE seed->>'content_sha256' = lower(coalesce(p_content_sha256, ''))
     ) THEN
       RAISE EXCEPTION 'dw_source_attempt_content_digest_not_bound';
     END IF;
