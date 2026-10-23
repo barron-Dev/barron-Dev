@@ -19,7 +19,18 @@ values
  ('dw_evidence_ots_receipts', false, array['SELECT'], 'Mutable verifier state machine; only trusted verifier may write'),
  ('dw_evidence_tsa_receipts', false, array['SELECT'], 'Timestamp-token verification; direct app writes stay disabled'),
  ('dw_merkle_anchors', false, array['SELECT'], 'Anchor state may advance only through trusted verifier'),
- ('dw_sanitized_content', true, array['SELECT'], 'Versioned derived content; trusted sanitizer writer is not yet wired')
+ ('dw_sanitized_content', true, array['SELECT'], 'Versioned derived content; trusted sanitizer writer is not yet wired'),
+ ('dw_client_auth_credentials', false, array['SELECT'], 'Encrypted client-auth material; KMS writer is not yet wired'),
+ ('dw_circuit_assignments', false, array['SELECT'], 'Tor isolation state; trusted circuit manager is not yet wired'),
+ ('dw_mirror_integrity', true, array['SELECT'], 'Publisher signature verifier output; direct writes disabled'),
+ ('dw_content_fingerprints', true, array['SELECT'], 'Derived content fingerprints; trusted processor is not yet wired'),
+ ('dw_publisher_key_pins', false, array['SELECT'], 'Publisher pin lifecycle; direct writes disabled'),
+ ('dw_content_embeddings', true, array['SELECT'], 'Derived embeddings; trusted processor is not yet wired'),
+ ('dw_source_anomaly_events', true, array['SELECT'], 'Anomaly signals are evidence, never findings by themselves'),
+ ('dw_descriptor_health', true, array['SELECT'], 'Descriptor observations; trusted Tor collector is not yet wired'),
+ ('dw_trust_honeypot_observations', true, array['SELECT'], 'Deception telemetry is append-only and isolated from findings'),
+ ('dw_trust_canary_events', true, array['SELECT'], 'Signed-provider canary ingest; direct caller attestations disabled'),
+ ('dw_source_health', false, array['SELECT'], 'Source health state is written only by trusted workers')
 on conflict (tablename) do update
 set append_only = excluded.append_only,
     grants_to_service_role = excluded.grants_to_service_role,
@@ -32,7 +43,20 @@ begin
     into unregistered
     from pg_tables t
    where t.schemaname = 'public'
-     and t.tablename like 'dw\_%evidence%' escape '\'
+     and (
+       t.tablename like 'dw\_%evidence%' escape '\'
+       or t.tablename like 'dw\_%proofs' escape '\'
+       or t.tablename like 'dw\_%events' escape '\'
+       or t.tablename like 'dw\_trust\_%' escape '\'
+       or t.tablename like 'dw\_%\_health' escape '\'
+       or t.tablename like 'dw\_%\_integrity' escape '\'
+       or t.tablename like 'dw\_%\_fingerprints' escape '\'
+       or t.tablename like 'dw\_%\_embeddings' escape '\'
+       or t.tablename like 'dw\_%\_credentials' escape '\'
+       or t.tablename like 'dw\_%\_assignments' escape '\'
+       or t.tablename like 'dw\_%\_pins' escape '\'
+       or t.tablename like 'dw\_%\_observations' escape '\'
+     )
      and not exists (
        select 1 from public.dw_table_security_policy p
         where p.tablename = t.tablename
