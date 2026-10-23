@@ -132,7 +132,7 @@ BEGIN
   IF lower(coalesce(v_request.target_type, '')) IN ('domain','url') THEN
     v_request_value := lower(regexp_replace(
       regexp_replace(trim(coalesce(v_request.target, '')), '^https?://', '', 'i'),
-      '[/\?#].*$', ''
+      '[/#?].*$', ''
     ));
     v_request_value := regexp_replace(v_request_value, ':[0-9]+$', '');
     v_request_value := rtrim(v_request_value, '.');
