@@ -203,6 +203,22 @@ def test_surface_public_findings_remain_separate_from_historical_archive():
     )
 
 
+def test_new_surface_finding_is_current_only_when_bound_to_this_request():
+    from cyclothone.darkweb.request_worker import _is_current_finding
+
+    row = {
+        "source_id": "telegram_public",
+        "finding_class": "historical_archive",
+        "source_metadata": {"service_request_id": "request-1"},
+    }
+    assert _is_current_finding(row, "request-1")
+    assert not _is_current_finding(row, "request-2")
+    assert not _is_current_finding(
+        {"source_id": "telegram_public", "finding_class": "historical_archive", "source_metadata": {}},
+        "request-1",
+    )
+
+
 def test_native_onion_requires_every_tor_protocol_proof():
     from types import SimpleNamespace
     from cyclothone.darkweb.request_worker import _native_onion_route_proof_missing
