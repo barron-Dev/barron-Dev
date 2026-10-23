@@ -170,7 +170,9 @@ class NativeOnionCrawler:
         proxy: str | None = None,
         seed_origins: dict[str, str] | None = None,
         discovered_from: dict[str, str] | None = None,
+        service_request_id: str | None = None,
     ) -> None:
+        self.service_request_id = str(service_request_id or "")
         self.seeds = list(dict.fromkeys(seeds if seeds is not None else configured_onion_seeds()))
         self.proxy = (proxy or os.getenv("CYCLOTHONE_DW_ONION_PROXY") or "socks5://127.0.0.1:9050").strip()
         self.seed_origin: dict[str, str] = {
