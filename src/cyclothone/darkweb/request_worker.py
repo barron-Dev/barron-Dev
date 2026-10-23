@@ -280,23 +280,41 @@ class DarkWebRequestWorker:
         return seeds[:50], origins, discovered_from
 
     async def _persist_onion_seed_state(self, crawler: NativeOnionCrawler) -> None:
-        """Persist source discovery and per-seed reachability, never page contents."""
+        """Persist seed inventory without asserting reachability absent Tor-route proof."""
         rows = []
+        route_proven = not _native_onion_route_proof_missing(crawler)
         for url, state in crawler.seed_status.items():
             parsed = urlsplit(url)
             hostname = (parsed.hostname or "").lower()
+            digest = crawler.seed_content_hash.get(url)
+            digest_valid = (
+                isinstance(digest, str)
+                and len(digest) == 64
+                and all(char in "0123456789abcdefABCDEF" for char in digest)
+            )
+            if state == "disabled":
+                inventory_status, last_status, last_checked = "disabled", "disabled", None
+            elif not route_proven:
+                inventory_status, last_status, last_checked = "candidate", "tor_route_unverified", None
+            elif state == "checked" and not digest_valid:
+                inventory_status, last_status, last_checked = "candidate", "content_digest_missing", None
+            else:
+                inventory_status = state if state in {"checked", "failed"} else "candidate"
+                last_status = state
+                last_checked = datetime.now(UTC).isoformat() if state in {"checked", "failed"} else None
             row = {
                 "url": url,
                 "hostname": hostname,
                 "seed_origin": crawler.seed_origin.get(url, "configured"),
                 "discovered_from": crawler.discovered_from.get(url),
-                "status": state if state in {"checked", "failed", "disabled"} else "candidate",
-                "last_status": state,
-                "last_checked": datetime.now(UTC).isoformat() if state in {"checked", "failed"} else None,
+                "status": inventory_status,
+                "last_status": last_status,
+                "last_checked": last_checked,
             }
-            digest = crawler.seed_content_hash.get(url)
-            if digest:
-                row["last_response_sha256"] = digest
+            # Keep a response digest as probe evidence only after route and content
+            # checks are established; otherwise it could be misread as verified.
+            if route_proven and digest_valid:
+                row["last_response_sha256"] = digest.lower()
             rows.append(row)
         if not rows:
             return
