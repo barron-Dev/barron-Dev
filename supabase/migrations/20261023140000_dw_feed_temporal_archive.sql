@@ -6,7 +6,7 @@ CREATE TABLE IF NOT EXISTS public.dw_feed_temporal_observations (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   tenant_id uuid NOT NULL,
   watchlist_id uuid NOT NULL REFERENCES public.dw_watchlist(id) ON DELETE CASCADE,
-  service_request_id uuid NOT NULL REFERENCES public.service_requests(id) ON DELETE CASCADE,
+  service_request_id uuid NOT NULL,
   source_id text NOT NULL CHECK (source_id = 'ransomwatch'),
   entry_hash text NOT NULL CHECK (entry_hash ~ '^[0-9a-f]{64}$'),
   temporal_class text NOT NULL CHECK (temporal_class IN ('current_feed', 'historical_archive', 'future_dated')),
@@ -31,7 +31,7 @@ CREATE INDEX IF NOT EXISTS dw_feed_temporal_observations_watchlist_time_idx
 ALTER TABLE public.dw_feed_temporal_observations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.dw_feed_temporal_observations FORCE ROW LEVEL SECURITY;
 REVOKE ALL ON public.dw_feed_temporal_observations FROM PUBLIC, anon, authenticated;
-GRANT SELECT, INSERT ON public.dw_feed_temporal_observations TO service_role;
+GRANT SELECT, INSERT, UPDATE ON public.dw_feed_temporal_observations TO service_role;
 DROP POLICY IF EXISTS dw_feed_temporal_observations_service_role ON public.dw_feed_temporal_observations;
 CREATE POLICY dw_feed_temporal_observations_service_role
   ON public.dw_feed_temporal_observations
