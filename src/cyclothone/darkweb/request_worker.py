@@ -146,6 +146,15 @@ def _native_onion_route_proof_missing(monitor: object) -> list[str]:
         if not isinstance(proof, dict):
             missing.update(_REQUIRED_ONION_ROUTE_PROOFS)
             continue
+        # Proof must bind to this exact request and the digest of this seed's
+        # inspected response; global daemon health is not per-response evidence.
+        if (
+            not getattr(monitor, "service_request_id", "")
+            or str(proof.get("service_request_id") or "") != str(monitor.service_request_id)
+            or str(proof.get("content_sha256") or "").lower() != str(content_hashes[seed]).lower()
+        ):
+            missing.update(_REQUIRED_ONION_ROUTE_PROOFS)
+            continue
         for field in _REQUIRED_ONION_ROUTE_PROOFS:
             if proof.get(field) is not True:
                 missing.add(field)
