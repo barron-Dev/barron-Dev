@@ -69,6 +69,8 @@ DECLARE
   v_org_tenant uuid;
   v_watch public.dw_watchlist;
   v_observation public.dw_feed_temporal_observations;
+  v_expected_kind text;
+  v_request_value text;
 BEGIN
   IF coalesce(auth.role(), '') <> 'service_role' THEN
     RAISE EXCEPTION 'ransomwatch_temporal_service_role_required';
@@ -135,9 +137,146 @@ BEGIN
     FROM public.dw_watchlist
    WHERE id = p_watchlist_id AND tenant_id = p_tenant_id
    FOR SHARE;
-  IF NOT FOUND
-     OR lower(v_watch.kind) <> lower(p_match_kind)
-     OR lower(trim(v_watch.value)) <> lower(trim(p_matched_value)) THEN
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'ransomwatch_temporal_target_fence_rejected';
+  END IF;
+
+  v_expected_kind := CASE lower(coalesce(v_request.target_type, ''))
+    WHEN 'domain' THEN 'domain'
+    WHEN 'url' THEN 'domain'
+    WHEN 'email' THEN 'email'
+    WHEN 'brand' THEN 'company_name'
+    WHEN 'username' THEN 'username'
+    WHEN 'ip' THEN 'ip'
+    WHEN 'other' THEN 'other'
+    ELSE NULL
+  END;
+  IF lower(coalesce(v_request.target_type, '')) IN ('domain','url') THEN
+    v_request_value := lower(regexp_replace(
+      regexp_replace(trim(coalesce(v_request.target, '')), '^https?://', '', 'i'),
+      '[/#?].*
+
+  IF NOT EXISTS (
+    SELECT 1 FROM public.dw_sources
+     WHERE id = 'ransomwatch' AND enabled = true
+  ) THEN
+    RAISE EXCEPTION 'ransomwatch_temporal_source_disabled';
+  END IF;
+
+  INSERT INTO public.dw_feed_temporal_observations (
+    tenant_id, watchlist_id, service_request_id, source_id, entry_hash,
+    temporal_class, published_at, feed_observed_at, feed_content_sha256,
+    victim_name, group_name, source_url, label, match_kind, matched_value,
+    first_seen_at, last_seen_at, observation_count
+  ) VALUES (
+    p_tenant_id, p_watchlist_id, p_service_request_id, 'ransomwatch', p_entry_hash,
+    p_temporal_class, p_published_at, p_feed_observed_at, p_feed_content_sha256,
+    left(trim(p_victim_name), 512), left(trim(p_group_name), 256),
+    left(p_source_url, 2048), left(trim(p_label), 256), p_match_kind,
+    left(trim(p_matched_value), 512), clock_timestamp(), clock_timestamp(), 1
+  )
+  ON CONFLICT (tenant_id, watchlist_id, source_id, entry_hash) DO UPDATE
+    SET service_request_id = EXCLUDED.service_request_id,
+        temporal_class = EXCLUDED.temporal_class,
+        published_at = EXCLUDED.published_at,
+        feed_observed_at = EXCLUDED.feed_observed_at,
+        feed_content_sha256 = EXCLUDED.feed_content_sha256,
+        victim_name = EXCLUDED.victim_name,
+        group_name = EXCLUDED.group_name,
+        source_url = EXCLUDED.source_url,
+        label = EXCLUDED.label,
+        match_kind = EXCLUDED.match_kind,
+        matched_value = EXCLUDED.matched_value,
+        last_seen_at = clock_timestamp(),
+        observation_count = public.dw_feed_temporal_observations.observation_count + 1
+  RETURNING * INTO v_observation;
+
+  RETURN QUERY SELECT
+    v_observation.id,
+    v_observation.service_request_id,
+    v_observation.tenant_id,
+    v_observation.watchlist_id,
+    v_observation.entry_hash,
+    v_observation.temporal_class;
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.record_dw_feed_temporal_observation(
+  uuid,integer,uuid,uuid,text,text,text,timestamptz,timestamptz,text,text,text,text,text,text,text
+) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.record_dw_feed_temporal_observation(
+  uuid,integer,uuid,uuid,text,text,text,timestamptz,timestamptz,text,text,text,text,text,text,text
+) TO service_role;
+
+COMMIT;
+, ''
+    ));
+    v_request_value := regexp_replace(v_request_value, ':[0-9]+
+
+  IF NOT EXISTS (
+    SELECT 1 FROM public.dw_sources
+     WHERE id = 'ransomwatch' AND enabled = true
+  ) THEN
+    RAISE EXCEPTION 'ransomwatch_temporal_source_disabled';
+  END IF;
+
+  INSERT INTO public.dw_feed_temporal_observations (
+    tenant_id, watchlist_id, service_request_id, source_id, entry_hash,
+    temporal_class, published_at, feed_observed_at, feed_content_sha256,
+    victim_name, group_name, source_url, label, match_kind, matched_value,
+    first_seen_at, last_seen_at, observation_count
+  ) VALUES (
+    p_tenant_id, p_watchlist_id, p_service_request_id, 'ransomwatch', p_entry_hash,
+    p_temporal_class, p_published_at, p_feed_observed_at, p_feed_content_sha256,
+    left(trim(p_victim_name), 512), left(trim(p_group_name), 256),
+    left(p_source_url, 2048), left(trim(p_label), 256), p_match_kind,
+    left(trim(p_matched_value), 512), clock_timestamp(), clock_timestamp(), 1
+  )
+  ON CONFLICT (tenant_id, watchlist_id, source_id, entry_hash) DO UPDATE
+    SET service_request_id = EXCLUDED.service_request_id,
+        temporal_class = EXCLUDED.temporal_class,
+        published_at = EXCLUDED.published_at,
+        feed_observed_at = EXCLUDED.feed_observed_at,
+        feed_content_sha256 = EXCLUDED.feed_content_sha256,
+        victim_name = EXCLUDED.victim_name,
+        group_name = EXCLUDED.group_name,
+        source_url = EXCLUDED.source_url,
+        label = EXCLUDED.label,
+        match_kind = EXCLUDED.match_kind,
+        matched_value = EXCLUDED.matched_value,
+        last_seen_at = clock_timestamp(),
+        observation_count = public.dw_feed_temporal_observations.observation_count + 1
+  RETURNING * INTO v_observation;
+
+  RETURN QUERY SELECT
+    v_observation.id,
+    v_observation.service_request_id,
+    v_observation.tenant_id,
+    v_observation.watchlist_id,
+    v_observation.entry_hash,
+    v_observation.temporal_class;
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.record_dw_feed_temporal_observation(
+  uuid,integer,uuid,uuid,text,text,text,timestamptz,timestamptz,text,text,text,text,text,text,text
+) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.record_dw_feed_temporal_observation(
+  uuid,integer,uuid,uuid,text,text,text,timestamptz,timestamptz,text,text,text,text,text,text,text
+) TO service_role;
+
+COMMIT;
+, '');
+    v_request_value := rtrim(v_request_value, '.');
+  ELSE
+    v_request_value := lower(trim(coalesce(v_request.target, '')));
+  END IF;
+
+  IF v_expected_kind IS NULL
+     OR lower(v_watch.kind) <> v_expected_kind
+     OR lower(trim(v_watch.value)) <> v_request_value
+     OR lower(trim(v_watch.value)) <> lower(trim(p_matched_value))
+     OR lower(v_watch.kind) <> lower(p_match_kind) THEN
     RAISE EXCEPTION 'ransomwatch_temporal_target_fence_rejected';
   END IF;
 
