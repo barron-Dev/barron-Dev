@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+from datetime import UTC, datetime
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlsplit
@@ -110,6 +111,7 @@ async def record_target_matched_onion_evidence(
     tenant_id: str,
     watchlist_id: str,
     service_request_id: str,
+    expected_attempt: int,
     source_url: str,
     sanitized_page_text: str,
     observed_at: str,
@@ -126,7 +128,7 @@ async def record_target_matched_onion_evidence(
     # a caller-supplied tenant UUID alone is not authorization.
     request = await service_client.select_one(
         "service_requests",
-        "id,organization_id,service_key,processing_state,target,target_type",
+        "id,organization_id,service_key,processing_state,target,target_type,attempts,locked_until",
         id=service_request_id,
     )
     if (
@@ -134,8 +136,19 @@ async def record_target_matched_onion_evidence(
         or str(request.get("id")) != str(service_request_id)
         or request.get("service_key") != "dark_web_monitoring"
         or request.get("processing_state") != "running"
+        or int(request.get("attempts") or -1) != int(expected_attempt)
     ):
         raise RuntimeError("dw_evidence_authorized_running_request_not_found")
+    # Evidence writes are fenced by the claimed attempt and an unexpired lease.
+    # A stale worker must not append evidence after the request has been reclaimed.
+    try:
+        locked_until = datetime.fromisoformat(str(request.get("locked_until") or "").replace("Z", "+00:00"))
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError("dw_evidence_request_lease_unverifiable") from exc
+    if locked_until.tzinfo is None:
+        locked_until = locked_until.replace(tzinfo=UTC)
+    if locked_until <= datetime.now(UTC):
+        raise RuntimeError("dw_evidence_request_lease_expired")
 
     organization = await service_client.select_one(
         "customer_organizations",
