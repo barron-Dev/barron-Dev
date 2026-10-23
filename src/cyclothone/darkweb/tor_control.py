@@ -176,8 +176,8 @@ class TorControlProofCollector:
         host = self._host_from_event(event)
         if not host:
             return
-        # Stem parses HS_DESC_CONTENT into a descriptor object (not a raw
-        # string). Keep only its presence bit; never serialize or persist it.
+        # Stem parses HS_DESC_CONTENT into a descriptor object. Hash its
+        # serialized bytes in memory; never retain or persist the descriptor body.
         descriptor = getattr(event, "descriptor", None)
         descriptor_sha256 = None
         if descriptor is not None:
