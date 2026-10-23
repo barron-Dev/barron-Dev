@@ -141,6 +141,7 @@ VALUES
   ('tiktok_commercial', false, false, false, false, false, true, 86400),
   ('ransomwatch_feed', false, false, false, false, false, false, 1800),
   ('historical_archive', false, false, false, false, false, false, 0),
+  ('ransomwatch_feed', false, false, false, false, false, false, 3600),
   ('excluded', false, false, false, false, false, false, 0),
   ('unclassified', false, false, false, false, false, false, 0)
 ON CONFLICT (source_class) DO NOTHING;
@@ -210,13 +211,12 @@ GRANT SELECT ON TABLE public.dw_source_effective_state TO service_role;
 -- verification. Preserve the operator's enabled/disabled choice and all legacy
 -- finding classifications; only change source taxonomy and the poll cadence.
 UPDATE public.dw_sources
-   SET source_class = 'ransomwatch_feed',
-       web_layer = 'breach_intel',
+   SET enabled = true,
+       source_class = 'ransomwatch_feed',
+       web_layer = 'surface',
+       access_mode = 'public_feed',
        poll_interval_seconds = 1800,
-       last_status = CASE
-         WHEN last_status = 'historical_only_archived_feed' THEN 'not_checked_after_temporal_policy_update'
-         ELSE last_status
-       END
+       last_status = 'awaiting_runtime_poll'
  WHERE id = 'ransomwatch';
 
 COMMIT;
