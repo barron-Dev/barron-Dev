@@ -19,7 +19,7 @@ class DwClassLevelTrustControlsTests(unittest.TestCase):
     def test_registry_is_fail_closed_and_receipts_have_distinct_mutability(self):
         sql = read("20261023100000_dw_evidence_policy_registry.sql")
         self.assertIn("create table if not exists public.dw_table_security_policy", sql.lower())
-        self.assertIn("unregistered evidence tables", sql.lower())
+        self.assertIn("unregistered dw trust/evidence tables", sql.lower())
         self.assertIn("for r in", sql.lower())
         self.assertIn("'dw_evidence_ots_receipts', false", sql.lower())
         self.assertIn("'dw_onion_probe_evidence', true", sql.lower())
