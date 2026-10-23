@@ -189,6 +189,9 @@ class NativeOnionCrawler:
         # HTTPX/SOCKS reachability alone never populates this proof map.
         self.seed_route_proofs: dict[str, dict] = {}
         self.tor_control_status = "disabled"
+        self.tor_control_authenticated = False
+        self.tor_bootstrap_complete = False
+        self.tor_version: str | None = None
         self.seed_probe_evidence: dict[str, dict] = {}
         self.pages_checked = 0
         self.pages_failed = 0
@@ -206,10 +209,17 @@ class NativeOnionCrawler:
         limits = httpx.Limits(max_connections=5, max_keepalive_connections=2)
         collector: TorControlProofCollector | None = None
         try:
-            if TorControlProofCollector.enabled_from_env():
+            if TorControlProofCollector.enabled_from_env() and not self.service_request_id:
+                # Global scheduler ticks have no customer request fence. Do not
+                # attach control events to an invented or empty request identity.
+                self.tor_control_status = "unavailable_missing_request_context"
+            elif TorControlProofCollector.enabled_from_env():
                 collector = TorControlProofCollector.from_env(self.service_request_id)
                 await asyncio.to_thread(collector.start)
-                self.tor_control_status = "authenticated"
+                self.tor_control_status = "authenticated" if collector.controller is not None else "failed"
+                self.tor_control_authenticated = collector.controller is not None
+                self.tor_bootstrap_complete = collector.bootstrapped
+                self.tor_version = collector.tor_version
             else:
                 # Without explicit ControlPort configuration, no protocol proof is minted.
                 self.tor_control_status = "disabled"
