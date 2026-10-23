@@ -4,9 +4,10 @@ import ipaddress
 import logging
 import os
 import re
+import secrets
 import threading
 import time
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit, urlunsplit
 
 logger = logging.getLogger(__name__)
 _ONION_HOST = re.compile(r"^[a-z2-7]{56}\.onion$", re.IGNORECASE)
@@ -47,7 +48,9 @@ class TorControlProofCollector:
         self._starts: dict[str, float] = {}
         self._hsfetch_accepted: set[str] = set()
         self._descriptor_events: dict[str, list[tuple[float, str, bool]]] = {}
-        self._streams: list[tuple[float, str, str, str]] = []
+        self._streams: list[tuple[float, str, str, str, str]] = []
+        self._socks_username = "ct_" + secrets.token_urlsafe(18)
+        self._socks_password = secrets.token_urlsafe(32)
         self._circuits: list[tuple[float, str, str, str]] = []
         self._closed = False
 
@@ -71,6 +74,24 @@ class TorControlProofCollector:
             password=password,
             cookie_path=cookie_path,
         )
+
+    def proxy_for_request(self, proxy_url: str) -> str:
+        """Add request-scoped SOCKS credentials for Tor IsolateSOCKSAuth."""
+        parsed = urlsplit(str(proxy_url or ""))
+        if parsed.scheme not in {"socks5", "socks5h"} or not parsed.hostname:
+            raise RuntimeError("tor_control_socks_proxy_invalid")
+        if parsed.username or parsed.password:
+            raise RuntimeError("tor_control_socks_proxy_must_not_contain_static_credentials")
+        host = parsed.hostname
+        if ":" in host and not host.startswith("["):
+            host = f"[{host}]"
+        netloc = (
+            f"{quote(self._socks_username, safe='')}:"
+            f"{quote(self._socks_password, safe='')}@{host}"
+        )
+        if parsed.port:
+            netloc += f":{parsed.port}"
+        return urlunsplit((parsed.scheme, netloc, parsed.path, parsed.query, parsed.fragment))
 
     def start(self) -> None:
         if not self.request_id.strip():
@@ -149,6 +170,7 @@ class TorControlProofCollector:
                 host,
                 str(getattr(event, "status", "") or "").upper(),
                 str(getattr(event, "circ_id", "") or ""),
+                str(getattr(event, "socks_username", "") or ""),
             ))
 
     def _on_circuit(self, event: object) -> None:
@@ -215,7 +237,11 @@ class TorControlProofCollector:
             ]
             streams = [
                 item for item in self._streams
-                if item[0] >= started and item[1] == host and item[2] == "SUCCEEDED" and item[3] not in {"", "0"}
+                if item[0] >= started
+                and item[1] == host
+                and item[2] == "SUCCEEDED"
+                and item[3] not in {"", "0"}
+                and item[4] == self._socks_username
             ]
             circuits = [
                 item for item in self._circuits
@@ -248,6 +274,7 @@ class TorControlProofCollector:
             "descriptor_fetched": descriptor_fetched,
             "rendezvous_hop_verified": rendezvous_verified,
             "stream_circuit_bound": bound_stream is not None,
+            "socks_auth_bound": bound_stream is not None,
             "descriptor_event_count": len(descriptor_events),
             "stream_circuit_id": bound_stream[3] if bound_stream else None,
         }
