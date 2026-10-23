@@ -640,6 +640,7 @@ class DarkWebRequestWorker:
             seeds=onion_seeds,
             seed_origins=onion_seed_origins,
             discovered_from=onion_seed_discovered_from,
+            service_request_id=request_id,
         )
         source_monitors = {
             "telegram_public": telegram_monitor,
