@@ -228,7 +228,13 @@ class NativeOnionCrawler:
                 except Exception as exc:
                     # ControlPort failure is not proof of a clean source. Allow
                     # bounded crawling to finish, but route proof remains absent.
+                    if collector is not None:
+                        try:
+                            await asyncio.to_thread(collector.close)
+                        except Exception:
+                            pass
                     collector = None
+                    request_proxy = self.proxy
                     self.tor_control_status = "unavailable"
                     logger.warning("Tor control protocol unavailable error=%s", type(exc).__name__)
             else:
