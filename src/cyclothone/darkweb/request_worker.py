@@ -360,6 +360,8 @@ class DarkWebRequestWorker:
             definition = get_source(source_id)
             if definition is None or is_excluded_source(source_id):
                 return {"source": source_id, "state": "unavailable", "reason": "excluded_by_policy"}, []
+            if definition.availability == "historical_only":
+                return {"source": source_id, "state": "historical_only", "reason": "historical_only_archived_feed"}, []
             if definition.availability != "implemented":
                 return {"source": source_id, "state": "unavailable", "reason": definition.availability}, []
             # Before the native-source migration exists, reviewed environment seeds
