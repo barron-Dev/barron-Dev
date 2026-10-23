@@ -30,6 +30,7 @@ def test_tor_proof_requires_descriptor_content_and_matching_rendezvous_stream():
     collector._circuits = [(now, "17", "BUILT", "HS_CLIENT_REND")]
     collector._streams = [(now, host, "SUCCEEDED", "17", collector._socks_username)]
 
+    collector.complete_seed_response(seed, "A" * 64)
     proof = collector.proof_for(seed, "A" * 64)
     assert proof["route_verified"] is True
     assert proof["hs_desc_content_received"] is True
@@ -46,8 +47,9 @@ def test_tor_proof_rejects_stream_not_bound_to_built_rendezvous_circuit():
     now = time.monotonic()
     collector._descriptor_events[host] = [(now, "RECEIVED", True), (now, "CONTENT", True)]
     collector._circuits = [(now, "17", "BUILT", "GENERAL")]
-    collector._streams = [(now, host, "SUCCEEDED", "17")]
+    collector._streams = [(now, host, "SUCCEEDED", "17", collector._socks_username)]
 
+    collector.complete_seed_response(seed, "b" * 64)
     proof = collector.proof_for(seed, "b" * 64)
     assert proof["route_verified"] is False
     assert proof["rendezvous_hop_verified"] is False
@@ -62,6 +64,7 @@ def test_tor_proof_does_not_reuse_events_from_before_seed_attempt():
     collector._circuits = [(old, "17", "BUILT", "HS_CLIENT_REND")]
     collector._streams = [(old, host, "SUCCEEDED", "17")]
 
+    collector.complete_seed_response(seed, "c" * 64)
     proof = collector.proof_for(seed, "c" * 64)
     assert proof["hs_desc_content_received"] is False
     assert proof["descriptor_fetched"] is False
@@ -137,6 +140,7 @@ def test_tor_route_proof_fails_when_socks_auth_isolation_is_not_configured():
     collector._circuits = [(now, "17", "BUILT", "HS_CLIENT_REND")]
     collector._streams = [(now, host, "SUCCEEDED", "17", collector._socks_username)]
 
+    collector.complete_seed_response(seed, "d" * 64)
     proof = collector.proof_for(seed, "d" * 64)
     assert proof["tor_socks_auth_isolation_configured"] is False
     assert proof["route_verified"] is False
@@ -153,9 +157,40 @@ def test_tor_route_proof_is_bound_to_each_request_and_response_digest():
     collector._circuits = [(now, "17", "BUILT", "HS_CLIENT_REND")]
     collector._streams = [(now, host, "SUCCEEDED", "17", collector._socks_username)]
 
+    collector.complete_seed_response(seed, "E" * 64)
     proof = collector.proof_for(seed, "E" * 64)
     assert proof["service_request_id"] == "request-1"
     assert proof["content_sha256"] == "e" * 64
     assert proof["tor_control_authenticated"] is True
     assert proof["tor_bootstrap_complete"] is True
     assert proof["hsfetch_accepted"] is True
+
+
+def test_tor_proof_rejects_digest_not_bound_to_completed_response():
+    collector, seed = _collector()
+    host = "a" * 56 + ".onion"
+    now = time.monotonic()
+    collector._descriptor_events[host] = [(now, "RECEIVED", True), (now, "CONTENT", True)]
+    collector._circuits = [(now, "17", "BUILT", "HS_CLIENT_REND")]
+    collector._streams = [(now, host, "SUCCEEDED", "17", collector._socks_username)]
+    collector.complete_seed_response(seed, "f" * 64)
+
+    proof = collector.proof_for(seed, "e" * 64)
+    assert proof["response_window_bound"] is False
+    assert proof["content_sha256"] is None
+    assert proof["route_verified"] is False
+
+
+def test_tor_proof_rejects_events_after_response_window():
+    collector, seed = _collector()
+    host = "a" * 56 + ".onion"
+    collector.complete_seed_response(seed, "a" * 64)
+    after = time.monotonic() + 1
+    collector._descriptor_events[host] = [(after, "RECEIVED", True), (after, "CONTENT", True)]
+    collector._circuits = [(after, "17", "BUILT", "HS_CLIENT_REND")]
+    collector._streams = [(after, host, "SUCCEEDED", "17", collector._socks_username)]
+
+    proof = collector.proof_for(seed, "a" * 64)
+    assert proof["response_window_bound"] is True
+    assert proof["route_verified"] is False
+    assert proof["descriptor_fetched"] is False
