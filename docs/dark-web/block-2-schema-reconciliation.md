@@ -23,11 +23,12 @@ The correct test base is **a reproducible schema snapshot of live production imm
 
 A migration ledger and table-presence list are not a complete schema snapshot. The following are still required before migration-ordering tests can be marked passed:
 
-- [ ] Capture DDL for all relevant tables, indexes, constraints, sequences, functions, triggers, grants, and RLS policies.
+- [ ] Capture schema-only DDL for all relevant tables, indexes, constraints, sequences, functions, triggers, policies, and extensions.
+- [ ] Capture and compare ACLs separately. **Important:** the proposed `pg_dump --no-owner --no-privileges` command intentionally omits GRANT/REVOKE ACLs, so that file alone cannot prove ACL reproduction. Either preserve grants in a role-compatible dump or export and replay a separate ACL artifact after creating the required roles.
 - [ ] Record exact extension versions and schemas.
-- [ ] Recreate that snapshot in an isolated disposable PostgreSQL database.
-- [ ] Apply PR #76 migrations and these follow-on migrations in order.
+- [ ] Restore the snapshot into a fresh isolated disposable PostgreSQL database and compare normalized catalog inventories for functions/signatures, ACLs, RLS policies, extensions, and triggers against live.
+- [ ] Apply PR #76 migrations and these follow-on migrations in order only after the base comparison passes.
 - [ ] Run the negative privilege tests, OTS state tests, proof-rejection atomicity tests, tenant-isolation tests, and authenticated end-to-end evidence tests.
-- [ ] Preserve test output and the exact base revision/schema fingerprint.
+- [ ] Preserve the dump, separate ACL artifact if used, comparison output, exact base revision/schema fingerprint, and test output.
 
 Until that reproducible base exists, migration-ordering and full database integration tests remain **BLOCKED**, not passed. No production migration, deployment, worker activation, or proof insertion was performed for this reconciliation.
