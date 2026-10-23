@@ -523,6 +523,50 @@ class DarkWebRequestWorker:
                     "availability": definition.availability,
                 }
             sources.append(status)
+        # Persist every real provider attempt. Missing protocol/content proof stays
+        # missing; the ledger RPC hard-fences native onion Tor proof flags to false.
+        for source in sources:
+            state = str(source.get("state") or "failed").lower()
+            attempt_status = {
+                "checked": "ok",
+                "disabled": "disabled",
+                "historical_only": "historical_only",
+                "unavailable": "unavailable",
+                "failed": "failed",
+                "timeout": "timeout",
+            }.get(state, "failed")
+            inspected_items = max(
+                int(source.get("pages_checked") or 0),
+                int(source.get("posts_checked") or 0),
+                int(source.get("items_checked") or 0),
+                int(source.get("documents_checked") or 0),
+            )
+            reason = str(source.get("reason") or "")
+            error_code = reason if reason and all(
+                char.isalnum() or char in "_.:-" for char in reason
+            ) and len(reason) <= 100 else None
+            try:
+                await supabase.rpc("record_dw_source_attempt", {
+                    "p_source_id": str(source.get("source") or ""),
+                    "p_status": attempt_status,
+                    "p_content_sha256": None,
+                    "p_inspected_items": inspected_items,
+                    "p_error_code": error_code,
+                    "p_metadata": {
+                        "request_id": str(request_id),
+                        "coverage": str(source.get("coverage") or ""),
+                        "availability": str(source.get("availability") or ""),
+                        "layer": str(source.get("layer") or ""),
+                        "category": str(source.get("category") or ""),
+                    },
+                })
+            except Exception as exc:
+                logger.warning(
+                    "unable to persist source attempt source=%s request_id=%s",
+                    source.get("source"), request_id, exc_info=True,
+                )
+                raise RuntimeError("source_attempt_ledger_persistence_failed") from exc
+
         pulled = [finding for _, batch in provider_results for finding in batch]
 
         # A completed search requires at least one provider call to succeed.
