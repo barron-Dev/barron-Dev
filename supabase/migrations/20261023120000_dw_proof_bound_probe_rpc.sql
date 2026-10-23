@@ -107,6 +107,9 @@ end $$;
 revoke execute on function public.dw_record_onion_probe_result(
   uuid, text, boolean, text, integer, text, text, bigint, text, boolean, text, boolean, boolean, text, text, jsonb
 ) from public, anon, authenticated, service_role;
+drop function if exists public.dw_record_onion_probe_result(
+  uuid, text, boolean, text, integer, text, text, bigint, text, boolean, text, boolean, boolean, text, text, jsonb
+);
 
 create or replace function public.dw_record_onion_probe_result(
   p_seed_id uuid,
@@ -183,7 +186,7 @@ begin
        and content_sha256 = p_response_sha256
        and verification_status = 'verified'
        and publisher_fingerprint = pinned_fingerprint
-       and lower(v_seed.hostname) = any (select lower(x) from unnest(signed_hosts) x)
+       and lower(v_seed.hostname) = any (select lower(host.value) from unnest(signed_hosts) as host(value))
        and verified_at is not null
      for share;
     if not found then
@@ -197,7 +200,7 @@ begin
          and mi.publisher_fingerprint = v_publisher.publisher_fingerprint
          and mi.pinned_fingerprint = v_publisher.pinned_fingerprint
          and mi.content_sha256 = p_response_sha256
-         and lower(v_seed.hostname) = any (select lower(x) from unnest(mi.signed_hosts) x)
+         and lower(v_seed.hostname) = any (select lower(host.value) from unnest(mi.signed_hosts) as host(value))
     ) then
       raise exception 'publisher proof is not backed by a matching verified mirror-integrity record' using errcode='42501';
     end if;
@@ -236,6 +239,7 @@ begin
     if not found or not exists (
       select 1 from public.dw_evidence_ots_receipts r
        where r.anchor_id = v_corroboration.anchor_id
+         and r.evidence_seq = p_evidence_seq
          and r.state = 'confirmed'
          and r.bitcoin_block_height is not null
     ) then
