@@ -267,11 +267,16 @@ def test_truthy_non_boolean_tor_proof_is_not_accepted():
     from cyclothone.darkweb.request_worker import _native_onion_route_proof_missing
 
     monitor = SimpleNamespace(
-        route_verified=1,
-        hs_desc_content_received="true",
-        descriptor_fetched=True,
-        rendezvous_hop_verified=True,
-        stream_circuit_bound=True,
+        seed_content_hash={"seed-a": "a" * 64},
+        seed_route_proofs={
+            "seed-a": {
+                "route_verified": 1,
+                "hs_desc_content_received": "true",
+                "descriptor_fetched": True,
+                "rendezvous_hop_verified": True,
+                "stream_circuit_bound": True,
+            }
+        },
     )
     assert _native_onion_route_proof_missing(monitor) == [
         "route_verified",
@@ -315,18 +320,22 @@ def test_native_onion_route_proof_without_inspected_content_is_unavailable():
     from cyclothone.darkweb.request_worker import _native_onion_unavailability
 
     monitor = SimpleNamespace(
-        route_verified=True,
-        hs_desc_content_received=True,
-        descriptor_fetched=True,
-        rendezvous_hop_verified=True,
-        stream_circuit_bound=True,
-        seed_content_hash={},
+        seed_content_hash={"seed-a": "a" * 64},
+        seed_route_proofs={
+            "seed-a": {
+                "route_verified": True,
+                "hs_desc_content_received": True,
+                "descriptor_fetched": True,
+                "rendezvous_hop_verified": True,
+                "stream_circuit_bound": True,
+            }
+        },
         pages_checked=0,
     )
     reason, route_missing, content_missing = _native_onion_unavailability(monitor)
     assert reason == "onion_content_proof_unavailable"
     assert route_missing == []
-    assert content_missing == ["content_sha256", "inspected_items"]
+    assert content_missing == ["inspected_items"]
 
 
 def test_inspected_item_ledger_count_uses_only_actual_content_counts():
