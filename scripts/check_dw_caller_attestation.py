@@ -31,7 +31,13 @@ POLICY_TABLE_PATTERNS = (
     re.compile(r"^dw_.*proofs$", re.I),
     re.compile(r"^dw_.*events$", re.I),
     re.compile(r"^dw_trust_.*$", re.I),
-    re.compile(r"^dw_.*_(?:health|integrity|fingerprints|embeddings|credentials|assignments|pins|observations)$", re.I),
+    re.compile(r"^dw_.*_(?:health|integrity|fingerprints|embeddings|credentials|assignments|pins|observations|translations|extractions)$", re.I),
+    re.compile(r"^dw_discovery_.*$", re.I),
+    re.compile(r"^dw_entity_.*$", re.I),
+    re.compile(r"^dw_entities$", re.I),
+    re.compile(r"^dw_content_.*$", re.I),
+    re.compile(r"^dw_sanitized_.*$", re.I),
+    re.compile(r"^dw_merkle_.*$", re.I),
 )
 
 def main() -> int:
