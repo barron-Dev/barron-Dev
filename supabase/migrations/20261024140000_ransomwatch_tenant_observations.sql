@@ -137,16 +137,16 @@ BEGIN
         RAISE EXCEPTION 'ransomwatch_temporal_attempt_fence_rejected';
     END IF;
 
-    SELECT tenant_id INTO v_org_tenant
-      FROM public.customer_organizations
-     WHERE id = v_request.organization_id;
+    SELECT o.tenant_id INTO v_org_tenant
+      FROM public.customer_organizations AS o
+     WHERE o.id = v_request.organization_id;
     IF v_org_tenant IS NULL OR v_org_tenant <> p_tenant_id THEN
         RAISE EXCEPTION 'ransomwatch_temporal_tenant_fence_rejected';
     END IF;
 
-    SELECT * INTO v_watch
-      FROM public.dw_watchlist
-     WHERE id = p_watchlist_id AND tenant_id = p_tenant_id
+    SELECT w.* INTO v_watch
+      FROM public.dw_watchlist AS w
+     WHERE w.id = p_watchlist_id AND w.tenant_id = p_tenant_id
      FOR SHARE;
     IF NOT FOUND THEN
         RAISE EXCEPTION 'ransomwatch_temporal_watchlist_fence_rejected';
