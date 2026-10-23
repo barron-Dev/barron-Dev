@@ -24,7 +24,7 @@ def _private_control_host(host: str) -> bool:
         address = ipaddress.ip_address(value)
     except ValueError:
         return False
-    return bool(address.is_loopback or address.is_private or address.is_link_local)
+    return bool(not address.is_unspecified and not address.is_multicast and (address.is_loopback or address.is_private or address.is_link_local))
 
 
 class TorControlProofCollector:
@@ -43,6 +43,7 @@ class TorControlProofCollector:
         self.cookie_path = cookie_path
         self.controller = None
         self.bootstrapped = False
+        self.socks_auth_isolation_configured = False
         self.tor_version: str | None = None
         self._lock = threading.RLock()
         self._starts: dict[str, float] = {}
@@ -113,6 +114,15 @@ class TorControlProofCollector:
             self.tor_version = str(controller.get_version())
             bootstrap = str(controller.get_info("status/bootstrap-phase", ""))
             self.bootstrapped = _bootstrap_complete(bootstrap)
+            # Do not infer isolation from unique credentials alone: the configured
+            # SocksPort must explicitly enable IsolateSOCKSAuth.
+            socks_ports = controller.get_conf("SocksPort", multiple=True) or []
+            if isinstance(socks_ports, str):
+                socks_ports = [socks_ports]
+            self.socks_auth_isolation_configured = any(
+                "isolatesocksauth" in str(entry).lower()
+                for entry in socks_ports
+            )
             controller.add_event_listener(self._on_hs_desc, EventType.HS_DESC)
             controller.add_event_listener(self._on_hs_desc_content, EventType.HS_DESC_CONTENT)
             controller.add_event_listener(self._on_stream, EventType.STREAM)
@@ -264,6 +274,7 @@ class TorControlProofCollector:
         rendezvous_verified = bound_stream is not None
         route_verified = bool(
             self.controller is not None and self.bootstrapped and hsfetch_accepted
+            and self.socks_auth_isolation_configured
             and descriptor_fetched and content_received and rendezvous_verified
         )
         return {
@@ -271,6 +282,7 @@ class TorControlProofCollector:
             "content_sha256": str(content_sha256).lower(),
             "tor_control_authenticated": self.controller is not None,
             "tor_bootstrap_complete": self.bootstrapped,
+            "tor_socks_auth_isolation_configured": self.socks_auth_isolation_configured,
             "tor_version": self.tor_version,
             "hsfetch_accepted": hsfetch_accepted,
             "route_verified": route_verified,
