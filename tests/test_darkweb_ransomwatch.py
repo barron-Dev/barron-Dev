@@ -210,3 +210,40 @@ async def test_ransomwatch_retains_current_historical_and_future_metadata(monkey
     assert classes == {"current_feed", "historical_archive", "future_dated"}
     assert all(len(record["record_key"]) == 64 for record in puller.temporal_records)
     assert all(record["feed_content_sha256"] for record in puller.temporal_records)
+
+
+@pytest.mark.asyncio
+async def test_ransomwatch_rejects_stale_cached_feed_response(monkeypatch):
+    import json
+    from email.utils import format_datetime
+
+    now = datetime.now(UTC)
+    post = {
+        "post_title": "Example Corporation",
+        "post_url": "https://example.invalid/post",
+        "group_name": "group-a",
+        "discovered": (now - timedelta(days=1)).isoformat(),
+    }
+
+    class Response:
+        content = json.dumps([post]).encode()
+        headers = {"date": format_datetime(now), "age": "7200"}
+        def raise_for_status(self):
+            return None
+        def json(self):
+            return [post]
+
+    class Client:
+        def __init__(self, *args, **kwargs):
+            pass
+        async def __aenter__(self):
+            return self
+        async def __aexit__(self, *args):
+            return False
+        async def get(self, url, **kwargs):
+            assert kwargs["headers"]["cache-control"] == "no-cache"
+            return Response()
+
+    monkeypatch.setattr("cyclothone.darkweb.pullers.httpx.AsyncClient", Client)
+    with pytest.raises(RuntimeError, match="Ransomwatch pull failed"):
+        await RansomwatchPuller().pull()
