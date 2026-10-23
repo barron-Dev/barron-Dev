@@ -186,6 +186,12 @@ async def test_target_matched_onion_evidence_uses_tenant_scoped_subject_and_rpc(
     )
     assert result["readback_sha256_verified"] is True
     assert result["finding_class"] == "candidate_evidence_not_verified"
+    fenced_call = service.rpc_calls[-1]
+    assert fenced_call[0] == "dw_record_evidence_if_current_attempt"
+    assert fenced_call[1]["p_service_request_id"] == "request-1"
+    assert fenced_call[1]["p_expected_attempt"] == 1
+    assert fenced_call[1]["p_tenant_id"] == "tenant-1"
+    assert fenced_call[1]["p_watchlist_id"] == "watchlist-1"
     assert [call[0] for call in service.rpc_calls] == [
         "trust_register_subject", "dw_record_evidence_if_current_attempt"
     ]
