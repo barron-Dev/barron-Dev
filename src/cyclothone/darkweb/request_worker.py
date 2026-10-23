@@ -106,6 +106,26 @@ def _require_recorded_finding(response: object) -> dict:
     raise RuntimeError("finding_persistence_unconfirmed")
 
 
+def _require_current_breach_intel_classification(
+    response: object, *, finding_id: object, tenant_id: str, watchlist_id: str, record_key: str,
+) -> dict:
+    """Require the current-feed class update to return the exact tenant-scoped row."""
+    if not isinstance(response, dict):
+        raise RuntimeError("ransomwatch_current_classification_unconfirmed")
+    metadata = response.get("source_metadata")
+    if not isinstance(metadata, dict) or (
+        str(response.get("id") or "") != str(finding_id)
+        or str(response.get("tenant_id") or "") != str(tenant_id)
+        or str(response.get("watchlist_id") or "") != str(watchlist_id)
+        or str(response.get("source_id") or "") != "ransomwatch"
+        or str(response.get("finding_class") or "") != "current_breach_intel"
+        or str(metadata.get("record_key") or "") != str(record_key)
+        or str(metadata.get("temporal_class") or "") != "current_feed"
+    ):
+        raise RuntimeError("ransomwatch_current_classification_unconfirmed")
+    return response
+
+
 def _tenant_finding_content_hash(source_id: str, matched_value: str, watchlist_id: str, metadata: dict) -> str:
     """Hash a tenant match with its stable source-record identity when available."""
     matched_hash = hashlib.sha256(str(matched_value).strip().lower().encode()).hexdigest()
@@ -1216,7 +1236,7 @@ class DarkWebRequestWorker:
                     # The RPC's legacy default is historical_archive. Correct the
                     # explicit temporal class only after the fresh feed match and
                     # alert have both been durably confirmed.
-                    await supabase.update(
+                    classified = await supabase.update(
                         "dw_findings",
                         {
                             "finding_class": "current_breach_intel",
@@ -1228,6 +1248,13 @@ class DarkWebRequestWorker:
                         tenant_id=tenant_id,
                         watchlist_id=watch_id,
                         source_id="ransomwatch",
+                    )
+                    _require_current_breach_intel_classification(
+                        classified,
+                        finding_id=recorded_row["finding_id"],
+                        tenant_id=tenant_id,
+                        watchlist_id=watch_id,
+                        record_key=str(meta.get("record_key") or ""),
                     )
                 evidence.append({
                     "source": finding.source_id,
