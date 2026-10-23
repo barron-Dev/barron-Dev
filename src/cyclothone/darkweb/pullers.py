@@ -90,6 +90,7 @@ class RansomwatchPuller:
         self.current_post_count = 0
         self.historical_post_count = 0
         self.future_dated_post_count = 0
+        self.temporal_records: list[dict] = []
 
     @classmethod
     def _classify_published(cls, value: object, observed_at: datetime) -> tuple[str, str | None]:
@@ -164,6 +165,25 @@ class RansomwatchPuller:
                 "feed_source": "ransomwatch_public_aggregated_feed",
                 "direct_onion_access_verified": False,
             }
+            # Preserve a durable, tenant-independent source record for temporal
+            # history. Hash stable identity fields; never store raw feed payloads.
+            record_identity = chr(31).join((
+                raw_url.strip(),
+                victim.casefold(),
+                group.casefold(),
+                published or "",
+            ))
+            self.temporal_records.append({
+                "record_key": hashlib.sha256(record_identity.encode("utf-8")).hexdigest(),
+                "source_url": raw_url[:2048] or None,
+                "victim_name": victim[:512],
+                "victim_domain": victim_domain,
+                "group_name": group[:256] or "unknown",
+                "published_at": published,
+                "temporal_class": temporal_class,
+                "feed_observed_at": self.feed_observed_at,
+                "feed_content_sha256": self.feed_content_sha256,
+            })
             if victim_domain:
                 out.append(Finding(
                     self.SOURCE, "domain", victim_domain,
