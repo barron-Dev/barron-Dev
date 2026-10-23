@@ -168,10 +168,11 @@ def _is_current_finding(item: dict, request_id: str) -> bool:
             return False
         if str(metadata.get("temporal_class") or "") != "current_feed":
             return False
-        # Scheduled global polling has no customer request ID; request-triggered
-        # checks do. If present, the request binding must match exactly.
+        # Customer-visible current findings must be re-observed and persisted
+        # by this exact request. A fresh global feed timestamp alone is not a
+        # tenant/request authorization boundary.
         bound_request = str(metadata.get("service_request_id") or "")
-        if bound_request and bound_request != str(request_id):
+        if not bound_request or bound_request != str(request_id):
             return False
         try:
             observed = datetime.fromisoformat(str(metadata.get("feed_observed_at") or "").replace("Z", "+00:00"))
