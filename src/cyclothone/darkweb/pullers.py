@@ -93,7 +93,6 @@ class RansomwatchPuller:
         # Bounded metadata-only ledger for all dated/undated feed entries. It
         # contains no page bodies and can be reconciled with tenant matches.
         self.temporal_records: list[dict] = []
-        self.temporal_records: list[dict] = []
 
     @classmethod
     def _classify_published(cls, value: object, observed_at: datetime) -> tuple[str, str | None]:
@@ -160,16 +159,6 @@ class RansomwatchPuller:
                 str(published or ""),
                 raw_url.strip(),
             )).encode("utf-8")).hexdigest()
-            self.temporal_records.append({
-                "record_key": entry_key,
-                "temporal_class": temporal_class,
-                "published": published,
-                "feed_observed_at": self.feed_observed_at,
-                "feed_content_sha256": self.feed_content_sha256,
-                "victim_name": victim,
-                "group": group,
-                "source_url": raw_url or None,
-            })
             if temporal_class == "current_feed":
                 self.current_post_count += 1
             elif temporal_class == "future_dated":
@@ -188,18 +177,11 @@ class RansomwatchPuller:
                 "feed_source": "ransomwatch_public_aggregated_feed",
                 "direct_onion_access_verified": False,
             }
-            # Preserve a durable, tenant-independent source record for temporal
-            # history. Hash stable identity fields; never store raw feed payloads.
-            record_identity = chr(31).join((
-                raw_url.strip(),
-                victim.casefold(),
-                group.casefold(),
-                published or "",
-            ))
-            record_key = hashlib.sha256(record_identity.encode("utf-8")).hexdigest()
-            metadata["record_key"] = record_key
+            # The same stable key powers tenant observations and the global
+            # source archive; raw feed bodies are never retained.
+            metadata["record_key"] = entry_key
             self.temporal_records.append({
-                "record_key": record_key,
+                "record_key": entry_key,
                 "source_url": raw_url[:2048] or None,
                 "victim_name": victim[:512],
                 "victim_domain": victim_domain,
