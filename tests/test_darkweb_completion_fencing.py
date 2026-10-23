@@ -339,7 +339,7 @@ def test_native_onion_route_proof_without_inspected_content_is_unavailable():
                 "content_sha256": "a" * 64,
                 "tor_control_authenticated": True,
                 "tor_bootstrap_complete": True,
-            "tor_socks_auth_isolation_configured": True,
+                "tor_socks_auth_isolation_configured": True,
                 "hsfetch_accepted": True,
                 "route_verified": True,
                 "hs_desc_content_received": True,
@@ -398,7 +398,11 @@ def test_ransomwatch_current_feed_only_alerts_for_exact_customer_target():
         kind="company_name",
         matched_value="acme corp",
         source_url="https://example.invalid/post",
-        metadata={"temporal_class": "current_feed", "victim_name": "acme corp"},
+        metadata={
+            "temporal_class": "current_feed",
+            "victim_name": "acme corp",
+            "feed_freshness_verified": True,
+        },
     )
     unrelated = SimpleNamespace(
         kind="company_name",
@@ -442,9 +446,11 @@ def test_tor_control_proof_requires_hsfetch_descriptor_content_and_bound_rendezv
     collector = TorControlProofCollector("request-1", host="127.0.0.1", port=9051)
     collector.controller = object()
     collector.bootstrapped = True
-    collector.tor_version = "test-version"
+    collector.tor_version = "0.4.x"
+    collector.socks_auth_isolation_configured = True
     collector._starts[host] = 1.0
     collector._hsfetch_accepted.add(host)
+    collector._response_windows[host] = (1.0, 3.5, "b" * 64)
     collector._descriptor_events[host] = [
         (2.0, "RECEIVED", True),
         (2.1, "CONTENT", True),
@@ -470,13 +476,15 @@ def test_tor_control_proof_fails_closed_without_accepted_hsfetch():
     collector = TorControlProofCollector("request-1", host="127.0.0.1", port=9051)
     collector.controller = object()
     collector.bootstrapped = True
+    collector.socks_auth_isolation_configured = True
     collector._starts[host] = 1.0
+    collector._response_windows[host] = (1.0, 3.5, "b" * 64)
     collector._descriptor_events[host] = [
         (2.0, "RECEIVED", True),
         (2.1, "CONTENT", True),
     ]
     collector._circuits = [(2.5, "77", "BUILT", "HS_CLIENT_REND")]
-    collector._streams = [(3.0, host, "SUCCEEDED", "77")]
+    collector._streams = [(3.0, host, "SUCCEEDED", "77", collector._socks_username)]
 
     proof = collector.proof_for("http://" + host + "/", "b" * 64)
     assert proof["hsfetch_accepted"] is False
