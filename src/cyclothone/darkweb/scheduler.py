@@ -32,6 +32,19 @@ def _current_ransomwatch_findings(findings: list) -> list:
     ]
 
 
+def _require_temporal_archive_confirmation(response: object, expected: int) -> None:
+    """Require the database to confirm every source-level temporal record write."""
+    rows = response if isinstance(response, list) else [response]
+    for row in rows:
+        if isinstance(row, dict):
+            try:
+                if int(row.get("accepted_count", -1)) == expected:
+                    return
+            except (TypeError, ValueError):
+                continue
+    raise RuntimeError("ransomwatch_temporal_archive_unconfirmed")
+
+
 class DarkWebScheduler:
     GLOBAL_INTERVAL = 15 * 60
     DOMAIN_INTERVAL = 6 * 3600
@@ -171,9 +184,20 @@ class DarkWebScheduler:
             findings = await pull()
             monitor = monitor or getattr(pull, "__self__", None)
             if source_id == "ransomwatch":
-                # The scheduler is the current-alert path. Archive entries remain
-                # available as request-level historical candidates, and future-dated
-                # entries are quarantined; neither may create a current alert.
+                if monitor is None or not getattr(monitor, "feed_checked", False):
+                    raise RuntimeError("ransomwatch_feed_not_confirmed")
+                temporal_records = getattr(monitor, "temporal_records", None)
+                if not isinstance(temporal_records, list):
+                    raise RuntimeError("ransomwatch_temporal_records_missing")
+                # Persist all three time classes before any current alert is ingested.
+                # If archive persistence fails, do not create partial current alerts.
+                archive_result = await supabase.rpc(
+                    "record_ransomwatch_temporal_records",
+                    {"p_records": temporal_records[:5000]},
+                )
+                _require_temporal_archive_confirmation(archive_result, len(temporal_records[:5000]))
+                # The scheduler is the current-alert path. Historical entries are
+                # durable archive-only records; future-dated entries are quarantined.
                 findings = _current_ransomwatch_findings(findings)
             if (
                 source_id == "native_onion"
