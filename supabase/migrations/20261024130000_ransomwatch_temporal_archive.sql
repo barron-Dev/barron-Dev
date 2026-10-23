@@ -11,7 +11,503 @@ CREATE TABLE IF NOT EXISTS public.dw_ransomwatch_temporal_records (
     published_at timestamptz,
     temporal_class text NOT NULL CHECK (temporal_class IN ('current_feed','historical_archive','future_dated')),
     feed_observed_at timestamptz NOT NULL,
-    feed_content_sha256 text NOT NULL CHECK (feed_content_sha256 ~ '^[0-9a-f]{64}$'),
+    feed_response_date timestamptz NOT NULL,
+    feed_age_seconds integer NOT NULL CHECK (feed_age_seconds BETWEEN 0 AND 3600),
+    feed_freshness_verified boolean NOT NULL CHECK (feed_freshness_verified),
+    feed_content_sha256 text NOT NULL CHECK (feed_content_sha256 ~ '^[0-9a-f]{64}
+    first_seen_at timestamptz NOT NULL DEFAULT now(),
+    last_seen_at timestamptz NOT NULL DEFAULT now(),
+    observed_count bigint NOT NULL DEFAULT 1 CHECK (observed_count >= 1),
+    direct_onion_access_verified boolean NOT NULL DEFAULT false
+        CHECK (direct_onion_access_verified = false)
+);
+
+-- If an earlier compatible migration created the table first, ensure the freshness
+-- proof columns exist before replacing the writer RPC.
+ALTER TABLE public.dw_ransomwatch_temporal_records
+    ADD COLUMN IF NOT EXISTS feed_response_date timestamptz,
+    ADD COLUMN IF NOT EXISTS feed_age_seconds integer,
+    ADD COLUMN IF NOT EXISTS feed_freshness_verified boolean;
+
+CREATE INDEX IF NOT EXISTS dw_ransomwatch_temporal_class_published_idx
+    ON public.dw_ransomwatch_temporal_records (temporal_class, published_at DESC);
+CREATE INDEX IF NOT EXISTS dw_ransomwatch_temporal_domain_idx
+    ON public.dw_ransomwatch_temporal_records (lower(victim_domain))
+    WHERE victim_domain IS NOT NULL;
+CREATE INDEX IF NOT EXISTS dw_ransomwatch_temporal_name_idx
+    ON public.dw_ransomwatch_temporal_records (lower(victim_name));
+
+ALTER TABLE public.dw_ransomwatch_temporal_records ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.dw_ransomwatch_temporal_records FROM PUBLIC, anon, authenticated;
+GRANT SELECT, INSERT, UPDATE ON public.dw_ransomwatch_temporal_records TO service_role;
+
+CREATE OR REPLACE FUNCTION public.record_ransomwatch_temporal_records(p_records jsonb)
+RETURNS TABLE(accepted_count integer)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, public
+AS $function$
+DECLARE
+    v_item jsonb;
+    v_count integer := 0;
+    v_key text;
+    v_victim text;
+    v_group text;
+    v_class text;
+    v_feed_hash text;
+    v_observed timestamptz;
+    v_response_date timestamptz;
+    v_age_seconds integer;
+    v_freshness_verified boolean;
+    v_published timestamptz;
+BEGIN
+    IF coalesce(auth.role(), '') <> 'service_role' THEN
+        RAISE EXCEPTION 'ransomwatch_temporal_service_role_required';
+    END IF;
+    IF p_records IS NULL OR jsonb_typeof(p_records) IS DISTINCT FROM 'array' THEN
+        RAISE EXCEPTION 'ransomwatch_temporal_batch_invalid';
+    END IF;
+    IF jsonb_array_length(p_records) > 5000 THEN
+        RAISE EXCEPTION 'ransomwatch_temporal_batch_invalid';
+    END IF;
+
+    FOR v_item IN SELECT value FROM jsonb_array_elements(p_records)
+    LOOP
+        v_key := lower(coalesce(v_item->>'record_key',''));
+        v_victim := left(trim(coalesce(v_item->>'victim_name','')),512);
+        v_group := left(trim(coalesce(v_item->>'group_name','unknown')),256);
+        v_class := coalesce(v_item->>'temporal_class','');
+        v_feed_hash := lower(coalesce(v_item->>'feed_content_sha256',''));
+        v_freshness_verified := coalesce(v_item->>'feed_freshness_verified','false') = 'true';
+
+        IF v_key !~ '^[0-9a-f]{64}
+            RAISE EXCEPTION 'ransomwatch_temporal_record_invalid';
+        END IF;
+
+        BEGIN
+            v_observed := (v_item->>'feed_observed_at')::timestamptz;
+            v_response_date := (v_item->>'feed_response_date')::timestamptz;
+            v_age_seconds := (v_item->>'feed_age_seconds')::integer;
+            v_published := nullif(v_item->>'published_at','')::timestamptz;
+        EXCEPTION WHEN others THEN
+            RAISE EXCEPTION 'ransomwatch_temporal_timestamp_invalid';
+        END;
+
+        IF v_age_seconds < 0 OR v_age_seconds > 3600
+           OR v_observed < clock_timestamp() - interval '1 hour'
+           OR v_observed > clock_timestamp() + interval '5 minutes'
+           OR v_response_date < clock_timestamp() - interval '1 hour'
+           OR v_response_date > clock_timestamp() + interval '5 minutes' THEN
+            RAISE EXCEPTION 'ransomwatch_temporal_feed_freshness_invalid';
+        END IF;
+        IF v_class = 'current_feed' AND (
+             v_published IS NULL
+             OR v_published < v_observed - interval '30 days'
+             OR v_published > v_observed + interval '5 minutes'
+        ) THEN
+            RAISE EXCEPTION 'ransomwatch_temporal_current_window_invalid';
+        ELSIF v_class = 'historical_archive' AND (
+             v_published IS NOT NULL
+             AND v_published >= v_observed - interval '30 days'
+        ) THEN
+            RAISE EXCEPTION 'ransomwatch_temporal_historical_window_invalid';
+        ELSIF v_class = 'future_dated' AND (
+             v_published IS NULL
+             OR v_published <= v_observed + interval '5 minutes'
+        ) THEN
+            RAISE EXCEPTION 'ransomwatch_temporal_future_window_invalid';
+        END IF;
+
+        INSERT INTO public.dw_ransomwatch_temporal_records (
+            record_key, source_url, victim_name, victim_domain, group_name,
+            published_at, temporal_class, feed_observed_at, feed_response_date,
+            feed_age_seconds, feed_freshness_verified, feed_content_sha256,
+            direct_onion_access_verified
+        ) VALUES (
+            v_key,
+            left(nullif(v_item->>'source_url',''),2048),
+            v_victim,
+            left(nullif(v_item->>'victim_domain',''),253),
+            v_group,
+            v_published,
+            v_class,
+            v_observed,
+            v_response_date,
+            v_age_seconds,
+            true,
+            v_feed_hash,
+            false
+        )
+        ON CONFLICT (record_key) DO UPDATE SET
+            source_url = excluded.source_url,
+            victim_name = excluded.victim_name,
+            victim_domain = excluded.victim_domain,
+            group_name = excluded.group_name,
+            published_at = excluded.published_at,
+            temporal_class = excluded.temporal_class,
+            feed_observed_at = excluded.feed_observed_at,
+            feed_response_date = excluded.feed_response_date,
+            feed_age_seconds = excluded.feed_age_seconds,
+            feed_freshness_verified = true,
+            feed_content_sha256 = excluded.feed_content_sha256,
+            last_seen_at = now(),
+            observed_count = public.dw_ransomwatch_temporal_records.observed_count + 1,
+            direct_onion_access_verified = false;
+        v_count := v_count + 1;
+    END LOOP;
+
+    RETURN QUERY SELECT v_count;
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.record_ransomwatch_temporal_records(jsonb) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.record_ransomwatch_temporal_records(jsonb) TO service_role;
+
+COMMENT ON TABLE public.dw_ransomwatch_temporal_records IS
+  'Global source-level temporal archive of public Ransomwatch feed entries. Never direct onion verification and never tenant-specific findings.';
+
+COMMIT;
+),
+    first_seen_at timestamptz NOT NULL DEFAULT now(),
+    last_seen_at timestamptz NOT NULL DEFAULT now(),
+    observed_count bigint NOT NULL DEFAULT 1 CHECK (observed_count >= 1),
+    direct_onion_access_verified boolean NOT NULL DEFAULT false
+        CHECK (direct_onion_access_verified = false)
+);
+
+CREATE INDEX IF NOT EXISTS dw_ransomwatch_temporal_class_published_idx
+    ON public.dw_ransomwatch_temporal_records (temporal_class, published_at DESC);
+CREATE INDEX IF NOT EXISTS dw_ransomwatch_temporal_domain_idx
+    ON public.dw_ransomwatch_temporal_records (lower(victim_domain))
+    WHERE victim_domain IS NOT NULL;
+CREATE INDEX IF NOT EXISTS dw_ransomwatch_temporal_name_idx
+    ON public.dw_ransomwatch_temporal_records (lower(victim_name));
+
+ALTER TABLE public.dw_ransomwatch_temporal_records ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.dw_ransomwatch_temporal_records FROM PUBLIC, anon, authenticated;
+GRANT SELECT, INSERT, UPDATE ON public.dw_ransomwatch_temporal_records TO service_role;
+
+CREATE OR REPLACE FUNCTION public.record_ransomwatch_temporal_records(p_records jsonb)
+RETURNS TABLE(accepted_count integer)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, public
+AS $function$
+DECLARE
+    v_item jsonb;
+    v_count integer := 0;
+    v_key text;
+    v_victim text;
+    v_group text;
+    v_class text;
+    v_feed_hash text;
+    v_observed timestamptz;
+    v_published timestamptz;
+BEGIN
+    IF coalesce(auth.role(), '') <> 'service_role' THEN
+        RAISE EXCEPTION 'ransomwatch_temporal_service_role_required';
+    END IF;
+    IF p_records IS NULL OR jsonb_typeof(p_records) IS DISTINCT FROM 'array' THEN
+        RAISE EXCEPTION 'ransomwatch_temporal_batch_invalid';
+    END IF;
+    IF jsonb_array_length(p_records) > 5000 THEN
+        RAISE EXCEPTION 'ransomwatch_temporal_batch_invalid';
+    END IF;
+
+    FOR v_item IN SELECT value FROM jsonb_array_elements(p_records)
+    LOOP
+        v_key := lower(coalesce(v_item->>'record_key',''));
+        v_victim := left(trim(coalesce(v_item->>'victim_name','')),512);
+        v_group := left(trim(coalesce(v_item->>'group_name','unknown')),256);
+        v_class := coalesce(v_item->>'temporal_class','');
+        v_feed_hash := lower(coalesce(v_item->>'feed_content_sha256',''));
+
+        IF v_key !~ '^[0-9a-f]{64}$'
+           OR v_victim = ''
+           OR v_group = ''
+           OR v_class NOT IN ('current_feed','historical_archive','future_dated')
+           OR v_feed_hash !~ '^[0-9a-f]{64}$'
+           OR coalesce(v_item->>'feed_observed_at','') = '' THEN
+            RAISE EXCEPTION 'ransomwatch_temporal_record_invalid';
+        END IF;
+
+        BEGIN
+            v_observed := (v_item->>'feed_observed_at')::timestamptz;
+            v_published := nullif(v_item->>'published_at','')::timestamptz;
+        EXCEPTION WHEN others THEN
+            RAISE EXCEPTION 'ransomwatch_temporal_timestamp_invalid';
+        END;
+
+        INSERT INTO public.dw_ransomwatch_temporal_records (
+            record_key, source_url, victim_name, victim_domain, group_name,
+            published_at, temporal_class, feed_observed_at, feed_content_sha256,
+            direct_onion_access_verified
+        ) VALUES (
+            v_key,
+            left(nullif(v_item->>'source_url',''),2048),
+            v_victim,
+            left(nullif(v_item->>'victim_domain',''),253),
+            v_group,
+            v_published,
+            v_class,
+            v_observed,
+            v_feed_hash,
+            false
+        )
+        ON CONFLICT (record_key) DO UPDATE SET
+            source_url = excluded.source_url,
+            victim_name = excluded.victim_name,
+            victim_domain = excluded.victim_domain,
+            group_name = excluded.group_name,
+            published_at = excluded.published_at,
+            temporal_class = excluded.temporal_class,
+            feed_observed_at = excluded.feed_observed_at,
+            feed_content_sha256 = excluded.feed_content_sha256,
+            last_seen_at = now(),
+            observed_count = public.dw_ransomwatch_temporal_records.observed_count + 1,
+            direct_onion_access_verified = false;
+        v_count := v_count + 1;
+    END LOOP;
+
+    RETURN QUERY SELECT v_count;
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.record_ransomwatch_temporal_records(jsonb) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.record_ransomwatch_temporal_records(jsonb) TO service_role;
+
+COMMENT ON TABLE public.dw_ransomwatch_temporal_records IS
+  'Global source-level temporal archive of public Ransomwatch feed entries. Never direct onion verification and never tenant-specific findings.';
+
+COMMIT;
+
+           OR v_victim = ''
+           OR v_group = ''
+           OR v_class NOT IN ('current_feed','historical_archive','future_dated')
+           OR v_feed_hash !~ '^[0-9a-f]{64}
+            RAISE EXCEPTION 'ransomwatch_temporal_record_invalid';
+        END IF;
+
+        BEGIN
+            v_observed := (v_item->>'feed_observed_at')::timestamptz;
+            v_published := nullif(v_item->>'published_at','')::timestamptz;
+        EXCEPTION WHEN others THEN
+            RAISE EXCEPTION 'ransomwatch_temporal_timestamp_invalid';
+        END;
+
+        INSERT INTO public.dw_ransomwatch_temporal_records (
+            record_key, source_url, victim_name, victim_domain, group_name,
+            published_at, temporal_class, feed_observed_at, feed_content_sha256,
+            direct_onion_access_verified
+        ) VALUES (
+            v_key,
+            left(nullif(v_item->>'source_url',''),2048),
+            v_victim,
+            left(nullif(v_item->>'victim_domain',''),253),
+            v_group,
+            v_published,
+            v_class,
+            v_observed,
+            v_feed_hash,
+            false
+        )
+        ON CONFLICT (record_key) DO UPDATE SET
+            source_url = excluded.source_url,
+            victim_name = excluded.victim_name,
+            victim_domain = excluded.victim_domain,
+            group_name = excluded.group_name,
+            published_at = excluded.published_at,
+            temporal_class = excluded.temporal_class,
+            feed_observed_at = excluded.feed_observed_at,
+            feed_content_sha256 = excluded.feed_content_sha256,
+            last_seen_at = now(),
+            observed_count = public.dw_ransomwatch_temporal_records.observed_count + 1,
+            direct_onion_access_verified = false;
+        v_count := v_count + 1;
+    END LOOP;
+
+    RETURN QUERY SELECT v_count;
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.record_ransomwatch_temporal_records(jsonb) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.record_ransomwatch_temporal_records(jsonb) TO service_role;
+
+COMMENT ON TABLE public.dw_ransomwatch_temporal_records IS
+  'Global source-level temporal archive of public Ransomwatch feed entries. Never direct onion verification and never tenant-specific findings.';
+
+COMMIT;
+),
+    first_seen_at timestamptz NOT NULL DEFAULT now(),
+    last_seen_at timestamptz NOT NULL DEFAULT now(),
+    observed_count bigint NOT NULL DEFAULT 1 CHECK (observed_count >= 1),
+    direct_onion_access_verified boolean NOT NULL DEFAULT false
+        CHECK (direct_onion_access_verified = false)
+);
+
+CREATE INDEX IF NOT EXISTS dw_ransomwatch_temporal_class_published_idx
+    ON public.dw_ransomwatch_temporal_records (temporal_class, published_at DESC);
+CREATE INDEX IF NOT EXISTS dw_ransomwatch_temporal_domain_idx
+    ON public.dw_ransomwatch_temporal_records (lower(victim_domain))
+    WHERE victim_domain IS NOT NULL;
+CREATE INDEX IF NOT EXISTS dw_ransomwatch_temporal_name_idx
+    ON public.dw_ransomwatch_temporal_records (lower(victim_name));
+
+ALTER TABLE public.dw_ransomwatch_temporal_records ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.dw_ransomwatch_temporal_records FROM PUBLIC, anon, authenticated;
+GRANT SELECT, INSERT, UPDATE ON public.dw_ransomwatch_temporal_records TO service_role;
+
+CREATE OR REPLACE FUNCTION public.record_ransomwatch_temporal_records(p_records jsonb)
+RETURNS TABLE(accepted_count integer)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, public
+AS $function$
+DECLARE
+    v_item jsonb;
+    v_count integer := 0;
+    v_key text;
+    v_victim text;
+    v_group text;
+    v_class text;
+    v_feed_hash text;
+    v_observed timestamptz;
+    v_published timestamptz;
+BEGIN
+    IF coalesce(auth.role(), '') <> 'service_role' THEN
+        RAISE EXCEPTION 'ransomwatch_temporal_service_role_required';
+    END IF;
+    IF p_records IS NULL OR jsonb_typeof(p_records) IS DISTINCT FROM 'array' THEN
+        RAISE EXCEPTION 'ransomwatch_temporal_batch_invalid';
+    END IF;
+    IF jsonb_array_length(p_records) > 5000 THEN
+        RAISE EXCEPTION 'ransomwatch_temporal_batch_invalid';
+    END IF;
+
+    FOR v_item IN SELECT value FROM jsonb_array_elements(p_records)
+    LOOP
+        v_key := lower(coalesce(v_item->>'record_key',''));
+        v_victim := left(trim(coalesce(v_item->>'victim_name','')),512);
+        v_group := left(trim(coalesce(v_item->>'group_name','unknown')),256);
+        v_class := coalesce(v_item->>'temporal_class','');
+        v_feed_hash := lower(coalesce(v_item->>'feed_content_sha256',''));
+
+        IF v_key !~ '^[0-9a-f]{64}$'
+           OR v_victim = ''
+           OR v_group = ''
+           OR v_class NOT IN ('current_feed','historical_archive','future_dated')
+           OR v_feed_hash !~ '^[0-9a-f]{64}$'
+           OR coalesce(v_item->>'feed_observed_at','') = '' THEN
+            RAISE EXCEPTION 'ransomwatch_temporal_record_invalid';
+        END IF;
+
+        BEGIN
+            v_observed := (v_item->>'feed_observed_at')::timestamptz;
+            v_published := nullif(v_item->>'published_at','')::timestamptz;
+        EXCEPTION WHEN others THEN
+            RAISE EXCEPTION 'ransomwatch_temporal_timestamp_invalid';
+        END;
+
+        INSERT INTO public.dw_ransomwatch_temporal_records (
+            record_key, source_url, victim_name, victim_domain, group_name,
+            published_at, temporal_class, feed_observed_at, feed_content_sha256,
+            direct_onion_access_verified
+        ) VALUES (
+            v_key,
+            left(nullif(v_item->>'source_url',''),2048),
+            v_victim,
+            left(nullif(v_item->>'victim_domain',''),253),
+            v_group,
+            v_published,
+            v_class,
+            v_observed,
+            v_feed_hash,
+            false
+        )
+        ON CONFLICT (record_key) DO UPDATE SET
+            source_url = excluded.source_url,
+            victim_name = excluded.victim_name,
+            victim_domain = excluded.victim_domain,
+            group_name = excluded.group_name,
+            published_at = excluded.published_at,
+            temporal_class = excluded.temporal_class,
+            feed_observed_at = excluded.feed_observed_at,
+            feed_content_sha256 = excluded.feed_content_sha256,
+            last_seen_at = now(),
+            observed_count = public.dw_ransomwatch_temporal_records.observed_count + 1,
+            direct_onion_access_verified = false;
+        v_count := v_count + 1;
+    END LOOP;
+
+    RETURN QUERY SELECT v_count;
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.record_ransomwatch_temporal_records(jsonb) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.record_ransomwatch_temporal_records(jsonb) TO service_role;
+
+COMMENT ON TABLE public.dw_ransomwatch_temporal_records IS
+  'Global source-level temporal archive of public Ransomwatch feed entries. Never direct onion verification and never tenant-specific findings.';
+
+COMMIT;
+
+           OR coalesce(v_item->>'feed_observed_at','') = ''
+           OR coalesce(v_item->>'feed_response_date','') = ''
+           OR coalesce(v_item->>'feed_age_seconds','') = ''
+           OR NOT v_freshness_verified THEN
+            RAISE EXCEPTION 'ransomwatch_temporal_record_invalid';
+        END IF;
+
+        BEGIN
+            v_observed := (v_item->>'feed_observed_at')::timestamptz;
+            v_published := nullif(v_item->>'published_at','')::timestamptz;
+        EXCEPTION WHEN others THEN
+            RAISE EXCEPTION 'ransomwatch_temporal_timestamp_invalid';
+        END;
+
+        INSERT INTO public.dw_ransomwatch_temporal_records (
+            record_key, source_url, victim_name, victim_domain, group_name,
+            published_at, temporal_class, feed_observed_at, feed_content_sha256,
+            direct_onion_access_verified
+        ) VALUES (
+            v_key,
+            left(nullif(v_item->>'source_url',''),2048),
+            v_victim,
+            left(nullif(v_item->>'victim_domain',''),253),
+            v_group,
+            v_published,
+            v_class,
+            v_observed,
+            v_feed_hash,
+            false
+        )
+        ON CONFLICT (record_key) DO UPDATE SET
+            source_url = excluded.source_url,
+            victim_name = excluded.victim_name,
+            victim_domain = excluded.victim_domain,
+            group_name = excluded.group_name,
+            published_at = excluded.published_at,
+            temporal_class = excluded.temporal_class,
+            feed_observed_at = excluded.feed_observed_at,
+            feed_content_sha256 = excluded.feed_content_sha256,
+            last_seen_at = now(),
+            observed_count = public.dw_ransomwatch_temporal_records.observed_count + 1,
+            direct_onion_access_verified = false;
+        v_count := v_count + 1;
+    END LOOP;
+
+    RETURN QUERY SELECT v_count;
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.record_ransomwatch_temporal_records(jsonb) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.record_ransomwatch_temporal_records(jsonb) TO service_role;
+
+COMMENT ON TABLE public.dw_ransomwatch_temporal_records IS
+  'Global source-level temporal archive of public Ransomwatch feed entries. Never direct onion verification and never tenant-specific findings.';
+
+COMMIT;
+),
     first_seen_at timestamptz NOT NULL DEFAULT now(),
     last_seen_at timestamptz NOT NULL DEFAULT now(),
     observed_count bigint NOT NULL DEFAULT 1 CHECK (observed_count >= 1),
