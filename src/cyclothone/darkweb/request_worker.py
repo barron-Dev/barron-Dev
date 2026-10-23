@@ -1160,6 +1160,7 @@ class DarkWebRequestWorker:
                     "p_error_code": error_code,
                     "p_metadata": {
                         "request_id": str(request_id),
+                        "expected_attempt": int(request["attempts"]),
                         "coverage": str(source.get("coverage") or ""),
                         "availability": str(source.get("availability") or ""),
                         "layer": str(source.get("layer") or ""),
