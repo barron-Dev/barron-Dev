@@ -90,10 +90,12 @@ BEGIN
         RAISE EXCEPTION 'ransomwatch_temporal_service_role_required';
     END IF;
     IF p_source_id IS DISTINCT FROM 'ransomwatch'
-       OR p_entry_hash IS NULL OR p_entry_hash !~ '^[0-9a-f]{64}
+       OR p_entry_hash IS NULL OR p_entry_hash !~ '^[0-9a-f]{64}$'
+       OR p_temporal_class IS NULL
        OR p_temporal_class NOT IN ('current_feed','historical_archive','future_dated')
        OR p_feed_observed_at IS NULL
-       OR p_feed_content_sha256 IS NULL OR p_feed_content_sha256 !~ '^[0-9a-f]{64} = 0
+       OR p_feed_content_sha256 IS NULL OR p_feed_content_sha256 !~ '^[0-9a-f]{64}$'
+       OR length(trim(coalesce(p_victim_name,''))) = 0
        OR length(trim(coalesce(p_matched_value,''))) = 0
        OR p_match_kind IS NULL
        OR p_match_kind NOT IN ('domain','company_name') THEN
