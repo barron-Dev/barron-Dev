@@ -156,6 +156,13 @@ class DarkWebScheduler:
         except asyncio.CancelledError:
             raise
         except Exception:
+            # A failed onion crawl still contains real per-seed attempt outcomes.
+            # Persist them through the evidence RPC before marking the source failed.
+            if source_id == "native_onion" and monitor is not None:
+                try:
+                    await self._persist_onion_seed_state(monitor)
+                except Exception:
+                    logger.exception("native onion probe evidence persistence failed")
             await self._mark_source(source_id, "failed")
             logger.exception("dark web source failed: %s", source_id)
 
