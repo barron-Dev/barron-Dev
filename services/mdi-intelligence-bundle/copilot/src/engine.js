@@ -54,7 +54,7 @@ export async function ask(input={}){
     const parsed=parseJson(await callModel(messages));
     if(!parsed.tool){
       const answer=String(parsed.answer||"No supported answer was produced.");
-      const requestedCitations=Array.isArray(parsed.citations)?parsed.citations.filter(c=>c&&c.kind&&((c.id!==undefined&&c.id!==null)||(/^https?:\\/\\//i.test(String(c.url||""))))):[];
+      const requestedCitations=Array.isArray(parsed.citations)?parsed.citations.filter(c=>c&&c.kind&&c.id!==undefined&&c.id!==null):[];
       const externalSources=calls.filter(c=>c.name==="search_external"&&c.result?.available===true).flatMap(c=>(c.result.results||[]).map(s=>({kind:"web",id:s.url,url:s.url,title:s.title,snippet:s.snippet,publishedAt:s.publishedAt,provider:s.provider})));
       const safeCitations=[...new Map([...requestedCitations,...externalSources].map(c=>[String(c.url||`${c.kind}:${c.id}`),c])).values()];
       await sb.from("mdi_copilot_messages").insert({tenant_id,thread_id,role:"assistant",content:answer,citations:safeCitations,tool_calls:calls}).throwOnError();
