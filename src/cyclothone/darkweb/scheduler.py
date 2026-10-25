@@ -176,30 +176,88 @@ class DarkWebScheduler:
         return {"matched": matched, "alerts": alerts, "errors": errors}
 
     async def _persist_onion_seed_state(self, crawler: NativeOnionCrawler) -> None:
-        rows = []
+        """Persist every real seed probe through the evidence RPC; never activate by upsert."""
         for url, state in crawler.seed_status.items():
             parsed = urlsplit(url)
-            row = {
-                "url": url,
-                "hostname": (parsed.hostname or "").lower(),
-                "seed_origin": crawler.seed_origin.get(url, "configured"),
-                "discovered_from": crawler.discovered_from.get(url),
-                "status": state if state in {"checked", "failed", "disabled"} else "candidate",
-                "last_status": state,
-                "last_checked": datetime.now(UTC).isoformat() if state in {"checked", "failed"} else None,
+            hostname = (parsed.hostname or "").lower()
+            label = hostname.removesuffix(".onion")
+            # The evidence RPC deliberately accepts only v3 onion hostnames.
+            if not hostname.endswith(".onion") or len(label) != 56 or any(ch not in "abcdefghijklmnopqrstuvwxyz234567" for ch in label):
+                logger.warning("native onion probe evidence skipped invalid v3 hostname")
+                continue
+
+            async def _lookup():
+                client = await supabase._ensure()
+                return await client.table("dw_onion_seeds").select("id,seed_type").eq("url", url).limit(1).execute()
+
+            rows = (await supabase._retry(_lookup, attempts=1)).data or []
+            if rows:
+                seed = rows[0]
+            else:
+                candidate = {
+                    "url": url,
+                    "hostname": hostname,
+                    "seed_origin": crawler.seed_origin.get(url, "discovered"),
+                    "discovered_from": crawler.discovered_from.get(url),
+                    "status": "candidate",
+                    "last_status": "not_probed",
+                    "seed_type": "candidate_onion_service",
+                    "candidate_trust": "candidate",
+                    "monitoring_enabled": False,
+                    "requires_tor_probe": True,
+                }
+
+                async def _insert_candidate():
+                    client = await supabase._ensure()
+                    return await client.table("dw_onion_seeds").insert(candidate).execute()
+
+                try:
+                    inserted = (await supabase._retry(_insert_candidate, attempts=1)).data or []
+                    if not inserted:
+                        raise RuntimeError("onion candidate insert returned no row")
+                    seed = inserted[0]
+                except Exception:
+                    # A concurrent crawler may have inserted this URL. Re-read, but
+                    # never update status/trust/monitoring flags as a fallback.
+                    rows = (await supabase._retry(_lookup, attempts=1)).data or []
+                    if not rows:
+                        raise
+                    seed = rows[0]
+
+            if state not in {"checked", "failed"}:
+                continue
+
+            reachable = url in crawler.seed_transport_reached
+            outcome = "reachable_unverified" if reachable else "unreachable"
+            params = {
+                "p_seed_id": str(seed["id"]),
+                "p_probe_method": "tor_https_get" if parsed.scheme == "https" else "tor_http_get",
+                # An HTTP response via a configured SOCKS proxy is not, by itself,
+                # proof of a Tor circuit/stream. Keep this false until ControlPort
+                # circuit/stream evidence is collected by the deployed runtime.
+                "p_tor_route_verified": False,
+                "p_request_url": url,
+                "p_http_status": crawler.seed_http_status.get(url),
+                "p_response_sha256": crawler.seed_content_hash.get(url),
+                "p_content_type": crawler.seed_content_type.get(url),
+                "p_response_bytes": crawler.seed_response_bytes.get(url),
+                "p_publisher_proof_url": None,
+                "p_publisher_proof_verified": False,
+                "p_independent_corroboration_url": None,
+                "p_independent_corroboration_verified": False,
+                "p_provenance_match": False,
+                "p_outcome": outcome,
+                "p_error_code": None if reachable else "native_onion_transport_failed",
+                "p_evidence_metadata": {
+                    "seed_origin": crawler.seed_origin.get(url, "configured"),
+                    "discovered_from": crawler.discovered_from.get(url),
+                    "pages_checked": crawler.pages_checked,
+                    "pages_failed": crawler.pages_failed,
+                    "tor_route_verification": "not_verified_by_control_port",
+                    "publisher_identity": "unverified",
+                },
             }
-            digest = crawler.seed_content_hash.get(url)
-            if digest:
-                row["last_response_sha256"] = digest
-            rows.append(row)
-        if not rows:
-            return
-
-        async def _do():
-            client = await supabase._ensure()
-            return await client.table("dw_onion_seeds").upsert(rows, on_conflict="url").execute()
-
-        await supabase._retry(_do, attempts=2)
+            await supabase.rpc("dw_record_onion_probe_result", params)
 
     async def _enabled_sources(self) -> set[str]:
         async def _do():
