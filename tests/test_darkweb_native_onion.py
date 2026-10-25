@@ -75,6 +75,10 @@ async def test_native_crawler_only_follows_same_onion_host_and_records_exact_evi
 
     assert crawler.pages_checked == 3
     assert crawler.configured_seed_count == 1
+    assert crawler.seed_http_status["http://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.onion/"] == 200
+    assert crawler.seed_content_type["http://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.onion/"] == "text/html; charset=utf-8"
+    assert crawler.seed_response_bytes["http://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.onion/"] > 0
+    assert "http://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.onion/" in crawler.seed_transport_reached
     assert len(crawler.discovered_seeds) == 1
     assert crawler.seed_status["http://bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.onion/"] == "checked"
     assert len(findings) == 3

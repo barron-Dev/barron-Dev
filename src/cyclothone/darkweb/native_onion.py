@@ -125,6 +125,10 @@ class NativeOnionCrawler:
         self.discovered_from: dict[str, str] = dict(discovered_from or {})
         self.discovered_seeds: list[dict[str, str]] = []
         self.seed_content_hash: dict[str, str] = {}
+        self.seed_http_status: dict[str, int] = {}
+        self.seed_content_type: dict[str, str] = {}
+        self.seed_response_bytes: dict[str, int] = {}
+        self.seed_transport_reached: set[str] = set()
         self.pages_checked = 0
         self.pages_failed = 0
         self.matches = 0
@@ -176,10 +180,13 @@ class NativeOnionCrawler:
                         visited.add(url)
                         try:
                             async with client.stream("GET", url) as response:
+                                self.seed_transport_reached.add(seed)
+                                self.seed_http_status.setdefault(seed, response.status_code)
+                                content_type = response.headers.get("content-type", "").lower()
+                                self.seed_content_type.setdefault(seed, content_type)
                                 if response.status_code < 200 or response.status_code >= 300:
                                     self.pages_failed += 1
                                     continue
-                                content_type = response.headers.get("content-type", "").lower()
                                 if content_type and not any(kind in content_type for kind in ("text/html", "text/plain", "application/xhtml")):
                                     continue
                                 chunks: list[bytes] = []
@@ -193,6 +200,7 @@ class NativeOnionCrawler:
                                     if body_size >= MAX_BODY_BYTES:
                                         break
                                 body = b"".join(chunks)
+                                self.seed_response_bytes.setdefault(seed, len(body))
                                 text = body.decode(response.encoding or "utf-8", errors="replace")
                             if not body.strip():
                                 self.pages_failed += 1
