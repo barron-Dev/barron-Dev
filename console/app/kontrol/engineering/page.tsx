@@ -5,7 +5,7 @@ import { FormEvent, useState } from "react";
 import { apiFetch } from "@/lib/api";
 
 type Message = { role: "user" | "assistant"; content: string; createdAt: string };
-type ChatResponse = { answer: string; thread_id?: string; citations?: { label?: string; url?: string; source?: string }[]; tools_used?: string[]; status?: string };
+type ChatResponse = { answer: string; thread_id?: string; mode?: string; infrastructure_tools_connected?: boolean; note?: string };
 
 const workspaces = [
   { title: "GitHub", detail: "Repository, branches, PRs, checks and code changes", mark: "GH" },
@@ -41,13 +41,14 @@ export default function EngineeringAIPage() {
       const result = await apiFetch<ChatResponse>("/api/v1/kontrol/engineering/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ thread_id: threadId, message: prompt }),
+        body: JSON.stringify({ thread_id: threadId, message: prompt, history: [...messages, { role: "user" as const, content: prompt, createdAt: new Date().toISOString() }].slice(-20).map(({ role, content }) => ({ role, content })) }),
       });
       if (!result || typeof result.answer !== "string" || !result.answer.trim()) {
         throw new Error("Engineering AI returned no verifiable answer.");
       }
       setConnection("connected");
-      setMessages((items) => [...items, { role: "assistant", content: result.answer, createdAt: new Date().toISOString() }]);
+      const answer = result.infrastructure_tools_connected === false ? `${result.answer}\n\n— Integration status: conversation-only. Live GitHub, Vercel, Supabase and Railway tools are not connected to this endpoint yet.` : result.answer;
+      setMessages((items) => [...items, { role: "assistant", content: answer, createdAt: new Date().toISOString() }]);
     } catch (cause) {
       setConnection("unavailable");
       setError(cause instanceof Error ? cause.message : "Engineering AI service unavailable.");
