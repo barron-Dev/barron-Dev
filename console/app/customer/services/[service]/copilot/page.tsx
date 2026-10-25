@@ -10,7 +10,8 @@ export default function CopilotPage(){
  const [threads,setThreads]=useState<ChatThread[]>([]);
  const [busy,setBusy]=useState(false);
  const [error,setError]=useState("");
- const [historyBusy,setHistoryBusy]=useState(true);\n const [usage,setUsage]=useState<UsageInfo|null>(null);
+ const [historyBusy,setHistoryBusy]=useState(true);
+ const [usage,setUsage]=useState<UsageInfo|null>(null);
  const [threadId,setThreadId]=useState(()=>crypto.randomUUID());
  function auth(){setApiToken(sessionStorage.getItem("cyclothone_access_token")||"");}
  async function refreshThreads(){
