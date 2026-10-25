@@ -3,13 +3,13 @@ const MAX_RESULTS = 8;
 
 export function normalizeExternalQuery(value) {
   if (typeof value !== "string") return "";
-  return value.trim().replace(/\\s+/g, " ").slice(0, MAX_QUERY_LENGTH);
+  return value.trim().replace(/\s+/g, " ").slice(0, MAX_QUERY_LENGTH);
 }
 export function normalizeBraveResults(payload, limit = 5) {
   const rows = Array.isArray(payload?.web?.results) ? payload.web.results : [];
   const count = Math.min(Math.max(Number(limit) || 5, 1), MAX_RESULTS);
   return rows.slice(0, count).flatMap((row) => {
-    if (typeof row?.url !== "string" || !/^https?:\\/\\//i.test(row.url)) return [];
+    if (typeof row?.url !== "string") return [];
     let parsed;
     try { parsed = new URL(row.url); } catch { return []; }
     if (!["http:", "https:"].includes(parsed.protocol) || parsed.username || parsed.password) return [];
