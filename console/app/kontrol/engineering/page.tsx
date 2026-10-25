@@ -47,7 +47,7 @@ export default function EngineeringAIPage() {
         throw new Error("Engineering AI returned no verifiable answer.");
       }
       setConnection("connected");
-      const answer = result.infrastructure_tools_connected === false ? `${result.answer}\n\n— Integration status: conversation-only. Live GitHub, Vercel, Supabase and Railway tools are not connected to this endpoint yet.` : result.answer;
+      const answer = result.infrastructure_tools_connected === false ? `${result.answer}\n\n— Integration status: no infrastructure connector returned a successful result for this response. Check the reported tool outcomes before treating live state as verified.` : result.answer;
       setMessages((items) => [...items, { role: "assistant", content: answer, createdAt: new Date().toISOString() }]);
     } catch (cause) {
       setConnection("unavailable");
