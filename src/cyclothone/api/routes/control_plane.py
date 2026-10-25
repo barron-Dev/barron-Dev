@@ -196,7 +196,7 @@ async def _run_engineering_tool(name: str) -> dict:
             if not url or not key:
                 return {"available": False, "reason": "supabase_url_or_service_key_not_configured"}
             response = await client.get(url + "/rest/v1/", headers={"apikey": key, "Authorization": f"Bearer {key}"})
-            return {"available": response.status_code in {200, 401, 403}, "http_status": response.status_code, "reachable": response.status_code not in {502, 503, 504}, "note": "REST endpoint reachability only; no schema, migration or row state was inspected."}
+            return {"available": response.status_code == 200, "http_status": response.status_code, "reachable": response.status_code not in {502, 503, 504}, "note": "REST endpoint reachability only; no schema, migration or row state was inspected."}
 
         if name == "get_railway_projects":
             token = os.getenv("RAILWAY_API_TOKEN") or os.getenv("RAILWAY_TOKEN")
@@ -241,6 +241,7 @@ async def engineering_chat(
     if not body.history or body.history[-1].role != "user" or body.history[-1].content != body.message:
         messages.append({"role": "user", "content": body.message})
     used: list[str] = []
+    connected_tools: list[str] = []
     tools = _engineering_tool_specs()
     try:
         async with httpx.AsyncClient(timeout=45.0) as client:
@@ -264,7 +265,8 @@ async def engineering_chat(
                         "answer": answer.strip(),
                         "mode": "read_only_tools",
                         "tools_used": used,
-                        "infrastructure_tools_connected": bool(used),
+                        "infrastructure_tools_connected": bool(connected_tools),
+                        "connected_tools": connected_tools,
                         "note": "Only the explicitly listed read-only tool calls are available; no write or execution tools are exposed.",
                     }
                 messages.append({"role": "assistant", "content": choice.get("content"), "tool_calls": tool_calls})
@@ -281,6 +283,8 @@ async def engineering_chat(
                         except (ValueError, TypeError):
                             result = {"available": False, "reason": f"{name}_invalid_response"}
                     used.append(name)
+                    if name != "get_integration_configuration" and result.get("available") is True:
+                        connected_tools.append(name)
                     messages.append({"role": "tool", "tool_call_id": call.get("id"), "content": json.dumps(result, separators=(",", ":"))})
     except httpx.HTTPError as exc:
         raise HTTPException(status_code=502, detail="engineering_ai_provider_unavailable") from exc
