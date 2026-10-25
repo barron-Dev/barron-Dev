@@ -22,7 +22,7 @@ const server=http.createServer(async(req,res)=>{
       if(error)throw new Error("history_unavailable");
       if(!threads?.length)return send(res,200,{threads:[]});
       const ids=threads.map(t=>t.id);
-      const {data:messages,error:messageError}=await sb.from("mdi_copilot_messages").select("thread_id,role,content,created_at").eq("tenant_id",identity.tenant_id).in("thread_id",ids).order("created_at",{ascending:true});
+      const {data:messages,error:messageError}=await sb.from("mdi_copilot_messages").select("thread_id,role,content,created_at").eq("tenant_id",identity.tenant_id).in("thread_id",ids).order("created_at",{ascending:false}).limit(1000);
       if(messageError)throw new Error("history_unavailable");
       const firstUser=new Map();
       for(const m of messages||[]){if(m.role==="user"&&!firstUser.has(m.thread_id))firstUser.set(m.thread_id,String(m.content||"").slice(0,120));}
