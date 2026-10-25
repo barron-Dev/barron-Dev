@@ -7,6 +7,7 @@ import { ServiceEmpty, ServiceError, ServiceLoading } from "../../../../componen
 type Row = Record<string, unknown>;
 type Watch = Row & { id?: string; kind?: string; value?: string; label?: string; severity?: string };
 type Alert = Row & { id?: string; title?: string; severity?: string; status?: string; case_id?: string | null };
+type Source = Row & { id?: string; name?: string; enabled?: boolean; last_status?: string | null; last_pull_at?: string | null; web_layer?: string; access_mode?: string };
 
 const input = "w-full border border-[#1a2330] bg-[#090c11] px-3 py-2 text-xs text-[#e8eef6] outline-none focus:border-[#40556f]";
 const button = "border border-[#2a394d] bg-[#0b1118] px-3 py-2 text-[10px] uppercase tracking-[.12em] text-[#d7e1ec] disabled:opacity-40";
@@ -19,6 +20,7 @@ export default function DarkWeb() {
   const [alerts,setAlerts]=useState<Alert[]>([]);
   const [stats,setStats]=useState<Row|null>(null);
   const [findings,setFindings]=useState<Row[]>([]);
+  const [sources,setSources]=useState<Source[]>([]);
   const [loading,setLoading]=useState(true);
   const [busy,setBusy]=useState("");
   const [error,setError]=useState("");
@@ -31,18 +33,24 @@ export default function DarkWeb() {
   async function load(){
     setLoading(true); setError("");
     try{
-      const [w,a,s,f]=await Promise.all([
+      const [w,a,s,f,src]=await Promise.all([
         apiFetch<Watch[]>("/api/v1/darkweb/watchlist"),
         apiFetch<Alert[]>("/api/v1/darkweb/alerts"),
         apiFetch<Row>("/api/v1/darkweb/stats"),
-        apiFetch<Row[]>("/api/v1/darkweb/findings")
+        apiFetch<Row[]>("/api/v1/darkweb/findings"),
+        apiFetch<Source[]>("/api/v1/darkweb/sources")
       ]);
       setWatchlist(Array.isArray(w)?w:[]); setAlerts(Array.isArray(a)?a:[]);
-      setStats(s??null); setFindings(Array.isArray(f)?f:[]);
+      setStats(s??null); setFindings(Array.isArray(f)?f:[]); setSources(Array.isArray(src)?src:[]);
     }catch(e){setError(e instanceof Error?e.message:"Could not load dark web intelligence");}
     finally{setLoading(false);}
   }
   useEffect(()=>{void load()},[]);
+  const implementedSourceIds = new Set(["native_onion","telegram_public","pastebin_public","bluesky_public"]);
+  const configuredSources = sources.filter(s=>implementedSourceIds.has(String(s.id??"")) && s.enabled===true);
+  const recentCutoff = Date.now() - 24*60*60*1000;
+  const allConfiguredSourcesFresh = configuredSources.length>0 && configuredSources.every(s=>s.last_status==="ok" && !!s.last_pull_at && Date.parse(s.last_pull_at)>=recentCutoff);
+  const coverageLabel = allConfiguredSourcesFresh ? "Recent checks recorded" : "Coverage incomplete";
 
   async function add(e:FormEvent){
     e.preventDefault(); if(!value.trim()) return;
@@ -99,7 +107,11 @@ export default function DarkWeb() {
               <Metric label="Critical" value={stats?.critical??0}/>
               <Metric label="Findings" value={findings.length}/>
             </div>
-            <p className="mt-4 text-xs text-[#687789]">Results come from the configured intelligence sources. No result is shown unless Cyclothone has real data for your organization.</p>
+            <div className="mt-4 border border-[#1a2330] p-3">
+              <div className="flex items-center justify-between gap-2"><span className="text-[10px] uppercase tracking-[.12em] text-[#687789]">Source coverage</span><span className={allConfiguredSourcesFresh?"text-[10px] text-[#7de0b2]":"text-[10px] text-[#ffb86b]"}>{coverageLabel}</span></div>
+              <div className="mt-2 space-y-1">{configuredSources.map(s=><div key={String(s.id)} className="flex items-center justify-between gap-3 text-[10px]"><span className="text-[#8a97a8]">{String(s.name??s.id??"Source")}</span><span className="text-[#687789]">{s.last_pull_at && Date.parse(s.last_pull_at)>=recentCutoff ? String(s.last_status??"unknown") : "not checked in 24h"}</span></div>)}</div>
+            </div>
+            <p className="mt-3 text-xs text-[#687789]">Findings are based on real source attempts. A quiet result is not a clean bill of health when coverage is unavailable, disabled, or stale.</p>
           </div>
         </section>
 
@@ -111,7 +123,7 @@ export default function DarkWeb() {
         <section className="border border-[#1a2330] bg-[#0a0e14] p-5">
           <div className="text-sm font-medium">Alerts & findings</div>
           <div className="mt-4 space-y-2">
-            {alerts.length===0&&findings.length===0?<ServiceEmpty title="No exposure found" detail="There are no current alerts or findings for your organization."/>:alerts.map(a=><div key={String(a.id)} className="flex flex-wrap items-center gap-3 border border-[#141d28] p-3"><div className="mr-auto"><div className="text-xs">{String(a.title??"Dark-web alert")}</div><div className="text-[10px] text-[#687789]">{String(a.severity??"")} · {String(a.status??"")}</div></div><select className="border border-[#2a394d] bg-[#090c11] px-2 py-2 text-[10px]" value={status} onChange={e=>setStatus(e.target.value)}>{statuses.map(s=><option key={s}>{s}</option>)}</select><button className={button} disabled={!!busy} onClick={()=>void update(String(a.id))}>Update</button><button className={button} disabled={!!busy||!!a.case_id} onClick={()=>void openCase(String(a.id))}>{a.case_id?"Case opened":"Investigate"}</button></div>)}
+            {alerts.length===0&&findings.length===0?<ServiceEmpty title={allConfiguredSourcesFresh ? "No matching findings in recent checks" : "No findings recorded — coverage incomplete"} detail={allConfiguredSourcesFresh ? "Configured live sources reported recent checks; this is not a guarantee that no exposure exists." : "Cyclothone has no current matching findings to show, but one or more live sources have not completed a recent check. Do not treat this as a clean result."}/>:alerts.map(a=><div key={String(a.id)} className="flex flex-wrap items-center gap-3 border border-[#141d28] p-3"><div className="mr-auto"><div className="text-xs">{String(a.title??"Dark-web alert")}</div><div className="text-[10px] text-[#687789]">{String(a.severity??"")} · {String(a.status??"")}</div></div><select className="border border-[#2a394d] bg-[#090c11] px-2 py-2 text-[10px]" value={status} onChange={e=>setStatus(e.target.value)}>{statuses.map(s=><option key={s}>{s}</option>)}</select><button className={button} disabled={!!busy} onClick={()=>void update(String(a.id))}>Update</button><button className={button} disabled={!!busy||!!a.case_id} onClick={()=>void openCase(String(a.id))}>{a.case_id?"Case opened":"Investigate"}</button></div>)}
           </div>
         </section>
       </>}
