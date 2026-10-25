@@ -1,5 +1,5 @@
 import { NextRequest,NextResponse } from 'next/server';
 import { bootstrapMdi } from '@/lib/mdi/services/bootstrap';
 import { resolveNumber } from '@/lib/mdi/services/numberIntel';
-import { authError,requireMdiClearance } from '@/lib/mdi/auth';
+import { authError,requireMdiClearance } from '@/server/mdi/auth';
 export async function POST(req:NextRequest){try{const {sb,user}=await requireMdiClearance(req);const body=await req.json();if(process.env.MDI_MIN_LAWFUL_BASIS==='required'&&!body.lawfulBasis)return NextResponse.json({error:'lawful_basis_required'},{status:403});if(typeof body.raw!=='string'||!body.raw.trim())return NextResponse.json({error:'raw_required'},{status:400});const runtime=await bootstrapMdi(sb);const result=await resolveNumber(sb,runtime.registry,runtime.health,{raw:body.raw,defaultCountryIso2:body.defaultCountryIso2??process.env.MDI_DEFAULT_COUNTRY,caseId:body.caseId,actorId:user.id,lawfulBasis:body.lawfulBasis,depth:body.depth??'standard'});return NextResponse.json(result,{status:result.ok?200:400});}catch(e){const x=authError(e);return NextResponse.json({error:x.error},{status:x.status});}}

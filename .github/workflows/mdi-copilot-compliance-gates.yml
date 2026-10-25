@@ -28,7 +28,8 @@ jobs:
           fi
       - name: Copilot route must use authenticated MDI backend
         run: |
-          grep -q 'mobile-intelligence/copilot' src/cyclothone/api/routes/mobile_intelligence_copilot.py
+          grep -q 'prefix="/mobile-intelligence"' src/cyclothone/api/routes/mobile_intelligence_copilot.py
+          grep -q '@router.post("/copilot")' src/cyclothone/api/routes/mobile_intelligence_copilot.py
           grep -q 'authenticate_request' src/cyclothone/api/routes/mobile_intelligence_copilot.py
       - name: Compliance rule coverage
         run: |
@@ -37,4 +38,5 @@ jobs:
           done
       - name: No production database dependency
         run: |
-          ! grep -RIn "DATABASE_URL" .github/workflows/mdi-copilot-compliance-gates.yml
+          pattern="DATABASE""_URL"
+          ! grep -RIn "$pattern" .github/workflows/mdi-copilot-compliance-gates.yml

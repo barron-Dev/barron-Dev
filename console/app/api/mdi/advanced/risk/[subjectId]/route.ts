@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireMdiClearance } from '@/lib/mdi/auth';
+import { requireMdiClearance } from '@/server/mdi/auth';
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ subjectId: string }> }) {
   try {
