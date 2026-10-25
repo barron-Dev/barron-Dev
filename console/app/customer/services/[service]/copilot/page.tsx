@@ -2,7 +2,8 @@
 import {useEffect,useState} from "react";
 import {apiFetch,setApiToken} from "../../../../../lib/api";
 type ChatMessage={role:"user"|"assistant";content:string;citations?:any[];created_at?:string};
-type ChatThread={id:string;preview:string;created_at?:string};\ntype UsageInfo={provider?:string|null;model?:string|null;inputTokens?:number|null;outputTokens?:number|null;totalTokens?:number|null;contextWindowTokens?:number|null;contextUsagePercent?:number|null;estimatedCostUsd?:number|null;measurement?:string;costBasis?:string};
+type ChatThread={id:string;preview:string;created_at?:string};
+type UsageInfo={provider?:string|null;model?:string|null;inputTokens?:number|null;outputTokens?:number|null;totalTokens?:number|null;contextWindowTokens?:number|null;contextUsagePercent?:number|null;estimatedCostUsd?:number|null;measurement?:string;costBasis?:string};
 export default function CopilotPage(){
  const [input,setInput]=useState("");
  const [messages,setMessages]=useState<ChatMessage[]>([]);
