@@ -2,114 +2,88 @@ import Link from "next/link";
 import { C } from "@/lib/design/tokens";
 import { Panel } from "@/components/design/Panel";
 
-const authority = [
-  ["AI Security", "/convergence/ai", "Canonical AI execution runtime"],
-  ["Response", "/response", "Controlled execution and approvals"],
-  ["Developer", "/platform/developer", "Applications and credentials"],
-  ["Compliance", "/assurance/compliance", "Assurance evidence"],
+const systems = [
+  ["Dark Web Monitoring", "/intelligence/dark-web", "Native onion collection, source coverage, evidence and findings", "DW"],
+  ["Detection & Response", "/detection", "Detection posture, incidents, approvals and response playbooks", "DR"],
+  ["Web Intelligence", "/intelligence/web", "Targets, pages, search and intelligence collection", "WI"],
+  ["Scam Intelligence", "/intelligence/scam", "Message and voice analysis signals", "SC"],
+  ["Brand Protection", "/intelligence/brand", "Brand exposure and impersonation monitoring", "BP"],
+  ["AI Security", "/convergence/ai", "Canonical AI runs, provider policy and execution evidence", "AI"],
+  ["Compliance & Recovery", "/assurance/compliance", "Assurance evidence, recovery readiness and audit", "CR"],
+  ["Developer Platform", "/platform/developer", "Applications, credentials and platform integrations", "DP"],
 ];
 
-const operations = [
-  ["Overview", "/detection", "Detection posture and tenant telemetry"],
-  ["Detection", "/detection", "Detection results"],
-  ["Response", "/response", "Playbooks and controlled response"],
-  ["Web Intel", "/intelligence/web", "Web targets, pages and dorks"],
-  ["Scam", "/intelligence/scam", "Message intelligence"],
-  ["Dark Web", "/intelligence/dark-web", "Watchlists and alerts"],
-  ["Brand", "/intelligence/brand", "Brand protection"],
-  ["Physical", "/convergence/physical", "Physical/digital correlation"],
-  ["Digital Twin", "/convergence/digital-twin", "World-state and simulations"],
-  ["AI Security", "/convergence/ai", "AI execution runtime"],
-  ["Compliance", "/assurance/compliance", "Compliance assurance"],
-  ["Recovery", "/assurance/recovery", "Recovery status"],
-  ["Hunting", "/assurance/hunting", "Threat hunting"],
-  ["Federation", "/platform/federation", "Threat intelligence exchange"],
-  ["Developer", "/platform/developer", "Developer applications"],
-  ["Global", "/platform/global", "Regional and channel controls"],
+const governance = [
+  ["Policy & approvals", "Policy gates remain the authority for sensitive operations."],
+  ["Identity & access", "Authenticated actor, tenant scope and permission checks."],
+  ["Evidence & audit", "Actions must produce attributable, reviewable evidence."],
+  ["Emergency controls", "Kill/contain actions stay fail-closed unless their protected backend route is verified."],
 ];
 
 export default function Kontrol() {
   return (
     <main className="min-h-screen bg-[#05070a] text-[#e8eef6]">
-      <header className="flex min-h-14 flex-wrap items-center justify-between gap-3 border-b border-[#1a2330] bg-[#0a0e14] px-5">
+      <header className="sticky top-0 z-20 flex min-h-16 flex-wrap items-center justify-between gap-3 border-b border-[#1a2330] bg-[#080d13]/95 px-5 backdrop-blur">
         <div>
-          <span className="font-semibold">Cyclothone</span>
-          <span className="ml-2 font-mono text-[10px] text-[#ff2d55]">/kontrol</span>
+          <div className="font-semibold tracking-wide">CYCLOTHONE <span className="ml-2 font-mono text-[10px] text-[#00d9ff]">KONTROL</span></div>
+          <div className="mt-1 text-[10px] uppercase tracking-[.18em] text-[#647386]">Command Center · Layer 1</div>
         </div>
-        <span className="font-mono text-[9px] uppercase tracking-[.16em] text-[#5a6675]">Internal authority surface</span>
+        <nav className="flex flex-wrap items-center gap-2 text-xs">
+          <Link href="/kontrol" className="border border-[#00d9ff]/40 bg-[#00d9ff]/10 px-3 py-2 text-[#8deeff]">Command Center</Link>
+          <Link href="/kontrol/engineering" className="border border-[#a8ee62]/40 bg-[#a8ee62]/10 px-3 py-2 text-[#c7ff91]">Engineering AI ↗</Link>
+        </nav>
       </header>
 
-      <div className="grid min-h-[calc(100vh-56px)] lg:grid-cols-[240px_1fr]">
-        <aside className="border-r border-[#1a2330] bg-[#0a0e14] p-4">
-          <div className="mb-3 font-mono text-[9px] uppercase tracking-[.16em] text-[#ff2d55]">Authority</div>
-          <nav className="space-y-1" aria-label="Authority navigation">
-            {authority.map(([name, href, description]) => (
-              <Link key={name} href={href} className="flex items-center justify-between border border-transparent px-3 py-2 text-[11px] text-[#8a97a8] hover:border-[#2a3646] hover:bg-[#111823] hover:text-[#e8eef6]">
-                <span>{name}</span><span className="font-mono text-[8px] text-[#5a6675]">{description}</span>
-              </Link>
-            ))}
-          </nav>
-
-          <div className="mb-3 mt-8 font-mono text-[9px] uppercase tracking-[.16em] text-[#00d9ff]">Security operations</div>
-          <nav className="space-y-1" aria-label="Security operations navigation">
-            {operations.map(([name, href]) => (
-              <Link key={name} href={href} className="block border border-transparent px-3 py-2 text-[11px] text-[#8a97a8] hover:border-[#2a3646] hover:bg-[#111823] hover:text-[#e8eef6]">
-                {name}
-              </Link>
-            ))}
-          </nav>
-
-          <div className="mt-8 border-t border-[#1a2330] pt-4 text-[9px] leading-4 text-[#5a6675]">
-            Internal only. Customer and developer users have separate surfaces. Destructive authority remains fail-closed until its authenticated backend route is available.
-          </div>
-        </aside>
-
-        <section className="p-5 md:p-8">
-          <div className="max-w-4xl">
-            <div className="font-mono text-[10px] uppercase tracking-[.16em] text-[#ff2d55]">Authority</div>
-            <h1 className="mt-2 text-3xl font-semibold">Control plane</h1>
-            <p className="mt-3 max-w-3xl text-sm leading-6 text-[#8a97a8]">
-              Internal authority and security-operations surface. AI may reason and plan; this plane remains responsible for policy, approval, execution authority and audit.
+      <div className="mx-auto max-w-[1500px] p-5 md:p-8">
+        <section className="relative overflow-hidden border border-[#203144] bg-gradient-to-br from-[#0c1a27] via-[#09111a] to-[#071018] p-6 md:p-9">
+          <div className="pointer-events-none absolute -right-16 -top-24 h-72 w-72 rounded-full border border-[#00d9ff]/10" />
+          <div className="pointer-events-none absolute -right-4 -top-12 h-48 w-48 rounded-full border border-[#00d9ff]/15" />
+          <div className="relative max-w-4xl">
+            <div className="font-mono text-[10px] uppercase tracking-[.22em] text-[#00d9ff]">Layer 1 · System authority</div>
+            <h1 className="mt-3 text-3xl font-semibold md:text-5xl">Kontrol Command Center</h1>
+            <p className="mt-4 max-w-3xl text-sm leading-6 text-[#a6b4c5] md:text-base">
+              The operational home for Cyclothone. Observe system posture, navigate every security domain, govern execution and inspect evidence. AI can recommend and prepare work; policy and authenticated services retain execution authority.
             </p>
-
-            <div className="mt-8 grid gap-4 xl:grid-cols-2">
-              <Panel>
-                <div className="type-h2">AI authority</div>
-                <div className="mt-4 space-y-2">
-                  {authority.map(([name, href, description]) => (
-                    <Link key={name} href={href} className="flex items-center justify-between border-b border-[#1a2330] py-2 text-xs">
-                      <span>{name}</span><span className="text-[10px] text-[#5a6675]">{description} →</span>
-                    </Link>
-                  ))}
-                </div>
-              </Panel>
-
-              <Panel glow accent={C.kontrolAccent}>
-                <div className="type-h2">Execution authority</div>
-                <p className="mt-2 text-xs leading-5 text-[#8a97a8]">
-                  Operational controls are rendered from authenticated backend state. No static armed/live state is claimed.
-                </p>
-                <div className="mt-5 border border-[#ff2d55]/30 bg-[#ff2d55]/5 p-3 text-[10px] leading-4 text-[#ff6b83]">
-                  Kill switches and destructive actions remain unavailable until the corresponding authenticated authority route is verified end-to-end.
-                </div>
-              </Panel>
-            </div>
-
-            <div className="mt-4">
-              <Panel>
-                <div className="type-h2">Security services</div>
-                <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                  {operations.map(([name, href, description]) => (
-                    <Link key={name} href={href} className="border border-[#1a2330] bg-[#0a0e14] p-3 hover:border-[#00d9ff]/50">
-                      <div className="text-xs">{name}</div>
-                      <div className="mt-1 text-[10px] text-[#5a6675]">{description}</div>
-                    </Link>
-                  ))}
-                </div>
-              </Panel>
+            <div className="mt-6 flex flex-wrap gap-3">
+              <Link href="/kontrol/engineering" className="inline-flex items-center gap-2 border border-[#a8ee62]/50 bg-[#a8ee62]/10 px-4 py-3 text-sm text-[#c7ff91] hover:bg-[#a8ee62]/15">Open Engineering AI <span aria-hidden="true">→</span></Link>
+              <Link href="/intelligence/dark-web" className="inline-flex items-center gap-2 border border-[#00d9ff]/40 px-4 py-3 text-sm text-[#8deeff] hover:bg-[#00d9ff]/5">Dark Web Monitoring <span aria-hidden="true">→</span></Link>
             </div>
           </div>
         </section>
+
+        <section className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="Command domains">
+          {[
+            ["01", "System & runtime", "Platform settings, regions and service reachability"],
+            ["02", "Security operations", "Detection, investigation and controlled response"],
+            ["03", "Intelligence", "Dark Web, web, scam and brand monitoring"],
+            ["04", "Trust & governance", "Identity, approvals, compliance and evidence"],
+          ].map(([n, title, desc]) => <div key={n} className="border border-[#1a2937] bg-[#0a1119] p-4"><div className="font-mono text-xs text-[#00d9ff]">{n}</div><h2 className="mt-3 text-sm font-medium">{title}</h2><p className="mt-2 text-xs leading-5 text-[#8190a3]">{desc}</p></div>)}
+        </section>
+
+        <section className="mt-8">
+          <div className="flex flex-wrap items-end justify-between gap-3"><div><div className="font-mono text-[10px] uppercase tracking-[.18em] text-[#00d9ff]">System map</div><h2 className="mt-2 text-xl font-semibold">Control every Cyclothone domain</h2></div><span className="text-xs text-[#68788a]">Navigation is not a health claim</span></div>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            {systems.map(([name, href, description, code]) => <Link key={name} href={href} className="group min-h-36 border border-[#1a2937] bg-[#0a1119] p-4 transition hover:border-[#00d9ff]/50 hover:bg-[#0d1822]"><div className="flex items-start justify-between"><span className="font-mono text-xs text-[#00d9ff]">{code}</span><span className="text-[#53667a] transition group-hover:translate-x-1 group-hover:text-[#00d9ff]">↗</span></div><h3 className="mt-4 text-sm font-medium">{name}</h3><p className="mt-2 text-xs leading-5 text-[#8190a3]">{description}</p></Link>)}
+          </div>
+        </section>
+
+        <section className="mt-8 grid gap-4 xl:grid-cols-[1.2fr_.8fr]">
+          <Panel glow accent={C.kontrolAccent}>
+            <div className="font-mono text-[10px] uppercase tracking-[.18em] text-[#00d9ff]">Layer 1 authority</div>
+            <h2 className="mt-2 text-lg font-semibold">System governance</h2>
+            <div className="mt-4 space-y-3">{governance.map(([title, desc]) => <div key={title} className="border-b border-[#1a2937] pb-3 last:border-0"><div className="text-sm">{title}</div><p className="mt-1 text-xs leading-5 text-[#8190a3]">{desc}</p></div>)}</div>
+            <div className="mt-4 border border-[#ff2d55]/30 bg-[#ff2d55]/5 p-3 text-xs leading-5 text-[#ff8ca0]">No subsystem is marked healthy merely because its page loads. Live status, freshness, source coverage and evidence must come from authenticated runtime responses.</div>
+          </Panel>
+          <Panel>
+            <div className="font-mono text-[10px] uppercase tracking-[.18em] text-[#b8f37d]">Layer 2 · Engineering AI</div>
+            <h2 className="mt-2 text-lg font-semibold">A dedicated engineering seat</h2>
+            <p className="mt-3 text-sm leading-6 text-[#8190a3]">The engineering chatbot belongs beside this command center—not hidden inside the old navigation. Its workspace is for diagnosing, planning, reviewing and coordinating implementation across GitHub, Vercel, Supabase and Railway.</p>
+            <ul className="mt-4 space-y-2 text-xs text-[#a6b4c5]"><li>• Repository, deployment, database and runtime context</li><li>• Evidence-linked diagnosis and implementation plans</li><li>• Explicit approval boundaries for sensitive writes</li><li>• Post-change verification and blocked-state reporting</li></ul>
+            <Link href="/kontrol/engineering" className="mt-6 inline-flex border border-[#a8ee62]/40 bg-[#a8ee62]/10 px-4 py-3 text-sm text-[#c7ff91] hover:bg-[#a8ee62]/15">Enter Engineering AI →</Link>
+          </Panel>
+        </section>
+
+        <footer className="mt-8 border-t border-[#1a2937] pt-4 text-[10px] leading-5 text-[#647386]">Cyclothone Kontrol · Internal control surface. Current system status must be verified from live services; this page deliberately avoids invented health indicators.</footer>
       </div>
     </main>
   );
