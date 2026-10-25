@@ -2,8 +2,7 @@ const MAX_CONTEXT_CHARS = 8000;
 export function buildContinuityContext(messages = []) {
   const allowed = messages
     .filter((m) => (m?.role === "user" || m?.role === "assistant") && typeof m?.content === "string")
-    .slice()
-    .reverse();
+    .slice();
   const lines = [];
   let size = 0;
   for (const m of allowed) {
