@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import time
 from urllib.parse import urlsplit
 from datetime import UTC, datetime
@@ -16,6 +17,11 @@ from cyclothone.darkweb.telegram_config import (
 from cyclothone.storage.supabase_client import supabase
 
 logger = logging.getLogger(__name__)
+
+
+def _native_onion_monitoring_enabled() -> bool:
+    """Fail closed: native onion crawling is opt-in at the runtime level."""
+    return os.getenv("CYCLOTHONE_DW_NATIVE_ONION_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _configured_telegram_channels() -> list[str]:
@@ -86,26 +92,35 @@ class DarkWebScheduler:
             await self._mark_source("telegram_public", "unavailable_missing_channel", pulled=False)
 
     async def _onion_seed_urls(self) -> tuple[list[str], dict[str, str], dict[str, str]]:
-        seeds = configured_onion_seeds()
-        origins = {seed: "configured" for seed in seeds}
+        if not _native_onion_monitoring_enabled():
+            return [], {}, {}
+        configured = set(configured_onion_seeds())
+        # Environment configuration is not itself an activation decision: every seed
+        # must also have an explicitly enabled, non-retired registry row.
+        seeds: list[str] = []
+        origins: dict[str, str] = {}
         discovered_from: dict[str, str] = {}
         try:
             async def _do():
                 client = await supabase._ensure()
                 return await (
                     client.table("dw_onion_seeds")
-                    .select("url,status,seed_origin,discovered_from,last_checked")
-                    .in_("status", ["checked", "failed"])
+                    .select("url,status,seed_origin,discovered_from,last_checked,monitoring_enabled,retired_at")
+                    .eq("monitoring_enabled", True)
+                    .in_("status", ["active", "checked", "failed"])
                     .order("last_checked", desc=True)
                     .limit(50)
                     .execute()
                 )
             rows = (await supabase._retry(_do, attempts=1)).data or []
             for row in rows:
+                # DB registry entries are eligible only when explicitly enabled and not retired.
+                if row.get("monitoring_enabled") is not True or row.get("retired_at") is not None:
+                    continue
                 url = str(row.get("url") or "").strip()
                 if url and url not in origins and len(seeds) < 50:
                     seeds.append(url)
-                    origins[url] = "discovered" if row.get("seed_origin") == "discovered" else "configured"
+                    origins[url] = "configured" if url in configured else ("discovered" if row.get("seed_origin") == "discovered" else "configured")
                     if row.get("discovered_from"):
                         discovered_from[url] = str(row["discovered_from"])
         except Exception:
@@ -113,6 +128,10 @@ class DarkWebScheduler:
         return seeds[:50], origins, discovered_from
 
     async def _domain_tick(self) -> None:
+        if not _native_onion_monitoring_enabled():
+            logger.info("native onion monitoring disabled by CYCLOTHONE_DW_NATIVE_ONION_ENABLED")
+            await self._mark_source("native_onion", "disabled_by_feature_gate", pulled=False)
+            return
         domains = await self._tenant_domains()
         enabled = await self._enabled_sources()
         seeds, seed_origins, seed_discovered_from = await self._onion_seed_urls()
