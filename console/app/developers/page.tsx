@@ -121,6 +121,14 @@ export default function Developers() {
           Create an application, issue an API key, and use the Cyclothone API. Advanced runtime details stay out of this screen.
         </p>
 
+        <section className="cyclo-stage mt-6 flex flex-wrap items-center justify-between gap-4 p-5">
+          <div>
+            <h2 className="font-medium">Dark Web Monitoring API</h2>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-[#8a97a8]">Manage tenant-scoped watch targets, inspect source freshness, and review returned findings through the authenticated Dark Web API. Requires the darkweb:read and darkweb:manage scopes.</p>
+          </div>
+          <a href="/dark-web" className="rounded-full border border-[#c2f35a]/50 bg-[#c2f35a]/10 px-5 py-3 text-sm text-[#ddff9a] hover:bg-[#c2f35a]/15">Open Developer DW →</a>
+        </section>
+
         {error && <div className="mt-6 border border-[#6b3030] bg-[#160b0b] p-4 text-sm">{error}</div>}
         {message && <div className="mt-6 border border-[#244936] bg-[#0b160f] p-4 text-sm">{message}</div>}
         {newKey && (
