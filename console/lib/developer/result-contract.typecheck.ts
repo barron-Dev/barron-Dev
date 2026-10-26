@@ -16,12 +16,13 @@ result.success;
 // @ts-expect-error A partial result cannot be assigned to a no-match result.
 const unsafeNoMatch: NoMatchResult = result as PartialResult;
 
-// @ts-expect-error A partial result must carry at least one explicit coverage gap.
 const invalidPartial: PartialResult = {
   schemaVersion: "1.0",
   resultId: "compile-time-only",
   sessionId: "compile-time-only",
   disposition: "partial_coverage",
+  findings: [],
+  // @ts-expect-error Partial results must carry at least one explicit coverage gap.
   gaps: [],
   receipt: {
     receiptId: "compile-time-only",
