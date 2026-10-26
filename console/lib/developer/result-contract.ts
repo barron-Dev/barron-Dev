@@ -94,6 +94,8 @@ export interface PartialResult {
   resultId: string;
   sessionId: string;
   disposition: "partial_coverage";
+  /** Findings may coexist with gaps; partial coverage must never erase a hit. */
+  findings: FindingReference[];
   gaps: [CoverageGap, ...CoverageGap[]];
   receipt: ReceiptBase;
 }
@@ -104,6 +106,7 @@ export interface BlockedResult {
   sessionId: string;
   disposition: "blocked";
   reason: string;
+  findings: FindingReference[];
   receipt: ReceiptBase;
 }
 
@@ -113,6 +116,7 @@ export interface FailedResult {
   sessionId: string;
   disposition: "failed";
   error: ExecError;
+  findings: FindingReference[];
   receipt: ReceiptBase;
 }
 
