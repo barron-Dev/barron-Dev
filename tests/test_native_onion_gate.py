@@ -20,4 +20,4 @@ async def test_native_onion_seed_registry_is_closed_when_feature_gate_off(monkey
     seeds, origins, discovered = await DarkWebScheduler()._onion_seed_urls()
     assert seeds == []
     assert origins == {}
-    assert discovered == []
+    assert discovered == {}
