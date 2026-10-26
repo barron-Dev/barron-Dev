@@ -136,11 +136,9 @@ export class NotSafeError extends Error {
 }
 
 /**
- * The only supported assertion that a result satisfies the "no finding in
- * completed scope" condition. All other dispositions fail closed.
- *
- * This is a type-level convenience, not a replacement for server-side policy
- * enforcement or independent receipt verification.
+ * Assert that a result is a verified no-match for its explicitly completed
+ * scope. This intentionally fails for unsigned receipts until Cyclothone has
+ * a real receipt-signing and verification path. It does not authorize actions.
  */
 export function assertSafe(
   result: ResultContract,
@@ -153,13 +151,21 @@ export function assertSafe(
     result.scope.serviceIds.length === 0 ||
     !result.scope.startedAt ||
     !result.scope.completedAt ||
+    !Number.isFinite(Date.parse(result.scope.startedAt)) ||
+    !Number.isFinite(Date.parse(result.scope.completedAt)) ||
     Date.parse(result.scope.completedAt) < Date.parse(result.scope.startedAt)
   ) {
     throw new Error("No-match result does not contain a valid completed scope.");
   }
 
-  if (result.receipt.integrityState === "invalid") {
-    throw new Error("No-match result receipt failed integrity verification.");
+  if (result.receipt.integrityState !== "verified") {
+    throw new Error(
+      `No-match receipt integrity is '${result.receipt.integrityState}', not verified.`,
+    );
+  }
+
+  if (result.scope.coverageUntil && Date.parse(result.scope.coverageUntil) < Date.now()) {
+    throw new Error("No-match result is stale for the current time.");
   }
 }
 
