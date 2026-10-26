@@ -94,8 +94,11 @@ class DarkWebScheduler:
     async def _onion_seed_urls(self) -> tuple[list[str], dict[str, str], dict[str, str]]:
         if not _native_onion_monitoring_enabled():
             return [], {}, {}
-        seeds = configured_onion_seeds()
-        origins = {seed: "configured" for seed in seeds}
+        configured = set(configured_onion_seeds())
+        # Environment configuration is not itself an activation decision: every seed
+        # must also have an explicitly enabled, non-retired registry row.
+        seeds: list[str] = []
+        origins: dict[str, str] = {}
         discovered_from: dict[str, str] = {}
         try:
             async def _do():
@@ -117,7 +120,7 @@ class DarkWebScheduler:
                 url = str(row.get("url") or "").strip()
                 if url and url not in origins and len(seeds) < 50:
                     seeds.append(url)
-                    origins[url] = "discovered" if row.get("seed_origin") == "discovered" else "configured"
+                    origins[url] = "configured" if url in configured else ("discovered" if row.get("seed_origin") == "discovered" else "configured")
                     if row.get("discovered_from"):
                         discovered_from[url] = str(row["discovered_from"])
         except Exception:
