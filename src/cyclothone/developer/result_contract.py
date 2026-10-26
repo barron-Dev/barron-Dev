@@ -1,4 +1,4 @@
-"""Versioned, evidence-oriented result contracts for Cyclothone integrations.
+""""Versioned, evidence-oriented result contracts for Cyclothone integrations.
 
 These models define the API contract only. They do not claim that a session,
 coverage receipt, signature, or collector execution exists until a runtime
@@ -128,13 +128,18 @@ class ResultContract(BaseModel):
             incomplete = [
                 task.task_id
                 for task in tasks
-                if task.outcome not in {TaskOutcome.SUCCEEDED, TaskOutcome.NO_MATCH}
-                or task.attempted_at is None
+                if (
+                    task.outcome not in {TaskOutcome.SUCCEEDED, TaskOutcome.NO_MATCH}
+                    or task.attempted_at is None
+                    or task.completed_at is None
+                    or task.completed_at < task.attempted_at
+                )
             ]
             if incomplete:
                 raise ValueError(
                     "no_match_in_completed_scope requires every task to be attempted "
-                    f"and completed successfully; incomplete tasks: {', '.join(incomplete)}"
+                    "and completed with valid timestamps; incomplete tasks: "
+                    f"{', '.join(incomplete)}"
                 )
             if finding_ids:
                 raise ValueError("no_match_in_completed_scope cannot contain finding IDs")
