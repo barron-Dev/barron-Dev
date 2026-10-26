@@ -72,6 +72,42 @@ def test_no_match_rejects_unattempted_task() -> None:
         )
 
 
+def test_no_match_rejects_task_without_completion_timestamp() -> None:
+    incomplete = ServiceTaskReceipt(
+        task_id="task-open",
+        service_id="darkweb.exposure",
+        outcome=TaskOutcome.NO_MATCH,
+        attempted_at=NOW,
+        completed_at=None,
+        source_attempt_count=1,
+    )
+    with pytest.raises(ValidationError, match="valid timestamps"):
+        ResultContract(
+            **base_result(
+                disposition=ResultDisposition.NO_MATCH_IN_COMPLETED_SCOPE,
+                tasks=[incomplete],
+            )
+        )
+
+
+def test_no_match_rejects_completion_before_attempt() -> None:
+    impossible_order = ServiceTaskReceipt(
+        task_id="task-clock-order",
+        service_id="darkweb.exposure",
+        outcome=TaskOutcome.SUCCEEDED,
+        attempted_at=NOW,
+        completed_at=datetime(2026, 10, 26, 7, 59, tzinfo=UTC),
+        source_attempt_count=1,
+    )
+    with pytest.raises(ValidationError, match="valid timestamps"):
+        ResultContract(
+            **base_result(
+                disposition=ResultDisposition.NO_MATCH_IN_COMPLETED_SCOPE,
+                tasks=[impossible_order],
+            )
+        )
+
+
 def test_no_match_is_valid_only_with_completed_scope() -> None:
     result = ResultContract(
         **base_result(
