@@ -141,25 +141,29 @@ export class NotSafeError extends Error {
 
 /**
  * Assert that a result is a verified no-match for its explicitly completed
- * scope. This intentionally fails for unsigned receipts until Cyclothone has
- * a real receipt-signing and verification path. It does not authorize actions.
+ * scope at the caller-supplied evaluation time. Requiring the time as input
+ * keeps replay decisions deterministic. This does not authorize actions.
  */
 export function assertSafe(
   result: ResultContract,
+  evaluatedAt: string,
 ): asserts result is NoMatchResult {
   if (result.disposition !== "no_match_in_completed_scope") {
     throw new NotSafeError(result as Exclude<ResultContract, NoMatchResult>);
   }
 
+  const evaluatedAtMs = Date.parse(evaluatedAt);
+  const startedAtMs = Date.parse(result.scope.startedAt);
+  const completedAtMs = Date.parse(result.scope.completedAt);
+
   if (
     result.scope.serviceIds.length === 0 ||
-    !result.scope.startedAt ||
-    !result.scope.completedAt ||
-    !Number.isFinite(Date.parse(result.scope.startedAt)) ||
-    !Number.isFinite(Date.parse(result.scope.completedAt)) ||
-    Date.parse(result.scope.completedAt) < Date.parse(result.scope.startedAt)
+    !Number.isFinite(startedAtMs) ||
+    !Number.isFinite(completedAtMs) ||
+    !Number.isFinite(evaluatedAtMs) ||
+    completedAtMs < startedAtMs
   ) {
-    throw new Error("No-match result does not contain a valid completed scope.");
+    throw new Error("No-match result does not contain a valid completed scope or evaluation time.");
   }
 
   if (result.receipt.integrityState !== "verified") {
@@ -168,8 +172,11 @@ export function assertSafe(
     );
   }
 
-  if (result.scope.coverageUntil && Date.parse(result.scope.coverageUntil) < Date.now()) {
-    throw new Error("No-match result is stale for the current time.");
+  if (
+    result.scope.coverageUntil &&
+    Date.parse(result.scope.coverageUntil) < evaluatedAtMs
+  ) {
+    throw new Error("No-match result is stale at the supplied evaluation time.");
   }
 }
 
