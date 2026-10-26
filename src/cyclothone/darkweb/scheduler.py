@@ -130,6 +130,7 @@ class DarkWebScheduler:
     async def _domain_tick(self) -> None:
         if not _native_onion_monitoring_enabled():
             logger.info("native onion monitoring disabled by CYCLOTHONE_DW_NATIVE_ONION_ENABLED")
+            await self._mark_source("native_onion", "disabled_by_feature_gate", pulled=False)
             return
         domains = await self._tenant_domains()
         enabled = await self._enabled_sources()
