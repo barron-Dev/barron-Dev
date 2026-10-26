@@ -50,7 +50,11 @@ def _safe_onion_url(value: str):
         host = (parsed.hostname or "").lower().rstrip(".")
         if parsed.scheme not in {"http", "https"} or not host.endswith(ONION_SUFFIX):
             return None
-        if parsed.username or parsed.password or not host[:-len(ONION_SUFFIX)]:
+        # Tor v3 onion hostnames are exactly 56 base32 characters before .onion.
+        label = host[:-len(ONION_SUFFIX)]
+        if len(label) != 56 or any(ch not in "abcdefghijklmnopqrstuvwxyz234567" for ch in label):
+            return None
+        if parsed.username or parsed.password or not label:
             return None
         if parsed.port and parsed.port not in {80, 443}:
             return None
