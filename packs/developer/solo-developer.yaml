@@ -1,0 +1,51 @@
+schema_version: 1
+pack_id: solo-developer
+industry: technology
+sub_segment: solo_developer
+geography: global
+asset_types:
+  source_repository: {scope: high}
+  developer_identity: {scope: critical, session_theft: true}
+  deployment_token: {scope: critical}
+  public_domain: {scope: medium}
+services_in_scope:
+  required:
+    - darkweb.exposure
+  optional:
+    - identity.secrets
+    - identity.session_theft
+    - brand.impersonation_domains
+policy_pack:
+  base: auto_selected_minimal
+  overlays: []
+compliance_packs: []
+delivery_bindings:
+  default: webhook_mtls
+  allowed: [webhook_mtls, api_poll]
+  forbidden: [public_webhook, mqtt, opc_ua]
+data_residency:
+  default_region: tenant_selected_region
+  cross_border_forbidden: false
+retention: {min_days: 30, worm: false}
+approval: {dual_control: false, roles: [developer]}
+workflows:
+  - leaked_deployment_token_to_rotation_recommendation
+  - developer_session_theft_to_session_revoke
+failure_tests:
+  - partial_coverage_is_not_clean
+  - setup_completes_under_300_seconds
+  - free_tier_asset_limit_is_enforced
+ttfvr_target_seconds: 300
+controls:
+  zero_config_default: true
+  free_tier_full_featured: true
+  free_tier_asset_limit: 1
+  policy_pack_required: false
+  auto_select_policy_profile: true
+  self_service_everything: true
+patterns: [employee_credential_exposure, vendor_supply_chain, domain_target_leakage, brand_impersonation]
+developer_profile:
+  type: solo_indie
+  primary_surface: connect_cli_webhook
+  ttfvr_target_seconds: 300
+  hidden_surfaces: [policy_pack_authoring, delegation_console, raw_worker_internals]
