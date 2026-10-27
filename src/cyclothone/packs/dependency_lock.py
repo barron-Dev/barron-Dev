@@ -35,7 +35,7 @@ def compile_dependency_lock(value: Mapping[str, Any]) -> dict[str, Any]:
         if dep_id in seen:
             raise DependencyLockError(f"duplicate_dependency_id:{dep_id}")
         seen.add(dep_id)
-        if not isinstance(version, str) or not _VERSION.fullmatch(version):
+        if not isinstance(version, str) or not _VERSION.fullmatch(version) or version.lower() in {"latest", "stable", "current", "main", "master", "head", "floating"}:
             raise DependencyLockError(f"invalid_dependency_version:{dep_id}")
         if not isinstance(digest, str) or not _SHA256.fullmatch(digest):
             raise DependencyLockError(f"invalid_dependency_sha256:{dep_id}")
