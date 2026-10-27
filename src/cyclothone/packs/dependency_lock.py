@@ -39,7 +39,7 @@ def compile_dependency_lock(value: Mapping[str, Any]) -> dict[str, Any]:
             raise DependencyLockError(f"invalid_dependency_version:{dep_id}")
         if not isinstance(digest, str) or not _SHA256.fullmatch(digest):
             raise DependencyLockError(f"invalid_dependency_sha256:{dep_id}")
-        if kind not in {"base_policy", "overlay", "compliance_pack", "capability_registry", "runtime_contract"}:
+        if not isinstance(kind, str) or kind not in {"base_policy", "overlay", "compliance_pack", "capability_registry", "runtime_contract"}:
             raise DependencyLockError(f"invalid_dependency_kind:{dep_id}")
         dependencies.append({"id": dep_id, "version": version, "sha256": digest, "kind": kind})
     dependencies.sort(key=lambda item: (item["kind"], item["id"]))
