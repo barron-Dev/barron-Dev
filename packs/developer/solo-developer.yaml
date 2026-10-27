@@ -15,9 +15,6 @@ services_in_scope:
     - identity.secrets
     - identity.session_theft
     - brand.impersonation_domains
-policy_pack:
-  base: auto_selected_minimal
-  overlays: []
 compliance_packs: []
 delivery_bindings:
   default: webhook_mtls
