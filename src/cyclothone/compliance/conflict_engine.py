@@ -78,16 +78,18 @@ def _utc(value: datetime) -> datetime:
 
 
 def _applies(item: RetentionObligation, evidence: EvidenceContext, now: datetime) -> tuple[bool | None, str | None]:
-    if not item.reviewed:
-        return None, "obligation_not_legally_reviewed"
-    if item.freshness_deadline is not None and now > _utc(item.freshness_deadline):
-        return None, "obligation_source_stale"
-    if now < _utc(item.effective_from) or (item.effective_until is not None and now >= _utc(item.effective_until)):
-        return False, None
     if evidence.jurisdiction is None or evidence.evidence_class is None:
         return None, "evidence_context_incomplete"
     if evidence.jurisdiction != item.jurisdiction or evidence.evidence_class != item.evidence_class:
         return False, None
+    if now < _utc(item.effective_from) or (item.effective_until is not None and now >= _utc(item.effective_until)):
+        return False, None
+    if not item.reviewed:
+        return None, "obligation_not_legally_reviewed"
+    if item.source_digest is None or len(item.source_digest) != 64 or any(c not in "0123456789abcdef" for c in item.source_digest):
+        return None, "obligation_source_digest_missing_or_invalid"
+    if item.freshness_deadline is not None and now > _utc(item.freshness_deadline):
+        return None, "obligation_source_stale"
     for key, expected in item.applicability.items():
         if key not in evidence.attributes or evidence.attributes[key] is None:
             return None, "applicability_attribute_unknown"
