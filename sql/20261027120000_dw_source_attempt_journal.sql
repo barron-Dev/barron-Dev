@@ -164,7 +164,7 @@ begin
    where co.id = v_request.organization_id;
   if v_tenant_id is null then raise exception 'source_attempt_tenant_unresolved'; end if;
 
-  v_key := encode(digest(convert_to(jsonb_build_array(
+  v_key := encode(extensions.digest(convert_to(jsonb_build_array(
     v_tenant_id::text,
     coalesce(v_request.target, ''),
     v_request.service_key,
