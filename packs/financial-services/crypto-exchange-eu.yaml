@@ -1,0 +1,54 @@
+schema_version: 1
+pack_id: crypto-exchange-eu
+industry: financial_services
+sub_segment: crypto_exchange
+geography: eu
+asset_types:
+  hot_wallet_infra: {scope: critical}
+  cold_wallet_signer: {scope: critical, observe_only: true}
+  kyc_database: {scope: critical}
+  customer_identity: {scope: high}
+  liquidity_partner: {scope: high, third_party: true}
+  mobile_app_binary: {scope: medium}
+  support_agent_identity: {scope: high, session_theft: true}
+services_in_scope:
+  required:
+    - darkweb.exposure
+    - identity.secrets
+    - identity.session_theft
+    - brand.impersonation_domains
+    - defi.exploit_chatter
+  optional:
+    - third_party.supply_chain
+    - insider.marketplace_chatter
+policy_pack:
+  base: regulated_financial
+  overlays: [eu_mica, eu_dora, gdpr, travel_rule_monitoring, fatf_kyc]
+compliance_packs: [mica, dora, gdpr, soc2, iso27001, pci_dss]
+delivery_bindings:
+  default: webhook_mtls
+  allowed: [webhook_mtls, sse, api_poll, splunk_hec, mcp_agent]
+  forbidden: [mqtt, opc_ua, public_webhook]
+data_residency:
+  default_region: eu_west_1
+  cross_border_forbidden: true
+retention: {min_days: 1825, worm: true}
+approval: {dual_control: true, roles: [compliance_officer, ciso]}
+workflows:
+  - leaked_seed_phrase_to_incident
+  - kyc_data_resale_to_regulator_notification
+  - market_maker_credential_compromise
+  - bridge_exploit_chatter_to_pause_recommendation
+  - support_agent_takeover_to_session_revoke
+failure_tests:
+  - partial_coverage_is_not_clean
+  - observed_wallet_finding_does_not_trigger_actuation
+  - delegated_market_maker_scope_denied
+  - regulator_notification_idempotent
+ttfvr_target_seconds: 900
+controls:
+  dual_control_required: true
+  notification_clock_hours: legal_deadline_from_applicable_overlay
+  terminal_session_theft_class: solvency_event
+  observed_wallet_actuation: forbidden
+patterns: [employee_credential_exposure, executive_targeting, vendor_supply_chain, brand_impersonation]
