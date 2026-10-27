@@ -6,6 +6,7 @@ import sys
 
 from cyclothone.global_language_registry import LanguageRegistryError, load_language_registry
 
+from cyclothone.packs.capability_ceiling import CapabilityCeilingError, evaluate_capability_ceiling
 from cyclothone.packs.compiler import PackCompileError, build_pack_file
 from cyclothone.packs.release import PackReleaseError, sign_compiled_pack, verify_signed_pack
 
@@ -31,6 +32,10 @@ def main(argv: list[str] | None = None) -> int:
     sign.add_argument("--private-key", required=True, help="PEM Ed25519 private key; keep outside repository")
     sign.add_argument("--key-id", required=True, help="stable key-transparency identifier")
     sign.add_argument("--out", required=True, help="signed pack.bundle JSON envelope")
+    ceiling = subparsers.add_parser("check-ceiling", help="analyze a compiled pack against an explicit capability ceiling")
+    ceiling.add_argument("--artifact", required=True, help="compiled artifact JSON")
+    ceiling.add_argument("--ceiling", required=True, help="versioned effective ceiling JSON")
+    ceiling.add_argument("--out", help="optional JSON analysis report path")
     verify = subparsers.add_parser("verify", help="verify a signed pack.bundle offline")
     verify.add_argument("--bundle", required=True, help="signed pack.bundle JSON envelope")
     verify.add_argument("--public-key", required=True, help="trusted Ed25519 public key PEM")
@@ -45,6 +50,19 @@ def main(argv: list[str] | None = None) -> int:
             if artifact["publication_state"] == "preview":
                 print("unresolved references remain; this artifact is not conformant or production-ready", file=sys.stderr)
             return 0
+        if args.command == "check-ceiling":
+            try:
+                artifact = json.loads(open(args.artifact, encoding="utf-8").read())
+                effective_ceiling = json.loads(open(args.ceiling, encoding="utf-8").read())
+            except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+                raise CapabilityCeilingError(f"ceiling_input_read_failed:{type(exc).__name__}") from exc
+            report = evaluate_capability_ceiling(artifact, effective_ceiling)
+            rendered = json.dumps(report, sort_keys=True, ensure_ascii=False, indent=2) + "\\n"
+            if args.out:
+                with open(args.out, "w", encoding="utf-8") as handle:
+                    handle.write(rendered)
+            print(rendered, end="")
+            return 0 if report["status"] == "pass" else 2
         if args.command == "sign":
             envelope = sign_compiled_pack(args.artifact, args.private_key, args.key_id, args.out)
             print(f"{envelope['manifest']['pack_id']}: signed sha256={envelope['manifest']['artifact_sha256']} output={args.out}")
@@ -52,7 +70,7 @@ def main(argv: list[str] | None = None) -> int:
         result = verify_signed_pack(args.bundle, args.public_key)
         print(f"{result['pack_id']}: verified sha256={result['artifact_sha256']} key_id={result['key_id']}")
         return 0
-    except (PackCompileError, PackReleaseError) as exc:
+    except (PackCompileError, PackReleaseError, CapabilityCeilingError) as exc:
         print(f"pack {args.command} failed: {exc}", file=sys.stderr)
         return 2
 
