@@ -134,3 +134,20 @@ def test_pack_build_cli_writes_manifest(tmp_path, monkeypatch) -> None:
     manifest = json.loads(output.read_text(encoding="utf-8"))
     assert manifest["pack_id"] == "crypto-exchange-eu"
     assert manifest["compilation_state"] == "compiled_unverified"
+
+
+@pytest.mark.parametrize("field,value", [
+    ("developer_type", ["enterprise_team"]),
+])
+def test_enum_fields_reject_wrong_types(field, value) -> None:
+    changed = copy.deepcopy(VALID_PACK)
+    changed[field] = value
+    with pytest.raises(PackCompileError):
+        compile_pack(changed)
+
+
+def test_asset_scope_rejects_non_string_values() -> None:
+    changed = copy.deepcopy(VALID_PACK)
+    changed["asset_types"]["hot_wallet_infra"]["scope"] = ["critical"]
+    with pytest.raises(PackCompileError, match="scope must be one of"):
+        compile_pack(changed)
