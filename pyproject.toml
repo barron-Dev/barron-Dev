@@ -10,11 +10,15 @@ dependencies = [
     "psycopg[binary]==3.2.10",
     "python-multipart==0.0.20",
     "httpx[socks]==0.28.1",
+    "PyYAML==6.0.3",
 ]
 name = "cyclothone-platform"
 version = "0.1.0"
 description = "Cyclothone zero-trust security platform"
 requires-python = ">=3.11"
+
+[project.scripts]
+cyclothone = "cyclothone.packs.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
