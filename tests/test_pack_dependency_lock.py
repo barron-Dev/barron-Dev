@@ -37,3 +37,9 @@ def test_duplicate_dependency_ids_are_rejected_even_with_different_kinds():
     other = {"id": "policy_base", "version": "2.0.0", "sha256": "b" * 64, "kind": "overlay"}
     with pytest.raises(DependencyLockError, match="duplicate_dependency_id"):
         compile_dependency_lock({"lock_version": 1, "dependencies": [item, other]})
+
+@pytest.mark.parametrize("kind", [None, [], {}, 7])
+def test_non_string_dependency_kind_is_rejected_as_domain_error(kind):
+    item = {"id": "policy_base", "version": "1.0.0", "sha256": "a" * 64, "kind": kind}
+    with pytest.raises(DependencyLockError, match="invalid_dependency_kind"):
+        compile_dependency_lock({"lock_version": 1, "dependencies": [item]})
