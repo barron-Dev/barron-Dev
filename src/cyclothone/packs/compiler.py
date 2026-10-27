@@ -14,7 +14,7 @@ IDENTIFIER_RE = re.compile(r"^[a-z][a-z0-9_.-]{1,127}$")
 SCOPES = {"critical", "high", "medium", "low"}
 TOP_LEVEL_KEYS = {
     "schema_version", "pack_id", "industry", "sub_segment", "geography",
-    "asset_types", "services_in_scope", "compliance_packs",
+    "asset_types", "services_in_scope", "policy_pack", "compliance_packs",
     "delivery_bindings", "data_residency", "retention", "approval",
     "workflows", "failure_tests", "ttfvr_target_seconds", "controls", "patterns",
     "developer_profile",
@@ -81,7 +81,7 @@ def validate_pack(raw: Any) -> dict[str, Any]:
     _require(not unknown, "unknown_top_level_keys:" + ",".join(unknown))
     required = {
         "schema_version", "pack_id", "industry", "sub_segment", "geography",
-        "asset_types", "services_in_scope", "policy_pack", "compliance_packs",
+        "asset_types", "services_in_scope", "compliance_packs",
         "delivery_bindings", "data_residency", "retention", "approval",
         "workflows", "failure_tests", "ttfvr_target_seconds",
     }
