@@ -61,7 +61,7 @@ create index source_attempts_outcome_time_idx
 
 alter table public.source_attempts enable row level security;
 revoke all on public.source_attempts from public, anon, authenticated;
-grant select, insert, update on public.source_attempts to service_role;
+grant select on public.source_attempts to service_role;
 
 create or replace function public.source_attempts_guard_update()
 returns trigger
