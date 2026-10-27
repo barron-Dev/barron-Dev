@@ -2,9 +2,13 @@ from __future__ import annotations
 
 import copy
 import json
+import sys
+
+import yaml
 
 import pytest
 
+from cyclothone.cli import main as cli_main
 from cyclothone.packs.compiler import PackCompileError, compile_pack, load_pack
 
 
@@ -113,3 +117,20 @@ def test_boolean_fields_do_not_accept_strings() -> None:
     changed["data_residency"]["cross_border_forbidden"] = "false"
     with pytest.raises(PackCompileError, match="must be a boolean"):
         compile_pack(changed)
+
+
+def test_developer_type_defaults_when_omitted() -> None:
+    changed = copy.deepcopy(VALID_PACK)
+    changed.pop("developer_type")
+    assert compile_pack(changed)["pack"]["developer_type"] == "enterprise_team"
+
+
+def test_pack_build_cli_writes_manifest(tmp_path, monkeypatch) -> None:
+    source = tmp_path / "example.yaml"
+    output = tmp_path / "build" / "example.json"
+    source.write_text(yaml.safe_dump(VALID_PACK, sort_keys=False), encoding="utf-8")
+    monkeypatch.setattr(sys, "argv", ["cyclothone", "pack", "build", str(source), "--output", str(output)])
+    assert cli_main() == 0
+    manifest = json.loads(output.read_text(encoding="utf-8"))
+    assert manifest["pack_id"] == "crypto-exchange-eu"
+    assert manifest["compilation_state"] == "compiled_unverified"
