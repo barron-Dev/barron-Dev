@@ -7,7 +7,7 @@
   "additionalProperties": false,
   "required": [
     "schema_version", "pack_id", "industry", "sub_segment", "geography",
-    "asset_types", "services_in_scope", "policy_pack", "compliance_packs",
+    "asset_types", "services_in_scope", "compliance_packs",
     "delivery_bindings", "data_residency", "retention", "approval",
     "workflows", "failure_tests", "ttfvr_target_seconds"
   ],
