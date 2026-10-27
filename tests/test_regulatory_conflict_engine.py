@@ -81,3 +81,18 @@ def test_snapshot_digest_is_deterministic():
     a = evaluate_lifecycle_request(evidence(), [obligation()], "delete", now=NOW)
     b = evaluate_lifecycle_request(evidence(), [obligation()], "delete", now=NOW)
     assert a.snapshot_sha256 == b.snapshot_sha256
+
+
+def test_unreviewed_obligation_for_another_jurisdiction_does_not_poison_evaluation():
+    unrelated = obligation(jurisdiction="US", reviewed=False)
+    result = evaluate_lifecycle_request(
+        evidence(), [unrelated, obligation(required_actions=("delete", "retain"))], "delete", now=NOW
+    )
+    assert result.state == "no_conflict"
+    assert result.matched_obligations == ("eu-retention-1",)
+
+
+def test_reviewed_obligation_without_source_digest_blocks():
+    result = evaluate_lifecycle_request(evidence(), [obligation(source_digest=None)], "delete", now=NOW)
+    assert result.state == "applicability_unknown"
+    assert "obligation_source_digest_missing_or_invalid" in result.reason_codes
