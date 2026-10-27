@@ -38,7 +38,7 @@ create table if not exists public.evidence_deletion_requests (
     id uuid primary key default gen_random_uuid(),
     tenant_id uuid not null references public.tenants(id) on delete restrict,
     evidence_source text not null check (evidence_source in
-      ('compliance_evidence','trust_evidence','investigation_evidence','dw_source_attempts')),
+      ('compliance_evidence','trust_evidence','investigation_evidence','source_attempts')),
     evidence_record_id uuid not null,
     evidence_sha256 text not null check (evidence_sha256 ~ '^[0-9a-f]{64}$'),
     requester_id uuid not null,
