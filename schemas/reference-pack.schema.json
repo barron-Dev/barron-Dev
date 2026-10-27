@@ -75,7 +75,7 @@
       "additionalProperties": false,
       "required": ["dual_control", "roles"],
       "properties": {"dual_control": {"type": "boolean"}, "roles": {"$ref": "#/$defs/slugList"}},
-      "allOf": [{"if": {"properties": {"dual_control": {"const": true}}, "required": ["dual_control"]}, "then": {"properties": {"roles": {"minItems": 2}}}]
+      "allOf": [{"if": {"properties": {"dual_control": {"const": true}}, "required": ["dual_control"]}, "then": {"properties": {"roles": {"minItems": 2}}}}]
     },
     "workflows": {"$ref": "#/$defs/slugList"},
     "failure_tests": {"$ref": "#/$defs/slugList"},
