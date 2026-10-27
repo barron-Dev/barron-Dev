@@ -15,12 +15,14 @@ def _keys():
 
 
 def _append(journal, private, *, payload=None, persist_payload=False):
+    if payload is None:
+        payload = {"tool": "lookup", "args": {"target": "example.test"}}
     return journal.append_event(
         tenant_id="tenant-a",
         actor_id="analyst-7",
         agent_id="edge-agent-1",
         action_type="tool.execute",
-        payload={"tool": "lookup", "args": {"target": "example.test"}} if payload is None else payload,
+        payload=payload,
         signer_key_id="edge-key-1",
         signing_key=private,
         occurred_at=datetime(2026, 10, 27, tzinfo=timezone.utc),
@@ -45,12 +47,15 @@ def test_persisted_payload_is_checked_for_tampering(tmp_path):
     private, keys = _keys()
     path = tmp_path / "journal.sqlite"
     journal = LocalContractJournal(path)
-    event = _append(journal, private, persist_payload=True)
+    _append(journal, private, persist_payload=True)
     journal.close()
 
     raw = sqlite3.connect(path)
     raw.execute("DROP TRIGGER contract_journal_no_update")
-    raw.execute("UPDATE contract_journal_events SET payload_json='{"tool":"tampered"}' WHERE sequence=1")
+    raw.execute(
+        "UPDATE contract_journal_events SET payload_json=? WHERE sequence=1",
+        ('{"tool":"tampered"}',),
+    )
     raw.commit()
     raw.close()
 
@@ -81,7 +86,10 @@ def test_chain_verification_detects_modified_hash(tmp_path):
 
     raw = sqlite3.connect(path)
     raw.execute("DROP TRIGGER contract_journal_no_update")
-    raw.execute("UPDATE contract_journal_events SET event_hash=? WHERE sequence=1", ("f" * 64,))
+    raw.execute(
+        "UPDATE contract_journal_events SET event_hash=? WHERE sequence=1",
+        ("f" * 64,),
+    )
     raw.commit()
     raw.close()
 
@@ -97,7 +105,11 @@ def test_signed_checkpoint_detects_truncated_history(tmp_path):
     path = tmp_path / "journal.sqlite"
     journal = LocalContractJournal(path)
     _append(journal, private)
-    checkpoint = journal.checkpoint(node_id="edge-1", signer_key_id="edge-key-1", signing_key=private)
+    checkpoint = journal.checkpoint(
+        node_id="edge-1",
+        signer_key_id="edge-key-1",
+        signing_key=private,
+    )
     _append(journal, private, payload={"decision": "allow"})
     journal.close()
 
@@ -110,7 +122,11 @@ def test_signed_checkpoint_detects_truncated_history(tmp_path):
     reopened = LocalContractJournal(path)
     result = reopened.verify_chain(public_keys=keys, checkpoint=checkpoint)
     assert result.ok is False
-    assert result.reason in {"sequence_gap", "checkpoint_ahead_of_local_journal", "checkpoint_root_mismatch"}
+    assert result.reason in {
+        "sequence_gap",
+        "checkpoint_ahead_of_local_journal",
+        "checkpoint_root_mismatch",
+    }
     reopened.close()
 
 
@@ -118,7 +134,11 @@ def test_checkpoint_signature_is_bound_to_root_and_sequence():
     private, keys = _keys()
     journal = LocalContractJournal(":memory:")
     _append(journal, private)
-    checkpoint = journal.checkpoint(node_id="edge-1", signer_key_id="edge-key-1", signing_key=private)
+    checkpoint = journal.checkpoint(
+        node_id="edge-1",
+        signer_key_id="edge-key-1",
+        signing_key=private,
+    )
     assert journal.verify_checkpoint(checkpoint, keys)
 
     altered = type(checkpoint)(
@@ -134,11 +154,10 @@ def test_checkpoint_signature_is_bound_to_root_and_sequence():
     journal.close()
 
 
-def test_non_utc_naive_timestamps_are_rejected():
+def test_naive_timestamps_are_rejected():
     private, _ = _keys()
     journal = LocalContractJournal(":memory:")
     with pytest.raises(ValueError, match="timezone_aware"):
-        _append(journal, private, payload={"x": 1})
         journal.append_event(
             tenant_id="tenant-a",
             actor_id="actor-a",
@@ -148,4 +167,13 @@ def test_non_utc_naive_timestamps_are_rejected():
             signing_key=private,
             occurred_at=datetime(2026, 10, 27),
         )
+    journal.close()
+
+
+def test_non_json_payload_values_are_rejected():
+    private, _ = _keys()
+    journal = LocalContractJournal(":memory:")
+    with pytest.raises(ValueError):
+        _append(journal, private, payload={"not_json": float("nan")})
+    assert journal.events() == []
     journal.close()
