@@ -16,6 +16,7 @@
     "asset_types": {
       "type": "object",
       "minProperties": 1,
+      "propertyNames": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
       "additionalProperties": {
         "type": "object",
         "additionalProperties": false,
