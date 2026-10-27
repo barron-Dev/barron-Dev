@@ -134,3 +134,30 @@ ttfvr_target_seconds: 900
     on_disk = json.loads(output.read_text(encoding="utf-8"))
     assert on_disk["artifact_sha256"] == artifact["artifact_sha256"]
     assert on_disk["publication_state"] == "preview"
+
+
+def test_three_exemplar_packs_validate_and_keep_unresolved_capabilities_visible() -> None:
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    examples = [
+        root / "packs/financial-services/crypto-exchange-eu.yaml",
+        root / "packs/healthcare/hospital-us.yaml",
+        root / "packs/developer/solo-developer.yaml",
+    ]
+    artifacts = [build_pack(load_pack(path)) for path in examples]
+    assert [item["pack_id"] for item in artifacts] == [
+        "crypto-exchange-eu",
+        "hospital-us",
+        "solo-developer",
+    ]
+    assert all(item["publication_state"] == "preview" for item in artifacts)
+    assert all(item["conformance"]["status"] == "not_run" for item in artifacts)
+    solo = load_pack(examples[2])
+    assert "policy_pack" not in solo
+    assert solo["controls"]["policy_pack_required"] is False
+    hospital = load_pack(examples[1])
+    assert hospital["asset_types"]["medical_device_credentials"]["observe_only"] is True
+    assert hospital["controls"]["hipaa_breach_clock_days"] == 60
+    crypto = load_pack(examples[0])
+    assert crypto["asset_types"]["cold_wallet_signer"]["observe_only"] is True
