@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
+
+from cyclothone.global_language_registry import LanguageRegistryError, load_language_registry
 
 from cyclothone.packs.compiler import PackCompileError, build_pack_file
 from cyclothone.packs.release import PackReleaseError, sign_compiled_pack, verify_signed_pack
@@ -10,6 +13,8 @@ from cyclothone.packs.release import PackReleaseError, sign_compiled_pack, verif
 def main(argv: list[str] | None = None) -> int:
     if argv is None:
         argv = sys.argv[1:]
+    if argv and argv[0] == "lang":
+        return _language_command(argv[1:])
     if argv and argv[0] == "pack":
         argv = argv[1:]
     parser = argparse.ArgumentParser(prog="cyclothone pack")
@@ -50,6 +55,23 @@ def main(argv: list[str] | None = None) -> int:
     except (PackCompileError, PackReleaseError) as exc:
         print(f"pack {args.command} failed: {exc}", file=sys.stderr)
         return 2
+
+
+def _language_command(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(prog="cyclothone lang")
+    subparsers = parser.add_subparsers(dest="command", required=True)
+    status = subparsers.add_parser("status", help="report locale-tier parity from a versioned registry")
+    status.add_argument("--registry", required=True, help="path to the language registry JSON")
+    status.add_argument("--minimum-tier", type=int, default=1, choices=(1, 2, 3, 4),
+                        help="block release when required units are missing at this tier or higher")
+    args = parser.parse_args(argv)
+    try:
+        result = load_language_registry(args.registry, minimum_tier=args.minimum_tier)
+    except LanguageRegistryError as exc:
+        print(f"lang status failed: {exc}", file=sys.stderr)
+        return 2
+    print(json.dumps(result, sort_keys=True, ensure_ascii=False, indent=2))
+    return 0 if result["status"] == "pass" else 2
 
 
 if __name__ == "__main__":
