@@ -79,7 +79,7 @@ class _Parser:
             raise MessageFormatError("unterminated_argument")
         return self.source[pos:end].strip(), end, self.source[end]
 
-    def _register(self, name: str, inferred: str) -> None:
+    def _register(self, name: str, inferred: str | None) -> None:
         if not _NAME.fullmatch(name):
             raise MessageFormatError(f"invalid_argument_name:{name}")
         declared = self.declared.get(name)
@@ -99,12 +99,17 @@ class _Parser:
     def _argument(self, pos: int) -> int:
         name, end, delim = self._read_token(pos, ",}")
         if delim == "}":
-            self._register(name, "string")
+            self._register(name, None)
             return end + 1
         kind, end, delim = self._read_token(end + 1, ",}")
+        kind = kind.strip()
+        if delim == "}":
+            if kind in {"number", "date", "time"}:
+                self._register(name, "number" if kind == "number" else "string")
+                return end + 1
+            raise MessageFormatError(f"unsupported_argument_format:{name}:{kind}")
         if delim != ",":
             raise MessageFormatError(f"unsupported_argument_format:{name}:{kind}")
-        kind = kind.strip()
         if kind in {"plural", "selectordinal", "select"}:
             return self._choice(name, kind, end + 1)
         # Numeric/date/time ICU format styles may not contain braces in this strict gate.
