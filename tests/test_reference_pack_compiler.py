@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import json
 import sys
+from pathlib import Path
 
 import yaml
 
@@ -151,3 +152,11 @@ def test_asset_scope_rejects_non_string_values() -> None:
     changed["asset_types"]["hot_wallet_infra"]["scope"] = ["critical"]
     with pytest.raises(PackCompileError, match="scope must be one of"):
         compile_pack(changed)
+
+
+def test_public_json_schema_is_valid_json_and_covers_compiler_fields() -> None:
+    schema_path = Path(__file__).resolve().parents[1] / "schemas" / "reference-pack.schema.json"
+    schema = json.loads(schema_path.read_text(encoding="utf-8"))
+    assert schema["$schema"] == "https://json-schema.org/draft/2020-12/schema"
+    assert set(schema["properties"]) == set(VALID_PACK) | {"schema_version"}
+    assert set(schema["required"]).issubset(set(schema["properties"]))
