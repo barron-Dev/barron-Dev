@@ -14,7 +14,7 @@ Status: implementation design for review. This document does not assert that Res
 
 ## Current storage candidates observed in Supabase
 
-The following existing tables were found in the configured Supabase project during a read-only schema inspection on 2026-10-26. They are candidates to map, not blanket approval to reuse without checking their constraints, RLS, grants, and write paths.
+Read-only schema and policy inspection was performed against the configured Supabase project on 2026-10-27. These tables are candidates to map, not blanket approval to reuse without checking constraints, RLS, grants, and write paths.
 
 | Concern | Existing table(s) | What they can support | Important limitation to verify |
 |---|---|---|---|
@@ -22,13 +22,21 @@ The following existing tables were found in the configured Supabase project duri
 | Current finding | `dw_findings`, `dw_alerts` | Existing matched values, source references, collection timestamps, alert/remediation status | Findings are not a complete ledger of all attempted tasks or unavailable sources |
 | Source-level health | `dw_sources`, `dw_source_health_events` | Registered source configuration and source-level health observations | Source health is not evidence that a particular tenant target was checked |
 | Onion probe evidence | `dw_onion_probe_evidence` | Per-seed probe metadata, route verification flag, response hash, outcome | It is onion-seed-level evidence, not a generic target-specific service receipt |
-| Generic asynchronous request | `service_requests` | Request status, processing state, attempts, lock/start/completion times, failure code, JSON result | It uses `organization_id`; do not equate it to `tenant_id` or reuse it for DW sessions until ownership, lifecycle, and worker semantics are verified |
-| Investigation session/event/evidence | `investigation_sessions`, `investigation_events`, `investigation_evidence`, `investigation_operations` | Existing session-like records, event payloads, operation authorization metadata, evidence hashes and collectors | These tables have investigation/case/operation semantics; verify authorization model and retention before generalizing them into the developer Result Session |
-| Trust evidence and verification | `trust_evidence`, `trust_evidence_verification_events` | Content/evidence hashes, signatures and signer key IDs, verifier metadata, verification state/history | Tenant and subject relationships, signing algorithms, immutability, grants, and intended writers must be checked before linking DW results |
+| Generic asynchronous request | `service_requests` | Request status, processing state, attempts, lock/start/completion times, failure code, JSON result | It binds through `organization_id`, not a direct `tenant_id`; worker resolves the organization's tenant. Do not collapse organization and tenant identity |
+| Investigation session/event/evidence | `investigation_sessions`, `investigation_events`, `investigation_evidence`, `investigation_operations` | Existing session-like records, event payloads, operation authorization metadata, evidence hashes and collectors | Current observed RLS policies for sessions/events/evidence are tenant-scoped SELECT policies for `authenticated`; no corresponding authenticated INSERT policy appeared in the inspected policy set. A service-role writer and explicit tenant checks would be required unless another verified write path is found |
+| Trust evidence and verification | `trust_evidence`, `trust_evidence_verification_events` | Content/evidence hashes, signatures and signer key IDs, verifier metadata, verification state/history | Current member-read policies allow rows with `tenant_id IS NULL` or tenant membership. Do not treat that policy alone as sufficient tenant-specific result authorization. Subject binding, signing algorithm, immutability, grants, and intended writers must be checked before linking DW results |
+
+## Confirmed request and finding shape
+
+The inspected `service_requests` columns include `organization_id`, `requester_user_id`, `service_key`, `target`, `target_type`, `status`, `processing_state`, `attempts`, `locked_until`, `started_at`, `completed_at`, `failure_code`, and JSONB `result`. There is no direct `tenant_id` column on this request table in the inspected schema. The worker resolves `organization_id` through `customer_organizations` before executing the scan.
+
+The inspected `dw_findings` shape includes a numeric finding ID, `source_id`, `content_hash`, `kind`, `matched_value`, optional `source_url`, `tenant_id`, optional `watchlist_id`, `web_layer`, `access_mode`, and `collected_at`. Finding references therefore need an explicit mapping; the result contract's string IDs are transport identifiers, not permission to fabricate or silently coerce database records.
+
+The current request API already creates a queued `dark_web_monitoring` request and exposes authenticated request/result reads. The worker stores source status arrays, unavailable reasons, findings, and evidence inside the request's JSON result. That is useful provenance, but it is not yet a dedicated append-only per-source attempt ledger or a signed coverage receipt.
 
 ## Gaps to resolve before persistence design
 
-The schema inventory did not identify an obviously dedicated, generic per-service task receipt table that captures all of the following together:
+The inspected schema did not identify an obviously dedicated, generic per-service task receipt table that captures all of the following together:
 
 - Result Session and tenant/asset binding.
 - Service/task identity and declared scope.
@@ -38,7 +46,7 @@ The schema inventory did not identify an obviously dedicated, generic per-servic
 - Coverage decision inputs and a replay cursor/event sequence.
 - Delivery state, consumer cursor, retry count, and dead-letter/reconciliation state.
 
-This is a gap hypothesis from table names and columns, not proof that no equivalent path exists in code or another schema. Before adding tables, trace current worker writes, RPCs, RLS policies, grants, and actual relationships.
+This is a gap hypothesis from inspected tables and columns, not proof that no equivalent path exists in code or another schema. Before adding tables, trace current worker writes, RPCs, grants, and actual relationships.
 
 ## Safe implementation order
 
