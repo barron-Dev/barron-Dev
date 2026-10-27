@@ -128,7 +128,7 @@ def validate_pack(raw: Any) -> dict[str, Any]:
     for field in ("pack_id", "industry", "sub_segment", "geography"):
         normalized[field] = _slug(pack[field], field)
     developer_type = pack.get("developer_type", "enterprise_team")
-    if developer_type not in _DEVELOPER_TYPES:
+    if not isinstance(developer_type, str) or developer_type not in _DEVELOPER_TYPES:
         raise PackCompileError(f"developer_type must be one of: {', '.join(sorted(_DEVELOPER_TYPES))}.")
     normalized["developer_type"] = developer_type
 
@@ -141,7 +141,7 @@ def validate_pack(raw: Any) -> dict[str, Any]:
         config = _require_mapping(raw_config, f"asset_types.{name}")
         allowed_asset = {"scope", "observe_only", "third_party", "session_theft"}
         _require_keys(config, {"scope"}, allowed_asset, f"asset_types.{name}")
-        if config["scope"] not in _SCOPE_VALUES:
+        if not isinstance(config["scope"], str) or config["scope"] not in _SCOPE_VALUES:
             raise PackCompileError(f"asset_types.{name}.scope must be one of {sorted(_SCOPE_VALUES)}.")
         clean = {"scope": config["scope"]}
         for flag in ("observe_only", "third_party", "session_theft"):
