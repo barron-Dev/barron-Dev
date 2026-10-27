@@ -6,6 +6,7 @@ import pytest
 
 from cyclothone.packs.compiler import (
     PackCompileError,
+    TOP_LEVEL_KEYS,
     build_pack,
     build_pack_file,
     load_pack,
@@ -161,3 +162,14 @@ def test_three_exemplar_packs_validate_and_keep_unresolved_capabilities_visible(
     assert hospital["controls"]["hipaa_breach_clock_days"] == 60
     crypto = load_pack(examples[0])
     assert crypto["asset_types"]["cold_wallet_signer"]["observe_only"] is True
+
+
+
+def test_json_schema_top_level_keys_match_compiler_and_policy_pack_is_optional() -> None:
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    schema = json.loads((root / "schemas/reference-pack.schema.json").read_text(encoding="utf-8"))
+    assert set(schema["properties"]) == TOP_LEVEL_KEYS
+    assert "policy_pack" in schema["properties"]
+    assert "policy_pack" not in schema["required"]
