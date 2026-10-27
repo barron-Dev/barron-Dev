@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cyclothone.online/schemas/reference-pack.schema.json",
+  "title": "Cyclothone Declarative Reference Pack",
+  "description": "Industry-specific configuration that composes platform contracts; it does not grant capabilities or prove runtime conformance.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["pack_id", "industry", "sub_segment", "geography", "asset_types", "services_in_scope", "policy_pack", "compliance_packs", "delivery_bindings", "data_residency", "retention", "approval", "workflows", "failure_tests", "ttfvr_target_seconds"],
+  "properties": {
+    "schema_version": {"type": "string", "const": "1.0"},
+    "pack_id": {"$ref": "#/$defs/slug"},
+    "industry": {"$ref": "#/$defs/slug"},
+    "sub_segment": {"$ref": "#/$defs/slug"},
+    "geography": {"$ref": "#/$defs/slug"},
+    "developer_type": {"enum": ["solo_indie", "startup_small_team", "enterprise_team", "mssp_si_auditor"], "default": "enterprise_team"},
+    "asset_types": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["scope"],
+        "properties": {
+          "scope": {"enum": ["critical", "high", "medium", "low"]},
+          "observe_only": {"type": "boolean"},
+          "third_party": {"type": "boolean"},
+          "session_theft": {"type": "boolean"}
+        }
+      }
+    },
+    "services_in_scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["required", "optional"],
+      "properties": {
+        "required": {"$ref": "#/$defs/serviceList", "minItems": 1},
+        "optional": {"$ref": "#/$defs/serviceList", "minItems": 0}
+      }
+    },
+    "policy_pack": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["base", "overlays"],
+      "properties": {"base": {"$ref": "#/$defs/slug"}, "overlays": {"$ref": "#/$defs/slugList", "minItems": 0}}
+    },
+    "compliance_packs": {"$ref": "#/$defs/slugList"},
+    "delivery_bindings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["default", "allowed", "forbidden"],
+      "properties": {
+        "default": {"enum": ["webhook_mtls", "sse", "api_poll", "splunk_hec", "mcp_agent", "mqtt", "opc_ua", "public_webhook"]},
+        "allowed": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"enum": ["webhook_mtls", "sse", "api_poll", "splunk_hec", "mcp_agent", "mqtt", "opc_ua", "public_webhook"]}},
+        "forbidden": {"type": "array", "uniqueItems": true, "items": {"enum": ["webhook_mtls", "sse", "api_poll", "splunk_hec", "mcp_agent", "mqtt", "opc_ua", "public_webhook"]}}
+      }
+    },
+    "data_residency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["default_region", "cross_border_forbidden"],
+      "properties": {
+        "default_region": {"type": "string", "pattern": "^[a-z]{2,3}(-[a-z0-9]+)+$"},
+        "cross_border_forbidden": {"type": "boolean"}
+      }
+    },
+    "retention": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["min_days", "worm"],
+      "properties": {"min_days": {"type": "integer", "minimum": 1, "maximum": 36500}, "worm": {"type": "boolean"}}
+    },
+    "approval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["dual_control", "roles"],
+      "properties": {"dual_control": {"type": "boolean"}, "roles": {"$ref": "#/$defs/slugList"}}
+    },
+    "workflows": {"$ref": "#/$defs/slugList"},
+    "failure_tests": {"$ref": "#/$defs/slugList"},
+    "ttfvr_target_seconds": {"type": "integer", "minimum": 1, "maximum": 31536000}
+  },
+  "$defs": {
+    "slug": {"type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"},
+    "slugList": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/slug"}},
+    "serviceList": {"type": "array", "uniqueItems": true, "items": {"type": "string", "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$"}}
+  }
+}
