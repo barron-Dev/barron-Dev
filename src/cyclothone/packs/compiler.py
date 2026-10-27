@@ -118,7 +118,7 @@ def _boolean(value: Any, path: str) -> bool:
 
 def validate_pack(raw: Any) -> dict[str, Any]:
     pack = _require_mapping(raw, "pack")
-    _require_keys(pack, _ROOT_KEYS - {"schema_version"}, _ROOT_KEYS, "pack")
+    _require_keys(pack, _ROOT_KEYS - {"schema_version", "developer_type"}, _ROOT_KEYS, "pack")
     version = pack.get("schema_version", PACK_SCHEMA_VERSION)
     if version != PACK_SCHEMA_VERSION:
         raise PackCompileError(f"Unsupported schema_version {version!r}; expected {PACK_SCHEMA_VERSION!r}.")
