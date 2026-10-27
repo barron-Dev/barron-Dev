@@ -14,7 +14,7 @@ IDENTIFIER_RE = re.compile(r"^[a-z][a-z0-9_.-]{1,127}$")
 SCOPES = {"critical", "high", "medium", "low"}
 TOP_LEVEL_KEYS = {
     "schema_version", "pack_id", "industry", "sub_segment", "geography",
-    "asset_types", "services_in_scope", "policy_pack", "compliance_packs",
+    "asset_types", "services_in_scope", "compliance_packs",
     "delivery_bindings", "data_residency", "retention", "approval",
     "workflows", "failure_tests", "ttfvr_target_seconds", "controls", "patterns",
     "developer_profile",
@@ -113,11 +113,12 @@ def validate_pack(raw: Any) -> dict[str, Any]:
     optional_services = _string_list(services["optional"], "service")
     _require(not set(required_services) & set(optional_services), "service_cannot_be_required_and_optional")
 
-    policy = raw["policy_pack"]
-    _require(isinstance(policy, dict) and set(policy) == {"base", "overlays"},
-             "invalid_policy_pack")
-    _identifier(policy["base"], "policy_pack.base")
-    _string_list(policy["overlays"], "policy_overlay")
+    if "policy_pack" in raw:
+        policy = raw["policy_pack"]
+        _require(isinstance(policy, dict) and set(policy) == {"base", "overlays"},
+                 "invalid_policy_pack")
+        _identifier(policy["base"], "policy_pack.base")
+        _string_list(policy["overlays"], "policy_overlay")
 
     _string_list(raw["compliance_packs"], "compliance_pack")
     delivery = raw["delivery_bindings"]
