@@ -46,12 +46,11 @@ def verify_compiled_digest(artifact: dict[str, Any]) -> str:
         raise PackReleaseError("compiled_artifact_digest_mismatch")
     if artifact.get("artifact_type") != "cyclothone.reference_pack":
         raise PackReleaseError("unsupported_compiled_artifact_type")
-    if artifact.get("publication_state") not in {"compiled_unconformed", "conformant"}:
-        raise PackReleaseError("preview_or_unresolved_pack_cannot_be_signed")
-    if artifact.get("publication_state") == "conformant":
-        conformance = artifact.get("conformance")
-        if not isinstance(conformance, dict) or conformance.get("status") != "passed" or not conformance.get("artifact_digest"):
-            raise PackReleaseError("conformance_attestation_missing")
+    if artifact.get("publication_state") != "conformant":
+        raise PackReleaseError("only_conformant_packs_can_be_signed")
+    conformance = artifact.get("conformance")
+    if not isinstance(conformance, dict) or conformance.get("status") != "passed" or not conformance.get("artifact_digest"):
+        raise PackReleaseError("conformance_attestation_missing")
     return supplied
 
 
