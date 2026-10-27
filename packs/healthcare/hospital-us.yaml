@@ -1,0 +1,50 @@
+schema_version: 1
+pack_id: hospital-us
+industry: healthcare
+sub_segment: hospital
+geography: us
+asset_types:
+  phi_database: {scope: critical}
+  medical_device_credentials: {scope: critical, observe_only: true}
+  clinical_identity_provider: {scope: critical}
+  clinician_identity: {scope: high, session_theft: true}
+  third_party_lab: {scope: high, third_party: true}
+services_in_scope:
+  required:
+    - darkweb.exposure
+    - identity.secrets
+    - identity.session_theft
+    - third_party.supply_chain
+  optional:
+    - brand.impersonation_domains
+    - insider.marketplace_chatter
+policy_pack:
+  base: regulated_healthcare
+  overlays: [us_hipaa, us_state_privacy]
+compliance_packs: [hipaa, soc2, iso27001, nist_csf]
+delivery_bindings:
+  default: webhook_mtls
+  allowed: [webhook_mtls, sse, api_poll, splunk_hec]
+  forbidden: [mqtt, opc_ua, public_webhook]
+data_residency:
+  default_region: us_east_1
+  cross_border_forbidden: true
+retention: {min_days: 2190, worm: true}
+approval: {dual_control: true, roles: [privacy_officer, ciso]}
+workflows:
+  - phi_exposure_to_privacy_incident
+  - medical_device_credential_to_patient_safety_escalation
+  - clinician_session_theft_to_session_revoke
+failure_tests:
+  - partial_coverage_is_not_clean
+  - medical_device_credentials_remain_observe_only
+  - phi_redaction_precedes_evidence_delivery
+  - breach_notification_clock_uses_applicable_law
+ttfvr_target_seconds: 900
+controls:
+  phi_redaction_strict: true
+  medical_device_credential_class: patient_safety_event
+  patient_safety_escalation_path: true
+  hipaa_breach_clock_days: 60
+  medical_device_actuation_default: observe_only
+patterns: [employee_credential_exposure, patient_pii_resale, vendor_supply_chain, executive_targeting]
