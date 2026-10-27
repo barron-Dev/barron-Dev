@@ -96,3 +96,9 @@ def test_reviewed_obligation_without_source_digest_blocks():
     result = evaluate_lifecycle_request(evidence(), [obligation(source_digest=None)], "delete", now=NOW)
     assert result.state == "applicability_unknown"
     assert "obligation_source_digest_missing_or_invalid" in result.reason_codes
+
+
+def test_snapshot_digest_binds_obligation_version_and_source():
+    first = evaluate_lifecycle_request(evidence(), [obligation(source_version="2026-10")], "delete", now=NOW)
+    second = evaluate_lifecycle_request(evidence(), [obligation(source_version="2026-11")], "delete", now=NOW)
+    assert first.snapshot_sha256 != second.snapshot_sha256
