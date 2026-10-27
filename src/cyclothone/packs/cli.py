@@ -7,6 +7,10 @@ from cyclothone.packs.compiler import PackCompileError, build_pack_file
 
 
 def main(argv: list[str] | None = None) -> int:
+    if argv is None:
+        argv = sys.argv[1:]
+    if argv and argv[0] == "pack":
+        argv = argv[1:]
     parser = argparse.ArgumentParser(prog="cyclothone pack")
     subparsers = parser.add_subparsers(dest="command", required=True)
     build = subparsers.add_parser("build", help="validate and compile a declarative reference pack")
