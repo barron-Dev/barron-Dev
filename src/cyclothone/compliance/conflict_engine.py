@@ -161,8 +161,19 @@ def evaluate_lifecycle_request(
     snapshot = {
         "tenant_id": evidence.tenant_id, "evidence_id": evidence.evidence_id,
         "evidence_sha256": evidence.evidence_sha256, "jurisdiction": evidence.jurisdiction,
-        "evidence_class": evidence.evidence_class, "requested_action": requested_action,
+        "evidence_class": evidence.evidence_class, "evidence_attributes": dict(evidence.attributes),
+        "collected_at": _utc(evidence.collected_at).isoformat(), "requested_action": requested_action,
         "matched_obligations": sorted(matched), "unknown_obligations": sorted(unknown),
+        "obligation_versions": [
+            {"key": item.obligation_key, "version": item.source_version,
+             "source_digest": item.source_digest, "citation": item.source_citation,
+             "jurisdiction": item.jurisdiction, "evidence_class": item.evidence_class,
+             "effective_from": _utc(item.effective_from).isoformat(),
+             "effective_until": _utc(item.effective_until).isoformat() if item.effective_until else None,
+             "required_actions": sorted(item.required_actions)}
+            for item in sorted(obligations, key=lambda x: (x.obligation_key, x.source_version))
+            if item.obligation_key in matched or item.obligation_key in unknown
+        ],
         "conflicts": [asdict(item) for item in conflicts], "reason_codes": sorted(reasons),
         "evaluated_at": at.isoformat(), "evaluator_version": evaluator_version,
     }
