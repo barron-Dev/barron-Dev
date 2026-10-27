@@ -23,12 +23,20 @@ The generator must never infer that a service is supported from a pack's own dec
 
 The artifact digest is computed from canonical JSON (sorted keys, compact separators, UTF-8) before the digest field is added. The output JSON is sorted and indented for review. Same validated input and same capability registry produce the same digest.
 
+## Exemplar packs included in this slice
+
+- `packs/financial-services/crypto-exchange-eu.yaml`: regulated finance, dual control, EU overlays, wallet observe-only, and regulated notification workflows.
+- `packs/healthcare/hospital-us.yaml`: strict PHI handling intent, medical-device observe-only, patient-safety escalation, and the 60-day HIPAA clock field.
+- `packs/developer/solo-developer.yaml`: no mandatory policy pack, one-asset free-tier intent, auto-selected profile, and a 300-second TTFVR target.
+
+These are declarative examples, not proof that their controls or legal obligations are enforced. They intentionally compile as preview until their service and delivery bindings resolve against an independently maintained capability registry.
+
 ## Next queue items
 
-1. Add three archetype packs (crypto-exchange-eu, hospital-us, solo-developer) and test their expected unresolved bindings.
-2. Bind pack references to real platform service, policy, compliance, and delivery registries.
-3. Add the six mandatory conformance tests and retain machine-readable pass/fail artifacts.
-4. Add compliance control-to-receipt translation and signed offline verification.
-5. Add versioned geography overlays, drift tracking, TTFVR instrumentation, trust-budget demotion, marketplace publication, and the community SDK.
+1. Bind pack references to real platform service, policy, compliance, and delivery registries.
+2. Add the six mandatory conformance tests and retain machine-readable pass/fail artifacts.
+3. Add compliance control-to-receipt translation and signed offline verification.
+4. Add versioned geography overlays, drift tracking, and TTFVR instrumentation.
+5. Add trust-budget demotion, marketplace publication, and the community SDK.
 
 No pack is production-ready solely because it compiles. No compliance claim is made by schema validation alone.
