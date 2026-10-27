@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from pathlib import Path
 
 from cyclothone.global_language_registry import LanguageRegistryError, load_language_registry
 
@@ -52,15 +53,15 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.command == "check-ceiling":
             try:
-                artifact = json.loads(open(args.artifact, encoding="utf-8").read())
-                effective_ceiling = json.loads(open(args.ceiling, encoding="utf-8").read())
+                artifact = json.loads(Path(args.artifact).read_text(encoding="utf-8"))
+                effective_ceiling = json.loads(Path(args.ceiling).read_text(encoding="utf-8"))
             except (OSError, UnicodeError, json.JSONDecodeError) as exc:
                 raise CapabilityCeilingError(f"ceiling_input_read_failed:{type(exc).__name__}") from exc
             report = evaluate_capability_ceiling(artifact, effective_ceiling)
-            rendered = json.dumps(report, sort_keys=True, ensure_ascii=False, indent=2) + "\\n"
+            rendered = json.dumps(report, sort_keys=True, ensure_ascii=False, indent=2) + "\n"
             if args.out:
-                with open(args.out, "w", encoding="utf-8") as handle:
-                    handle.write(rendered)
+                Path(args.out).write_text(rendered, encoding="utf-8")
+
             print(rendered, end="")
             return 0 if report["status"] == "pass" else 2
         if args.command == "sign":
