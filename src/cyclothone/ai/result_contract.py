@@ -16,6 +16,8 @@ class SourceOutcome:
     reason_code: str | None = None
 
     def __post_init__(self) -> None:
+        if self.status not in {"succeeded", "failed", "unavailable", "not_checked", "blocked"}:
+            raise ValueError("invalid_source_status")
         if not self.source.strip():
             raise ValueError("source_required")
         if self.evidence_count < 0:
@@ -35,6 +37,8 @@ class ResultContract:
     schema_version: str = "1"
 
     def __post_init__(self) -> None:
+        if self.status not in {"complete", "partial_coverage", "blocked", "failed"}:
+            raise ValueError("invalid_overall_status")
         if not self.request_id.strip():
             raise ValueError("request_id_required")
         if self.schema_version != "1":
