@@ -309,8 +309,10 @@ async def test_destructive_orchestrator_mints_and_consumes_authoritative_envelop
     dispatcher = AsyncMock()
     dispatcher.issue = AsyncMock(return_value={"id": "cmd-1"})
 
+    receipt_service = AsyncMock()
     result = await ResponseOrchestrator(
         dispatcher, store, execution_gate=gate, envelope_issuer=issuer,
+        action_receipt_service=receipt_service,
         execution_authorizer=AsyncMock(return_value={"status": "authorized"}),
     ).run_chain(
         tenant_id=tenant, case_id=uuid4(), device_id=uuid4(),
@@ -322,6 +324,7 @@ async def test_destructive_orchestrator_mints_and_consumes_authoritative_envelop
     issuer.issue.assert_awaited_once_with(request)
     gate.validate.assert_awaited_once()
     gate.consume.assert_awaited_once()
+    receipt_service.record_action.assert_awaited_once()
     dispatcher.issue.assert_awaited_once()
 
 
@@ -431,8 +434,10 @@ async def test_approval_dispatch_revalidates_and_consumes_same_run_binding(monke
         "cyclothone.response.orchestrator.create_response_execution_approval",
         AsyncMock(return_value={"approval_id": "approval-1"}),
     )
+    receipt_service = AsyncMock()
     orchestrator = ResponseOrchestrator(
         dispatcher, store, execution_gate=gate,
+        action_receipt_service=receipt_service,
         execution_authorizer=authorizer,
     )
 
@@ -443,6 +448,7 @@ async def test_approval_dispatch_revalidates_and_consumes_same_run_binding(monke
     assert gate.validate.await_args.kwargs["expected_run_id"] == run_id
     gate.consume.assert_awaited_once()
     assert gate.consume.await_args.kwargs["run_id"] == run_id
+    receipt_service.record_action.assert_awaited_once()
     dispatcher.issue.assert_awaited_once()
 
 
