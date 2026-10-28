@@ -129,7 +129,7 @@ class ActionReceiptService:
 
         stored = await supabase.select_one(
             "ai_action_verification_events",
-            "tenant_id,run_id,event_id,sequence,actor_id,agent_id,action_type,payload_hash,previous_hash,event_hash,signer_key_id,signature_hex",
+            "tenant_id,run_id,event_id,sequence,actor_id,agent_id,action_type,payload_hash,previous_hash,event_hash,signer_key_id,signature_hex,occurred_at_canonical",
             tenant_id=tenant, run_id=run, event_id=envelope.event_id,
         )
         if not stored:
@@ -140,6 +140,7 @@ class ActionReceiptService:
             "action_type": action_type, "payload_hash": envelope.payload_hash,
             "previous_hash": previous_hash, "event_hash": envelope.event_hash,
             "signer_key_id": key_id, "signature_hex": envelope.signature_hex,
+            "occurred_at_canonical": envelope.occurred_at,
         }
         for field, value in expected.items():
             if str(stored.get(field)) != str(value):
