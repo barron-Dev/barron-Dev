@@ -16,18 +16,30 @@ const encoder = new TextEncoder();
 const GENESIS = "0".repeat(64);
 const DOMAIN = "cyclothone.ai-action.event.v1:";
 
+function compareUtf8Keys(left: string, right: string): number {
+  const a = encoder.encode(left);
+  const b = encoder.encode(right);
+  const length = Math.min(a.length, b.length);
+  for (let i = 0; i < length; i += 1) {
+    if (a[i] !== b[i]) return a[i] - b[i];
+  }
+  return a.length - b.length;
+}
+
 function canonical(value: unknown): string {
   if (value === null || typeof value === "string" || typeof value === "boolean") {
     return JSON.stringify(value);
   }
   if (typeof value === "number") {
-    if (!Number.isFinite(value)) throw new Error("Non-finite numbers are not valid canonical JSON.");
+    if (!Number.isSafeInteger(value)) {
+      throw new Error("Only safe integers are supported by the shared canonical JSON profile; encode decimals as strings.");
+    }
     return JSON.stringify(value);
   }
   if (Array.isArray(value)) return "[" + value.map(canonical).join(",") + "]";
   if (typeof value === "object") {
     const object = value as Record<string, unknown>;
-    return "{" + Object.keys(object).sort().map(key => JSON.stringify(key) + ":" + canonical(object[key])).join(",") + "}";
+    return "{" + Object.keys(object).sort(compareUtf8Keys).map(key => JSON.stringify(key) + ":" + canonical(object[key])).join(",") + "}";
   }
   throw new Error("Unsupported canonical JSON value.");
 }
