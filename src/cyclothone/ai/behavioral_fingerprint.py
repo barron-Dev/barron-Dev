@@ -204,6 +204,8 @@ def sign_provenance_attestation(
     signing_key: Ed25519PrivateKey,
     created_at: datetime | None = None,
 ) -> ProvenanceAttestation:
+    if fingerprint.protocol != _PROTOCOL:
+        raise ValueError("unsupported_fingerprint_protocol")
     if _manifest_hash(fingerprint.manifest()) != fingerprint.fingerprint_sha256:
         raise ValueError("fingerprint_manifest_hash_mismatch")
     if not signer_key_id.strip():
@@ -225,6 +227,8 @@ def verify_provenance_attestation(
     *,
     public_keys: Mapping[str, Ed25519PublicKey],
 ) -> bool:
+    if fingerprint.protocol != _PROTOCOL:
+        return False
     if _manifest_hash(fingerprint.manifest()) != fingerprint.fingerprint_sha256:
         return False
     if attestation.protocol != _ATTESTATION_PROTOCOL:
