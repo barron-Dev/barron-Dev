@@ -13,7 +13,7 @@ from cyclothone.twin.service import DigitalTwinService
 from cyclothone.storage.supabase_client import supabase
 
 class ReplayStore(Protocol):
-    async def claim(self, *, tenant_id: UUID, envelope_id: str, expires_at: datetime, envelope_hash: str) -> bool: ...
+    async def claim(self, *, tenant_id: UUID, run_id: UUID, envelope_id: str, expires_at: datetime, envelope_hash: str) -> bool: ...
 
 @dataclass(frozen=True, slots=True)
 class AgentEnvelope:
@@ -35,9 +35,10 @@ class AgentEnvelope:
     mission_id: str | None = None
     mission_version: int | None = None
     mission_hash: str | None = None
+    run_id: UUID | None = None
 
     def canonical(self) -> dict[str, Any]:
-        return {"envelope_id": self.envelope_id, "tenant_id": str(self.tenant_id), "agent_id": str(self.agent_id), "model_id": self.model_id, "provider_id": self.provider_id, "tool_name": self.tool_name, "action": self.action, "args": self.args, "target": self.target, "issued_at": self.issued_at.isoformat(), "expires_at": self.expires_at.isoformat(), "version": self.version, "binding_hash": self.binding_hash, "mission_id": self.mission_id, "mission_version": self.mission_version, "mission_hash": self.mission_hash}
+        return {"envelope_id": self.envelope_id, "tenant_id": str(self.tenant_id), "agent_id": str(self.agent_id), "model_id": self.model_id, "provider_id": self.provider_id, "tool_name": self.tool_name, "action": self.action, "args": self.args, "target": self.target, "issued_at": self.issued_at.isoformat(), "expires_at": self.expires_at.isoformat(), "version": self.version, "binding_hash": self.binding_hash, "mission_id": self.mission_id, "mission_version": self.mission_version, "mission_hash": self.mission_hash, "run_id": str(self.run_id) if self.run_id else None}
 
     def to_record(self) -> dict[str, Any]:
         return {**self.canonical(), "signer_kid": self.signer_kid, "signature_b64": self.signature_b64}
@@ -46,9 +47,10 @@ class AgentEnvelope:
 class SupabaseReplayStore:
     """Durable, tenant-scoped, atomic envelope replay ledger."""
 
-    async def claim(self, *, tenant_id: UUID, envelope_id: str, expires_at: datetime, envelope_hash: str) -> bool:
+    async def claim(self, *, tenant_id: UUID, run_id: UUID, envelope_id: str, expires_at: datetime, envelope_hash: str) -> bool:
         result = await supabase.rpc("claim_ai_execution_envelope", {
             "p_tenant_id": str(tenant_id),
+            "p_run_id": str(run_id),
             "p_envelope_id": envelope_id,
             "p_envelope_hash": envelope_hash,
             "p_expires_at": expires_at.isoformat(),
@@ -79,11 +81,14 @@ class AgentExecutionGate:
         expected_mission_id: str | None = None,
         expected_mission_version: int | None = None,
         expected_mission_hash: str | None = None,
+        expected_run_id: UUID | None = None,
     ) -> dict[str, Any]:
         """Validate an envelope and simulate it without consuming replay state."""
         now = datetime.now(UTC)
         if envelope.tenant_id != tenant_id:
             raise AgentExecutionDenied("envelope tenant mismatch")
+        if expected_run_id is None or envelope.run_id is None or envelope.run_id != expected_run_id:
+            raise AgentExecutionDenied("envelope run binding mismatch")
         if envelope.expires_at <= now or envelope.issued_at > now:
             raise AgentExecutionDenied("envelope expired or issued in the future")
         if envelope.model_id != expected_model_id:
@@ -127,15 +132,18 @@ class AgentExecutionGate:
             "mission_hash": envelope.mission_hash,
         }
 
-    async def consume(self, *, envelope: AgentEnvelope, tenant_id: UUID) -> None:
+    async def consume(self, *, envelope: AgentEnvelope, tenant_id: UUID, run_id: UUID) -> None:
         """Consume an envelope exactly once after all approval gates pass."""
         now = datetime.now(UTC)
         if envelope.tenant_id != tenant_id:
             raise AgentExecutionDenied("envelope tenant mismatch")
+        if envelope.run_id is None or envelope.run_id != run_id:
+            raise AgentExecutionDenied("envelope run binding mismatch")
         if envelope.expires_at <= now:
             raise AgentExecutionDenied("envelope expired")
         if not await self.replay_store.claim(
             tenant_id=tenant_id,
+            run_id=run_id,
             envelope_id=envelope.envelope_id,
             expires_at=envelope.expires_at,
             envelope_hash=self._envelope_hash(envelope),
@@ -154,6 +162,7 @@ class AgentExecutionGate:
         expected_mission_id: str | None = None,
         expected_mission_version: int | None = None,
         expected_mission_hash: str | None = None,
+        expected_run_id: UUID | None = None,
     ) -> dict[str, Any]:
         """Validate and optionally consume replay state for immediate execution."""
         result = await self.validate(
@@ -165,7 +174,10 @@ class AgentExecutionGate:
             expected_mission_id=expected_mission_id,
             expected_mission_version=expected_mission_version,
             expected_mission_hash=expected_mission_hash,
+            expected_run_id=expected_run_id,
         )
         if consume_replay:
-            await self.consume(envelope=envelope, tenant_id=tenant_id)
+            if expected_run_id is None:
+                raise AgentExecutionDenied("authoritative run id required")
+            await self.consume(envelope=envelope, tenant_id=tenant_id, run_id=expected_run_id)
         return result
