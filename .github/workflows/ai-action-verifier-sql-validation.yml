@@ -20,18 +20,18 @@ jobs:
         env:
           POSTGRES_PASSWORD: test-only-password
           POSTGRES_DB: cyclothone_sql_test
-          POSTGRES_USER: postgres
+          POSTGRES_USER: supabase_admin
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U postgres -d cyclothone_sql_test"
+          --health-cmd "pg_isready -U supabase_admin -d cyclothone_sql_test"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 30
     env:
       PGHOST: localhost
       PGPORT: 5432
-      PGUSER: postgres
+      PGUSER: supabase_admin
       PGPASSWORD: test-only-password
       PGDATABASE: cyclothone_sql_test
     steps:
@@ -58,19 +58,23 @@ jobs:
       - name: Create minimal real schema fixtures matching production dependencies
         run: |
           psql -v ON_ERROR_STOP=1 <<'SQL'
-          CREATE ROLE anon NOLOGIN;
-          CREATE ROLE authenticated NOLOGIN;
-          CREATE ROLE service_role NOLOGIN;
-          CREATE SCHEMA auth;
-          CREATE FUNCTION auth.jwt() RETURNS jsonb LANGUAGE sql STABLE AS
-            $$ SELECT coalesce(nullif(current_setting('request.jwt.claims', true), ''), '{}')::jsonb $$;
-          CREATE TABLE public.tenants (id uuid PRIMARY KEY DEFAULT gen_random_uuid());
-          CREATE TABLE public.ai_runs (
+          DO $roles$
+          BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN CREATE ROLE anon NOLOGIN; END IF;
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN CREATE ROLE authenticated NOLOGIN; END IF;
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') THEN CREATE ROLE service_role NOLOGIN; END IF;
+          END
+          $roles$;
+          CREATE SCHEMA IF NOT EXISTS auth;
+          CREATE OR REPLACE FUNCTION auth.jwt() RETURNS jsonb LANGUAGE sql STABLE AS
+            $ SELECT coalesce(nullif(current_setting('request.jwt.claims', true), ''), '{}')::jsonb $;
+          CREATE TABLE IF NOT EXISTS public.tenants (id uuid PRIMARY KEY DEFAULT gen_random_uuid());
+          CREATE TABLE IF NOT EXISTS public.ai_runs (
             id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
             tenant_id uuid NOT NULL REFERENCES public.tenants(id),
             agent_id uuid NOT NULL
           );
-          CREATE TABLE public.trust_signing_keys (
+          CREATE TABLE IF NOT EXISTS public.trust_signing_keys (
             id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
             tenant_id uuid REFERENCES public.tenants(id),
             key_id text NOT NULL,
