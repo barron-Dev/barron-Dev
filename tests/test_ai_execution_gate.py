@@ -280,13 +280,14 @@ async def test_destructive_orchestrator_mints_and_consumes_authoritative_envelop
 
     tenant = uuid4()
     agent = uuid4()
+    run_id = uuid4()
     env = AgentEnvelope(
         "env-issued", tenant, agent, "model-a", "provider-a", "kill_process", "kill_process",
         {"pid": 7}, "device-1", datetime.now(UTC), datetime.now(UTC) + timedelta(minutes=1),
-        "kid", "sig", "1", "b" * 64, run_id=uuid4(),
+        "kid", "sig", "1", "b" * 64, run_id=run_id,
     )
     request = EnvelopeIssueRequest(
-            run_id=uuid4(),
+        run_id=run_id,
         tenant_id=tenant, agent_id=agent, model_id="model-a", provider_id="provider-a",
         tool_name="kill_process", action="kill_process", args={"pid": 7}, target="device-1",
     )
@@ -305,7 +306,7 @@ async def test_destructive_orchestrator_mints_and_consumes_authoritative_envelop
         execution_authorizer=AsyncMock(return_value={"status": "authorized"}),
     ).run_chain(
         tenant_id=tenant, case_id=uuid4(), device_id=uuid4(),
-        plan=[ActionPlan("kill_process", {"pid": 7}, envelope_request=request, run_id=uuid4())],
+        plan=[ActionPlan("kill_process", {"pid": 7}, envelope_request=request, run_id=run_id)],
         issued_by="test",
     )
 
