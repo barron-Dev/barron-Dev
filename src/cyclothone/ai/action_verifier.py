@@ -30,8 +30,29 @@ def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     return value
 
 
+def _validate_canonical_value(value: Any) -> None:
+    """Restrict values to a cross-runtime profile that PostgreSQL can reproduce."""
+    if isinstance(value, dict):
+        if any(not isinstance(key, str) for key in value):
+            raise TypeError("json_object_keys_must_be_strings")
+        for item in value.values():
+            _validate_canonical_value(item)
+    elif isinstance(value, list):
+        for item in value:
+            _validate_canonical_value(item)
+    elif isinstance(value, float):
+        # JSONB numeric formatting can differ from Python's exponent formatting.
+        # Decimal quantities must be encoded as strings in this protocol.
+        raise ValueError("floating_point_numbers_not_supported")
+    elif value is None or isinstance(value, (str, int, bool)):
+        return
+    else:
+        raise TypeError("unsupported_canonical_json_value")
+
+
 def canonical_json(value: Any) -> str:
-    """Return stable UTF-8 JSON; reject non-JSON values and non-finite numbers."""
+    """Return stable UTF-8 JSON under the cross-runtime canonical profile."""
+    _validate_canonical_value(value)
     return json.dumps(
         value,
         sort_keys=True,
