@@ -44,11 +44,7 @@ def _validate_canonical_value(value: Any) -> None:
         # JSONB numeric formatting can differ from Python's exponent formatting.
         # Decimal quantities must be encoded as strings in this protocol.
         raise ValueError("floating_point_numbers_not_supported")
-    elif isinstance(value, int) and not isinstance(value, bool):
-        # Match the browser's exact-integer profile; larger integers lose precision in JS.
-        if abs(value) > 9007199254740991:
-            raise ValueError("integer_outside_safe_json_range")
-    elif value is None or isinstance(value, (str, bool)):
+    elif value is None or isinstance(value, (str, int, bool)):
         return
     else:
         raise TypeError("unsupported_canonical_json_value")

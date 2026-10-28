@@ -220,7 +220,160 @@ BEGIN
   ELSIF v_kind = 'number' THEN
     -- Shared profile permits safe integers only. Reject fractional values and
     -- integers JavaScript cannot represent exactly.
-    IF (p_value #>> '{}')::numeric <> trunc((p_value #>> '{}')::numeric)
+    IF (p_value #>> '{}') !~ '^-?(0|[1-9][0-9]*)
+    RETURN p_value::text;
+  ELSE
+    RETURN p_value::text;
+  END IF;
+END
+$function$;
+
+CREATE OR REPLACE FUNCTION public.commit_ai_action_verification_event(
+  p_tenant_id uuid,
+  p_run_id uuid,
+  p_event_id uuid,
+  p_sequence bigint,
+  p_actor_id text,
+  p_agent_id text,
+  p_action_type text,
+  p_payload_canonical text,
+  p_payload_hash text,
+  p_previous_hash text,
+  p_event_hash text,
+  p_signer_key_id text,
+  p_signature_hex text,
+  p_occurred_at_canonical text
+) RETURNS public.ai_action_verification_events
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public', 'pg_catalog', 'extensions', 'pgsodium'
+AS $function$
+DECLARE
+  v_run_tenant uuid;
+  v_run_agent uuid;
+  v_previous_hash text;
+  v_payload jsonb;
+  v_payload_hash text;
+  v_event_hash text;
+  v_key public.trust_signing_keys%rowtype;
+  v_event public.ai_action_verification_events%rowtype;
+  v_occurred_at timestamptz;
+BEGIN
+  IF p_tenant_id IS NULL OR p_run_id IS NULL OR p_event_id IS NULL
+     OR p_sequence IS NULL OR p_sequence < 1
+     OR p_actor_id IS NULL OR length(btrim(p_actor_id)) = 0
+     OR p_action_type IS NULL OR length(btrim(p_action_type)) = 0
+     OR p_signer_key_id IS NULL OR length(btrim(p_signer_key_id)) = 0 THEN
+    RAISE EXCEPTION 'invalid_ai_action_receipt';
+  END IF;
+  IF p_payload_canonical IS NULL OR length(p_payload_canonical) > 1048576 THEN
+    RAISE EXCEPTION 'invalid_ai_action_payload_size';
+  END IF;
+  IF p_payload_hash IS NULL OR p_payload_hash !~ '^[0-9a-f]{64}$'
+     OR p_previous_hash IS NULL OR p_previous_hash !~ '^[0-9a-f]{64}$'
+     OR p_event_hash IS NULL OR p_event_hash !~ '^[0-9a-f]{64}$'
+     OR p_signature_hex IS NULL OR p_signature_hex !~ '^[0-9a-f]{128}$' THEN
+    RAISE EXCEPTION 'invalid_ai_action_hash_or_signature_format';
+  END IF;
+  IF p_occurred_at_canonical IS NULL OR p_occurred_at_canonical !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}[.][0-9]{6}Z$' THEN
+    RAISE EXCEPTION 'invalid_ai_action_timestamp_format';
+  END IF;
+
+  -- Hash the exact canonical UTF-8 bytes signed by the backend. The raw payload
+  -- is deliberately not persisted in this ledger.
+  v_payload := p_payload_canonical::jsonb;
+  IF jsonb_typeof(v_payload) <> 'object' THEN
+    RAISE EXCEPTION 'ai_action_payload_must_be_json_object';
+  END IF;
+  IF public.ai_action_canonical_jsonb(v_payload) IS DISTINCT FROM p_payload_canonical THEN
+    RAISE EXCEPTION 'ai_action_payload_not_canonical';
+  END IF;
+  v_payload_hash := encode(
+    extensions.digest(convert_to(p_payload_canonical, 'UTF8'), 'sha256'), 'hex'
+  );
+  IF v_payload_hash <> p_payload_hash THEN
+    RAISE EXCEPTION 'ai_action_payload_hash_mismatch';
+  END IF;
+  v_occurred_at := p_occurred_at_canonical::timestamptz;
+
+  -- Serialize commits per run and bind the receipt to the existing AI run.
+  SELECT tenant_id, agent_id INTO v_run_tenant, v_run_agent
+    FROM public.ai_runs WHERE id = p_run_id FOR UPDATE;
+  IF NOT FOUND OR v_run_tenant IS DISTINCT FROM p_tenant_id THEN
+    RAISE EXCEPTION 'ai_action_run_tenant_mismatch';
+  END IF;
+  IF p_agent_id IS DISTINCT FROM v_run_agent::text THEN
+    RAISE EXCEPTION 'ai_action_agent_binding_mismatch';
+  END IF;
+
+  IF p_sequence = 1 THEN
+    IF p_previous_hash <> repeat('0', 64) THEN
+      RAISE EXCEPTION 'ai_action_genesis_hash_mismatch';
+    END IF;
+  ELSE
+    SELECT event_hash INTO v_previous_hash
+      FROM public.ai_action_verification_events
+      WHERE tenant_id = p_tenant_id AND run_id = p_run_id
+        AND sequence = p_sequence - 1
+      FOR SHARE;
+    IF NOT FOUND OR v_previous_hash IS DISTINCT FROM p_previous_hash THEN
+      RAISE EXCEPTION 'ai_action_previous_hash_mismatch';
+    END IF;
+  END IF;
+
+  v_event_hash := public.ai_action_event_hash(
+    p_sequence, p_event_id, p_tenant_id, p_run_id, p_actor_id, p_agent_id,
+    p_action_type, v_payload_hash, p_previous_hash, p_signer_key_id,
+    p_occurred_at_canonical
+  );
+  IF v_event_hash <> p_event_hash THEN
+    RAISE EXCEPTION 'ai_action_event_hash_mismatch';
+  END IF;
+
+  SELECT * INTO v_key
+    FROM public.trust_signing_keys
+    WHERE tenant_id = p_tenant_id AND key_id = p_signer_key_id
+      AND purpose = 'AI_ACTION' AND algorithm = 'ED25519' AND status = 'ACTIVE'
+      AND (not_before IS NULL OR not_before <= clock_timestamp())
+      AND (not_after IS NULL OR not_after > clock_timestamp())
+    FOR SHARE;
+  IF NOT FOUND OR v_key.public_key !~ '^[0-9a-fA-F]{64}$' THEN
+    RAISE EXCEPTION 'ai_action_signing_key_not_active';
+  END IF;
+
+  -- Actual database-side Ed25519 verification; no API-supplied boolean is trusted.
+  IF NOT pgsodium.crypto_sign_verify_detached(
+    decode(p_signature_hex, 'hex'),
+    convert_to(v_event_hash, 'UTF8'),
+    decode(v_key.public_key, 'hex')
+  ) THEN
+    RAISE EXCEPTION 'ai_action_signature_invalid';
+  END IF;
+
+  INSERT INTO public.ai_action_verification_events (
+    tenant_id, run_id, event_id, sequence, actor_id, agent_id, action_type,
+    payload_hash, previous_hash, event_hash, signer_key_id, signature_hex,
+    occurred_at_canonical, occurred_at
+  ) VALUES (
+    p_tenant_id, p_run_id, p_event_id, p_sequence, p_actor_id, p_agent_id,
+    p_action_type, v_payload_hash, p_previous_hash, v_event_hash, p_signer_key_id,
+    lower(p_signature_hex), p_occurred_at_canonical, v_occurred_at
+  ) RETURNING * INTO v_event;
+
+  RETURN v_event;
+END
+$function$;
+
+REVOKE ALL ON FUNCTION public.ai_action_event_hash(bigint,uuid,uuid,uuid,text,text,text,text,text,text,text)
+  FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.reject_ai_action_event_mutation()
+  FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.commit_ai_action_verification_event(uuid,uuid,uuid,bigint,text,text,text,text,text,text,text,text,text,text)
+  FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.commit_ai_action_verification_event(uuid,uuid,uuid,bigint,text,text,text,text,text,text,text,text,text,text)
+  TO service_role;
+
+
        OR abs((p_value #>> '{}')::numeric) > 9007199254740991 THEN
       RAISE EXCEPTION 'ai_action_number_outside_canonical_profile';
     END IF;

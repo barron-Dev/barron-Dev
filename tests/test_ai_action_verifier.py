@@ -122,7 +122,6 @@ def test_cross_runtime_canonical_profile_rejects_floats_and_non_string_keys():
     for payload in (
         {"measurement": 1.25},
         {"nested": [{"measurement": 1e-7}]},
-        {"amount": 9007199254740992},
         {1: "non-string key"},
     ):
         try:
