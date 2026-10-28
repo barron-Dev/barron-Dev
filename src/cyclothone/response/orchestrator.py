@@ -321,9 +321,16 @@ class ResponseOrchestrator:
                         mission_id=str(envelope_data.get("mission_id")) if envelope_data.get("mission_id") else None,
                         mission_version=int(envelope_data["mission_version"]) if envelope_data.get("mission_version") is not None else None,
                         mission_hash=str(envelope_data.get("mission_hash")) if envelope_data.get("mission_hash") else None,
+                        run_id=UUID(str(envelope_data["run_id"])),
                     )
                 except (KeyError, TypeError, ValueError) as exc:
                     raise RuntimeError("invalid persisted agent envelope") from exc
+                run_id_raw = row.get("ai_run_id")
+                if not run_id_raw:
+                    raise RuntimeError("approved response action is missing canonical AI run binding")
+                run_id = UUID(str(run_id_raw))
+                if envelope.run_id != run_id:
+                    raise RuntimeError("persisted envelope run binding mismatch")
                 if self.execution_gate is None:
                     raise RuntimeError("AI execution gate is required for destructive approval")
                 await self.execution_gate.validate(
@@ -334,6 +341,7 @@ class ResponseOrchestrator:
                     expected_mission_id=envelope.mission_id,
                     expected_mission_version=envelope.mission_version,
                     expected_mission_hash=envelope.mission_hash,
+                    expected_run_id=run_id,
                     twin=__import__("cyclothone.twin.service", fromlist=["DigitalTwinService"]).DigitalTwinService(UUID(str(row["tenant_id"]))),
                 )
                 run_id_raw = row.get("ai_run_id")
@@ -379,6 +387,7 @@ class ResponseOrchestrator:
                 await self.execution_gate.consume(
                     envelope=envelope,
                     tenant_id=UUID(str(row["tenant_id"])),
+                    run_id=run_id,
                 )
             execution_context = {
                 "case_action_id": str(case_action_id),
