@@ -46,3 +46,10 @@ def test_blocked_result_cannot_claim_results():
             (SourceOutcome("primary", "blocked", reason_code="policy_denied"),),
             {"finding_count": 1},
         )
+
+
+def test_unknown_statuses_are_rejected():
+    with pytest.raises(ValueError, match="invalid_source_status"):
+        SourceOutcome("source", "clean")  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="invalid_overall_status"):
+        ResultContract("req-1", "clean", (SourceOutcome("source", "succeeded"),), {})  # type: ignore[arg-type]
