@@ -77,3 +77,12 @@
 - Wrong key, revoked/expired key, altered payload, altered event metadata, signature mutation, duplicate event/sequence, cross-tenant run, replay, and chain truncation all reject.
 - The browser demo starts neutral, only shows success after actual Web Crypto checks, and demonstrates rejection after tampering.
 - Production acceptance requires authenticated API wiring, database read-back, key rotation/revocation tests, RLS/grant checks, and fresh CI. No production-complete claim before those gates pass.
+
+
+## Validation performed for this branch (2026-10-28)
+
+- Targeted isolated-workspace Python tests: 15 passed, covering action signing/verification, payload/event tampering, key/signature failure, tenant/run binding, chain order, honest coverage states, and migration-source assertions.
+- Python bytecode compilation completed successfully for the new Python source/tests.
+- The new verification page passed a focused TypeScript/JSX syntax/type pass using temporary React/JSX declarations; this is not a full Next.js build.
+- Not run: full repository test suite, full Next.js production build, SQL migration execution against PostgreSQL, or CI for this new branch.
+- The existing PR #93 head separately has a successful CI run (run 3529 on commit 4a079206c5350d97c36af90cce4a9c7eb9c58ae0). That result does not validate this new branch.
