@@ -54,8 +54,8 @@ export default function AISecurityPage() {
 
         <Link href="/convergence/ai/verification" className="block border border-[#00d9ff]/30 bg-[#0a0e14] p-4 hover:border-[#00d9ff]">
           <div className="text-xs uppercase tracking-[.12em] text-[#00d9ff]">Cryptographic Action Verifier</div>
-          <p className="mt-1 text-sm text-[#e8eef6]">Run a real browser-local Ed25519 signature and tamper-detection demonstration.</p>
-          <p className="mt-1 text-[11px] text-[#5a6675]">Ephemeral demo key only — not a production verification receipt.</p>
+          <p className="mt-1 text-sm text-[#e8eef6]">View the production verification status and outstanding real integration requirements.</p>
+          <p className="mt-1 text-[11px] text-[#5a6675]">No synthetic receipts or browser-local pass results are presented.</p>
         </Link>
 
         <section className="border border-[#1a2330] bg-[#0a0e14] p-5 space-y-4">
