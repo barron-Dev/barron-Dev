@@ -204,6 +204,7 @@ async def test_envelope_issuer_requires_persisted_provider_authority(monkeypatch
     issuer = AIEnvelopeIssuer(Binding(), AsyncMock(resolve=AsyncMock(return_value={"active": True})))
     with pytest.raises(EnvelopeIssuanceDenied, match="provider binding"):
         await issuer.issue(EnvelopeIssueRequest(
+            run_id=uuid4(),
             tenant_id=tenant_id, agent_id=agent_id, model_id="model-a",
             provider_id="provider-a", tool_name="kill_process", action="kill_process",
             args={"pid": 7}, target="device-1", mission_id="mission-a", mission_version=1, mission_hash="d" * 64,
@@ -280,9 +281,10 @@ async def test_destructive_orchestrator_mints_and_consumes_authoritative_envelop
     env = AgentEnvelope(
         "env-issued", tenant, agent, "model-a", "provider-a", "kill_process", "kill_process",
         {"pid": 7}, "device-1", datetime.now(UTC), datetime.now(UTC) + timedelta(minutes=1),
-        "kid", "sig", "1", "b" * 64,
+        "kid", "sig", "1", "b" * 64, run_id=uuid4(),
     )
     request = EnvelopeIssueRequest(
+            run_id=uuid4(),
         tenant_id=tenant, agent_id=agent, model_id="model-a", provider_id="provider-a",
         tool_name="kill_process", action="kill_process", args={"pid": 7}, target="device-1",
     )
@@ -320,7 +322,7 @@ async def test_execution_gate_rejects_stale_mission_binding(monkeypatch):
     env = AgentEnvelope(
         "env-mission", uuid4(), uuid4(), "model-a", "provider-a", "kill_process", "kill_process",
         {"pid": 7}, "device-1", datetime.now(UTC), datetime.now(UTC) + timedelta(minutes=1),
-        "kid", "sig", "1", "a" * 64, "mission-a", 2, "d" * 64,
+        "kid", "sig", "1", "a" * 64, "mission-a", 2, "d" * 64, uuid4(),
     )
     monkeypatch.setattr("cyclothone.ai.execution_gate.verify_digest_signature", AsyncMock(return_value=True))
     gate.policy.check = AsyncMock(return_value={"allowed": True, "requires_approval": False})
@@ -328,7 +330,7 @@ async def test_execution_gate_rejects_stale_mission_binding(monkeypatch):
         await gate.validate(
             envelope=env, tenant_id=env.tenant_id, expected_model_id="model-a",
             expected_provider_id="provider-a", expected_mission_id="mission-a",
-            expected_mission_version=1, expected_mission_hash="d" * 64, twin=AsyncMock(),
+            expected_mission_version=1, expected_mission_hash="d" * 64, expected_run_id=env.run_id, twin=AsyncMock(),
         )
 
 
