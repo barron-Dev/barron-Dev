@@ -155,6 +155,7 @@ def compile_playbook_steps(raw_steps: Any, *, tenant_id: UUID | None = None) -> 
             if len(str(mission_hash)) != 64:
                 raise PlaybookValidationError(f"step {index} mission_hash must be SHA-256")
             envelope_request = EnvelopeIssueRequest(
+                run_id=run_uuid,
                 tenant_id=tenant_id,
                 agent_id=agent_uuid,
                 model_id=str(model_id),
