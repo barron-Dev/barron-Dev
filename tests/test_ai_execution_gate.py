@@ -345,7 +345,7 @@ def test_mission_binding_changes_envelope_canonical_digest():
         env.envelope_id, env.tenant_id, env.agent_id, env.model_id, env.provider_id,
         env.tool_name, env.action, env.args, env.target, env.issued_at, env.expires_at,
         env.signer_kid, env.signature_b64, env.version, env.binding_hash,
-        "mission-b", 1, "d" * 64,
+        "mission-b", 1, "d" * 64, env.run_id,
     )
     assert a != AgentExecutionGate._envelope_hash(changed)
 
