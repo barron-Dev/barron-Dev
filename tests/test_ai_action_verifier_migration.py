@@ -17,6 +17,11 @@ def test_database_rpc_recomputes_hashes_and_verifies_ed25519():
     assert "ai_action_event_hash_mismatch" in migration
     assert "ai_action_signature_invalid" in migration
     assert "p_verified boolean" not in migration.lower()
+    assert "FROM public.ai_runs WHERE id = p_run_id FOR UPDATE" in migration
+    assert "UNIQUE (tenant_id, run_id, sequence)" in migration
+    assert "UNIQUE (tenant_id, event_id)" in migration
+    assert "p_sequence - 1" in migration
+    assert "ai_action_previous_hash_mismatch" in migration
 
 
 def test_database_rpc_is_service_role_only_and_append_only():
