@@ -164,11 +164,6 @@ BEGIN
   IF p_occurred_at_canonical IS NULL OR p_occurred_at_canonical !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}[.][0-9]{6}Z$' THEN
     RAISE EXCEPTION 'invalid_ai_action_timestamp_format';
   END IF;
-    RAISE EXCEPTION 'invalid_ai_action_hash_or_signature_format';
-  END IF;
-  IF p_occurred_at_canonical IS NULL OR p_occurred_at_canonical !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}[.][0-9]{6}Z$' THEN
-    RAISE EXCEPTION 'invalid_ai_action_timestamp_format';
-  END IF;
 
   -- Hash the exact canonical UTF-8 bytes signed by the backend. The raw payload
   -- is deliberately not persisted in this ledger.
