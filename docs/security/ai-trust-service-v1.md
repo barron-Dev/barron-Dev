@@ -28,7 +28,7 @@
 - The live trust_commit_evidence_verification routine checks the supplied payload hash against the stored evidence hash and checks signer/key bindings and key status, but its inspected body does not call a cryptographic Ed25519 verifier. Do not treat its VERIFIED state as proof that the signature itself was verified by that function.
 - Live Supabase has pgcrypto installed but does not currently have pgsodium installed. The proposed database-native Ed25519 RPC therefore has a hard dependency/preflight. Do not apply the migration until the extension can be installed and tested in an isolated database.
 - Live migration history includes entries through 2026-10-25, while the repository’s visible supabase/migrations directory ends at 2026-10-17. Reconcile repository/production migration-source drift before applying new production migrations.
-- Vercel project barron-dev is Next.js and has customer/developer/Kontrol domains configured. Project metadata reported live=false while a latest deployment record was READY; do not claim this feature is live or deployed. No Vercel write/deployment was performed.
+- Vercel project barron-dev is Next.js and has customer/developer/Kontrol domains configured. Project metadata reported live=false while a latest deployment record was READY; do not claim this feature is live or deployed. No deployment was promoted or sent to production. A preview deployment automatically queued for this feature branch was canceled before build to avoid an unapproved preview/build; the GitHub Vercel check on that head consequently reports failure due to cancellation, not a code-test result.
 
 ## Ordered implementation plan
 
