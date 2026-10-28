@@ -7,7 +7,7 @@ import pytest
 from cyclothone.ai.execution_gate import AgentEnvelope, AgentExecutionDenied
 
 def envelope():
-    return AgentEnvelope("env-1", uuid4(), uuid4(), "model-a", "provider-a", "kill_process", "kill_process", {"pid": 7}, "device-1", datetime.now(UTC), datetime.now(UTC) + timedelta(minutes=1), "kid", "sig", "1", "a" * 64, "mission-a", 1, "d" * 64)
+    return AgentEnvelope("env-1", uuid4(), uuid4(), "model-a", "provider-a", "kill_process", "kill_process", {"pid": 7}, "device-1", datetime.now(UTC), datetime.now(UTC) + timedelta(minutes=1), "kid", "sig", "1", "a" * 64, "mission-a", 1, "d" * 64, uuid4())
 
 def test_envelope_canonical_binds_security_context():
     env = envelope()
@@ -77,7 +77,7 @@ async def test_approval_required_validates_without_consuming_replay(monkeypatch)
     assert result["requires_approval"] is True
     assert replay.claims == 0
 
-    await gate.consume(envelope=env, tenant_id=env.tenant_id)
+    await gate.consume(envelope=env, tenant_id=env.tenant_id, run_id=env.run_id)
     assert replay.claims == 1
 
 
@@ -143,6 +143,7 @@ async def test_envelope_issuer_requires_authoritative_agent_and_provider_binding
 
     env = await AIEnvelopeIssuer(Provider(), AsyncMock(resolve=AsyncMock(return_value={"active": True}))).issue(
         EnvelopeIssueRequest(
+            run_id=uuid4(),
             tenant_id=tenant, agent_id=agent_id, model_id="model-a",
             provider_id="provider-a", tool_name="isolate_host",
             action="isolate_host", args={}, target="device-1", mission_id="mission-a", mission_version=1, mission_hash="d" * 64,
@@ -170,6 +171,7 @@ async def test_envelope_issuer_rejects_undeclared_tool(monkeypatch):
     with pytest.raises(Exception, match="tool is not declared by agent"):
         await AIEnvelopeIssuer(AsyncMock(), AsyncMock(resolve=AsyncMock(return_value={"active": True}))).issue(
             EnvelopeIssueRequest(
+                run_id=uuid4(),
                 tenant_id=tenant, agent_id=agent_id, model_id="model-a",
                 provider_id="provider-a", tool_name="isolate_host",
                 action="isolate_host", args={}, target="device-1", mission_id="mission-a", mission_version=1, mission_hash="d" * 64,
@@ -236,6 +238,7 @@ async def test_envelope_issuer_signs_only_bound_agent(monkeypatch):
             return {"active": True, "binding_hash": "a" * 64}
 
     envelope = await AIEnvelopeIssuer(Binding(), AsyncMock(resolve=AsyncMock(return_value={"active": True}))).issue(EnvelopeIssueRequest(
+        run_id=uuid4(),
         tenant_id=tenant_id, agent_id=agent_id, model_id="model-a",
         provider_id="provider-a", tool_name="kill_process", action="kill_process",
         args={"pid": 7}, target="device-1", mission_id="mission-a", mission_version=1, mission_hash="d" * 64,
