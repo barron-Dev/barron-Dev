@@ -46,6 +46,7 @@ class ModelBehaviorFingerprint:
     protocol: str
     suite_id: str
     suite_version: str
+    suite_sha256: str
     model_id: str
     model_version: str
     provider_id: str
@@ -60,6 +61,7 @@ class ModelBehaviorFingerprint:
             "protocol": self.protocol,
             "suite_id": self.suite_id,
             "suite_version": self.suite_version,
+            "suite_sha256": self.suite_sha256,
             "model_id": self.model_id,
             "model_version": self.model_version,
             "provider_id": self.provider_id,
@@ -80,6 +82,7 @@ def build_behavioral_fingerprint(
     *,
     suite_id: str,
     suite_version: str,
+    suite_sha256: str,
     model_id: str,
     model_version: str,
     provider_id: str,
@@ -98,6 +101,8 @@ def build_behavioral_fingerprint(
     }
     if any(not isinstance(v, str) or not v.strip() for v in required.values()):
         raise ValueError("fingerprint_identity_fields_required")
+    if not _SHA256.fullmatch(suite_sha256):
+        raise ValueError("suite_sha256_required")
     if not _SHA256.fullmatch(runtime_sha256) or not _SHA256.fullmatch(dependency_sha256):
         raise ValueError("runtime_and_dependency_sha256_required")
     if not case_inputs or set(case_inputs) != set(case_outputs):
@@ -113,6 +118,7 @@ def build_behavioral_fingerprint(
         protocol=_PROTOCOL,
         suite_id=suite_id,
         suite_version=suite_version,
+        suite_sha256=suite_sha256,
         model_id=model_id,
         model_version=model_version,
         provider_id=provider_id,
@@ -141,8 +147,8 @@ def compare_behavioral_fingerprints(
     if baseline.protocol != _PROTOCOL or current.protocol != _PROTOCOL:
         return DriftComparison("incomparable", ("unsupported_fingerprint_protocol",), (),
                                baseline.fingerprint_sha256, current.fingerprint_sha256)
-    if (baseline.suite_id, baseline.suite_version) != (current.suite_id, current.suite_version):
-        return DriftComparison("incomparable", ("fixed_suite_version_mismatch",), (),
+    if (baseline.suite_id, baseline.suite_version, baseline.suite_sha256) != (current.suite_id, current.suite_version, current.suite_sha256):
+        return DriftComparison("incomparable", ("fixed_suite_identity_mismatch",), (),
                                baseline.fingerprint_sha256, current.fingerprint_sha256)
     old = {case.case_id: case for case in baseline.cases}
     new = {case.case_id: case for case in current.cases}
@@ -178,6 +184,7 @@ class ProvenanceAttestation:
     fingerprint_sha256: str
     signer_key_id: str
     created_at: str
+    measured_at: str
     signature_hex: str
 
     def signed_body(self) -> dict[str, str]:
@@ -186,6 +193,7 @@ class ProvenanceAttestation:
             "fingerprint_sha256": self.fingerprint_sha256,
             "signer_key_id": self.signer_key_id,
             "created_at": self.created_at,
+            "measured_at": self.measured_at,
         }
 
 
@@ -205,6 +213,7 @@ def sign_provenance_attestation(
         "fingerprint_sha256": fingerprint.fingerprint_sha256,
         "signer_key_id": signer_key_id,
         "created_at": _timestamp(created_at),
+        "measured_at": fingerprint.measured_at,
     }
     signature = signing_key.sign(_ATTESTATION_DOMAIN + canonical_json(body).encode("utf-8")).hex()
     return ProvenanceAttestation(**body, signature_hex=signature)
@@ -221,6 +230,8 @@ def verify_provenance_attestation(
     if attestation.protocol != _ATTESTATION_PROTOCOL:
         return False
     if attestation.fingerprint_sha256 != fingerprint.fingerprint_sha256:
+        return False
+    if attestation.measured_at != fingerprint.measured_at:
         return False
     key = public_keys.get(attestation.signer_key_id)
     if key is None or not re.fullmatch(r"[0-9a-f]{128}", attestation.signature_hex):
