@@ -164,6 +164,11 @@ BEGIN
   IF p_occurred_at_canonical IS NULL OR p_occurred_at_canonical !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}[.][0-9]{6}Z$' THEN
     RAISE EXCEPTION 'invalid_ai_action_timestamp_format';
   END IF;
+    RAISE EXCEPTION 'invalid_ai_action_hash_or_signature_format';
+  END IF;
+  IF p_occurred_at_canonical IS NULL OR p_occurred_at_canonical !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}[.][0-9]{6}Z$' THEN
+    RAISE EXCEPTION 'invalid_ai_action_timestamp_format';
+  END IF;
 
   -- Hash the exact canonical UTF-8 bytes signed by the backend. The raw payload
   -- is deliberately not persisted in this ledger.
@@ -255,9 +260,4 @@ REVOKE ALL ON FUNCTION public.commit_ai_action_verification_event(uuid,uuid,uuid
   FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.commit_ai_action_verification_event(uuid,uuid,uuid,bigint,text,text,text,text,text,text,text,text,text,text)
   TO service_role;
-
-COMMENT ON TABLE public.ai_action_verification_events IS
-  'Append-only AI action receipt index. Stores hashes and signatures, not raw action payloads. Rows are inserted only by the database-verifying RPC.';
-COMMENT ON FUNCTION public.commit_ai_action_verification_event(uuid,uuid,uuid,bigint,text,text,text,text,text,text,text,text,text,text) IS
-  'Recomputes payload and event SHA-256, checks tenant/run/chain bindings, and verifies Ed25519 in PostgreSQL before persisting an action receipt.';
 
