@@ -53,9 +53,8 @@
 - Add local journal sync with idempotency, signed checkpoints, conflict handling, and rollback detection via an independent anchor.
 
 ### P3 — model integrity and defensive signals
-- Fixed-suite behavioral fingerprints tied to exact model/provider/runtime/dependency versions; report drift as measured comparison, not proof of malicious behavior.
-- Signed provenance attestations and revocation/expiry checks.
-- Defensive canary events isolated by tenant, with bounded telemetry and privacy controls.
+- The current branch now implements a fixed-suite fingerprint primitive over input/output hashes and model/provider/runtime/dependency bindings, plus Ed25519 provenance attestations. Drift is a measured difference, not proof of malicious behavior. Production model-runner wiring, key-registry/revocation integration, and baseline lifecycle remain outstanding.
+- Defensive canary events isolated by tenant, with bounded telemetry and privacy controls remain planned.
 
 ### P4 — developer/customer/internal surfaces
 - Connect developer API/MCP Trust Shield, typed SDK and partial_coverage ResultContract.
@@ -66,6 +65,7 @@
 
 - src/cyclothone/ai/action_verifier.py: local cryptographic envelope signing/verification and chain validation.
 - src/cyclothone/ai/result_contract.py: typed honest coverage states.
+- src/cyclothone/ai/behavioral_fingerprint.py: fixed-suite input/output hashes, provenance-bound fingerprint manifest, drift comparison, and Ed25519 attestation primitive.
 - tests/test_ai_action_verifier.py and tests/test_ai_result_contract.py: tamper, binding, chain, and coverage-negative tests.
 - supabase/migrations/20261028070000_ai_action_verifier.sql: proposed database enforcement using existing trust_signing_keys and ai_runs; it adds a narrow action-event index, not a replacement trust framework. Requires pgsodium, and must remain unapplied until isolated-database verification and migration-source reconciliation.
 - console/app/(dash)/convergence/ai/verification/page.tsx: real local WebCrypto self-test and tamper rejection. It is explicitly not connected to production key registry/backend yet.
@@ -81,7 +81,7 @@
 
 ## Validation performed for this branch (2026-10-28)
 
-- Targeted isolated-workspace Python tests: 15 passed, covering action signing/verification, payload/event tampering, key/signature failure, tenant/run binding, chain order, honest coverage states, and migration-source assertions.
+- Targeted isolated-workspace Python tests: 19 passed, covering action signing/verification, payload/event tampering, key/signature failure, tenant/run binding, chain order, honest coverage states, fixed-suite drift, provenance attestation, and migration-source assertions.
 - Python bytecode compilation completed successfully for the new Python source/tests.
 - The new verification page passed a focused TypeScript/JSX syntax/type pass using temporary React/JSX declarations; this is not a full Next.js build.
 - Not run: full repository test suite, full Next.js production build, SQL migration execution against PostgreSQL, or CI for this new branch.
