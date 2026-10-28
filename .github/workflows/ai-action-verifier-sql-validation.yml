@@ -27,6 +27,7 @@ jobs:
           --health-cmd "pg_isready -U postgres -d cyclothone_sql_test"
           --health-interval 5s
           --health-timeout 5s
+          --health-start-period 30s
           --health-retries 30
     env:
       PGHOST: localhost
