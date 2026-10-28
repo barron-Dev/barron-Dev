@@ -50,12 +50,12 @@ jobs:
           CREATE EXTENSION IF NOT EXISTS pgcrypto;
           CREATE EXTENSION IF NOT EXISTS pgsodium;
           SELECT to_regprocedure('pgsodium.crypto_sign_verify_detached(bytea,bytea,bytea)') IS NOT NULL AS ed25519_verify_available \gset
-          \if :{?ed25519_verify_available}
+          \if :ed25519_verify_available
+            \echo 'Ed25519 verification function present'
           \else
             \echo 'Ed25519 verification function missing from isolated database image'
             \quit 3
           \endif
-          SELECT CASE WHEN :ed25519_verify_available THEN 'Ed25519 verification function present' ELSE 'Ed25519 verification function missing' END;
           SQL
       - name: Create minimal real schema fixtures matching production dependencies
         run: |
