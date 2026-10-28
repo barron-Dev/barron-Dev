@@ -125,6 +125,8 @@ async def test_envelope_issuer_requires_authoritative_agent_and_provider_binding
     agent_id = uuid4()
 
     async def owned(*args, **kwargs):
+        if args and args[0] == "ai_runs":
+            return {"id": kwargs.get("id"), "tenant_id": str(tenant), "agent_id": str(agent_id)}
         return {
             "id": str(agent_id), "tenant_id": str(tenant), "model": "model-a",
             "declared_tools": ["isolate_host"], "status": "active",
@@ -165,6 +167,8 @@ async def test_envelope_issuer_rejects_undeclared_tool(monkeypatch):
     agent_id = uuid4()
 
     async def owned(*args, **kwargs):
+        if args and args[0] == "ai_runs":
+            return {"id": kwargs.get("id"), "tenant_id": str(tenant), "agent_id": str(agent_id)}
         return {"id": str(agent_id), "tenant_id": str(tenant), "model": "model-a",
                 "declared_tools": [], "status": "active"}
 
@@ -190,6 +194,8 @@ async def test_envelope_issuer_requires_persisted_provider_authority(monkeypatch
     agent_id = uuid4()
 
     async def select_one(table, columns, **filters):
+        if table == "ai_runs":
+            return {"id": filters.get("id"), "tenant_id": str(tenant_id), "agent_id": str(agent_id)}
         if table == "ai_agents":
             return {
                 "id": str(agent_id), "tenant_id": str(tenant_id), "model": "model-a",
