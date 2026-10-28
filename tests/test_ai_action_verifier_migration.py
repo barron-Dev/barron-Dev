@@ -7,6 +7,8 @@ def test_database_rpc_recomputes_hashes_and_verifies_ed25519():
     assert "public.ai_action_event_hash(" in migration
     assert "pgsodium.crypto_sign_verify_detached(" in migration
     assert "ai_action_payload_hash_mismatch" in migration
+    assert "public.ai_action_canonical_jsonb(v_payload)" in migration
+    assert "ai_action_payload_not_canonical" in migration
     assert "ai_action_event_hash_mismatch" in migration
     assert "ai_action_signature_invalid" in migration
     assert "p_verified boolean" not in migration.lower()
