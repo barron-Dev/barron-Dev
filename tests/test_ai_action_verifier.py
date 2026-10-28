@@ -117,6 +117,20 @@ def test_chain_checks_sequence_and_previous_hash():
     assert not gap.ok and gap.reason == "sequence_mismatch"
 
 
+def test_cross_runtime_canonical_profile_rejects_floats_and_non_string_keys():
+    private, _, tenant, run, agent = _context()
+    for payload in (
+        {"measurement": 1.25},
+        {"nested": [{"measurement": 1e-7}]},
+        {1: "non-string key"},
+    ):
+        try:
+            _sign(private, tenant, run, agent, payload=payload)
+            assert False, "unsupported canonical payload should be rejected"
+        except (TypeError, ValueError):
+            pass
+
+
 def test_naive_timestamp_and_non_json_payload_are_rejected():
     private, _, tenant, run, agent = _context()
     try:
