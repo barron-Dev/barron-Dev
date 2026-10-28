@@ -444,3 +444,29 @@ async def test_approval_dispatch_revalidates_and_consumes_same_run_binding(monke
     gate.consume.assert_awaited_once()
     assert gate.consume.await_args.kwargs["run_id"] == run_id
     dispatcher.issue.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_envelope_issuer_rejects_run_bound_to_different_agent(monkeypatch):
+    from cyclothone.ai.envelope_issuer import AIEnvelopeIssuer, EnvelopeIssueRequest, EnvelopeIssuanceDenied
+
+    tenant_id, agent_id = uuid4(), uuid4()
+
+    async def select_one(table, columns, **filters):
+        if table == "ai_runs":
+            return {"id": filters.get("id"), "tenant_id": str(tenant_id), "agent_id": str(uuid4())}
+        raise AssertionError("agent authority must not be consulted after run/agent mismatch")
+
+    monkeypatch.setattr("cyclothone.ai.envelope_issuer.supabase.select_one", select_one)
+    issuer = AIEnvelopeIssuer(
+        AsyncMock(resolve=AsyncMock(return_value={"active": True, "binding_hash": "a" * 64})),
+        AsyncMock(resolve=AsyncMock(return_value={"active": True})),
+    )
+    with pytest.raises(EnvelopeIssuanceDenied, match="AI run/agent binding mismatch"):
+        await issuer.issue(EnvelopeIssueRequest(
+            run_id=uuid4(), tenant_id=tenant_id, agent_id=agent_id,
+            model_id="model-a", provider_id="provider-a",
+            tool_name="kill_process", action="kill_process",
+            args={"pid": 7}, target="device-1", mission_id="mission-a",
+            mission_version=1, mission_hash="d" * 64,
+        ))
