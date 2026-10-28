@@ -38,6 +38,7 @@ class EnvelopeIssueRequest:
     mission_id: str | None = None
     mission_version: int | None = None
     mission_hash: str | None = None
+    run_id: UUID | None = None
 
 
 def _canonical_hash(envelope: AgentEnvelope) -> str:
@@ -60,6 +61,8 @@ class AIEnvelopeIssuer:
         self.mission_authority = mission_authority
 
     async def issue(self, request: EnvelopeIssueRequest) -> AgentEnvelope:
+        if request.run_id is None:
+            raise EnvelopeIssuanceDenied("authoritative AI run id is required")
         if request.version != "1":
             raise EnvelopeIssuanceDenied("unsupported envelope version")
         if not 1 <= request.ttl_seconds <= 900:
@@ -127,6 +130,7 @@ class AIEnvelopeIssuer:
             mission_id=request.mission_id,
             mission_version=request.mission_version,
             mission_hash=request.mission_hash,
+            run_id=request.run_id,
         )
         if (
             len(envelope.binding_hash) != 64
@@ -155,4 +159,5 @@ class AIEnvelopeIssuer:
             mission_id=envelope.mission_id,
             mission_version=envelope.mission_version,
             mission_hash=envelope.mission_hash,
+            run_id=envelope.run_id,
         )
