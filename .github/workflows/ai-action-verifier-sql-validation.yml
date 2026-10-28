@@ -20,11 +20,12 @@ jobs:
         env:
           POSTGRES_PASSWORD: test-only-password
           POSTGRES_DB: cyclothone_sql_test
-          POSTGRES_USER: postgres
+          POSTGRES_USER: supabase_admin
+          POSTGRES_INITDB_ARGS: --username=supabase_admin
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U postgres -d cyclothone_sql_test"
+          --health-cmd "pg_isready -U supabase_admin -d cyclothone_sql_test"
           --health-interval 5s
           --health-timeout 5s
           --health-start-period 30s
@@ -32,7 +33,7 @@ jobs:
     env:
       PGHOST: localhost
       PGPORT: 5432
-      PGUSER: postgres
+      PGUSER: supabase_admin
       PGPASSWORD: test-only-password
       PGDATABASE: cyclothone_sql_test
     steps:
