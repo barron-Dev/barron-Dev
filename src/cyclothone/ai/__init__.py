@@ -1,3 +1,12 @@
+from cyclothone.ai.behavioral_fingerprint import (
+    DriftComparison,
+    ModelBehaviorFingerprint,
+    ProvenanceAttestation,
+    build_behavioral_fingerprint,
+    compare_behavioral_fingerprints,
+    sign_provenance_attestation,
+    verify_provenance_attestation,
+)
 from cyclothone.ai.action_verifier import (
     ActionChainVerificationResult,
     ActionEnvelope,
@@ -13,6 +22,13 @@ from cyclothone.ai.tool_policy import ToolPolicyEngine
 from cyclothone.ai.trust_graph import AgentTrustGraph
 
 __all__ = [
+    "DriftComparison",
+    "ModelBehaviorFingerprint",
+    "ProvenanceAttestation",
+    "build_behavioral_fingerprint",
+    "compare_behavioral_fingerprints",
+    "sign_provenance_attestation",
+    "verify_provenance_attestation",
     "ActionChainVerificationResult",
     "ActionEnvelope",
     "ActionVerificationResult",
