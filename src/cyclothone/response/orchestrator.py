@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from decimal import Decimal
 from enum import StrEnum
@@ -166,7 +166,7 @@ class ResponseOrchestrator:
                         raise RuntimeError("authoritative AI envelope issuer and execution gate are required for destructive response actions")
                     if step.envelope_request is None:
                         raise RuntimeError("destructive response requires an envelope issuance request")
-                    request = step.envelope_request
+                    request = replace(step.envelope_request, run_id=step.run_id)
                     if request.tenant_id != tenant_id or request.action != step.action or request.args != step.args:
                         raise RuntimeError("envelope issuance request does not match response plan")
                     if step.model_id and request.model_id != step.model_id:
@@ -191,6 +191,7 @@ class ResponseOrchestrator:
                         expected_mission_id=request.mission_id,
                         expected_mission_version=request.mission_version,
                         expected_mission_hash=request.mission_hash,
+                        expected_run_id=step.run_id,
                         twin=DigitalTwinService(tenant_id),
                     )
                     step = ActionPlan(
@@ -219,6 +220,7 @@ class ResponseOrchestrator:
                         await self.execution_gate.consume(
                             envelope=step_envelope,
                             tenant_id=tenant_id,
+                            run_id=step.run_id,
                         )
 
                 if blast_rule_id and device_id and not await self.store.blast_allowed(blast_rule_id, blast_limit, tenant_id=tenant_id, device_id=device_id):
