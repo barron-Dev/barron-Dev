@@ -347,3 +347,38 @@ def test_mission_binding_changes_envelope_canonical_digest():
         "mission-b", 1, "d" * 64,
     )
     assert a != AgentExecutionGate._envelope_hash(changed)
+
+
+@pytest.mark.asyncio
+async def test_run_binding_mismatch_fails_before_replay_claim():
+    from cyclothone.ai.execution_gate import AgentExecutionGate
+
+    class Replay:
+        async def claim(self, **kwargs):
+            raise AssertionError("replay store must not be reached for a mismatched run")
+
+    env = envelope()
+    gate = AgentExecutionGate(Replay())
+    with pytest.raises(AgentExecutionDenied, match="envelope run binding mismatch"):
+        await gate.consume(envelope=env, tenant_id=env.tenant_id, run_id=uuid4())
+
+
+@pytest.mark.asyncio
+async def test_supabase_replay_claim_includes_authoritative_run_id(monkeypatch):
+    from cyclothone.ai.execution_gate import SupabaseReplayStore
+
+    tenant_id, run_id = uuid4(), uuid4()
+    rpc = AsyncMock(return_value=True)
+    monkeypatch.setattr("cyclothone.ai.execution_gate.supabase.rpc", rpc)
+    store = SupabaseReplayStore()
+    assert await store.claim(
+        tenant_id=tenant_id,
+        run_id=run_id,
+        envelope_id="env-run-bound",
+        expires_at=datetime.now(UTC) + timedelta(minutes=1),
+        envelope_hash="a" * 64,
+    )
+    rpc.assert_awaited_once()
+    assert rpc.await_args.args[0] == "claim_ai_execution_envelope"
+    assert rpc.await_args.args[1]["p_tenant_id"] == str(tenant_id)
+    assert rpc.await_args.args[1]["p_run_id"] == str(run_id)
