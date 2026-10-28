@@ -217,6 +217,14 @@ BEGIN
     RETURN v_result || ']';
   ELSIF v_kind = 'string' THEN
     RETURN to_json(p_value #>> '{}')::text;
+  ELSIF v_kind = 'number' THEN
+    -- Shared profile permits safe integers only. Reject fractional values and
+    -- integers JavaScript cannot represent exactly.
+    IF (p_value #>> '{}')::numeric <> trunc((p_value #>> '{}')::numeric)
+       OR abs((p_value #>> '{}')::numeric) > 9007199254740991 THEN
+      RAISE EXCEPTION 'ai_action_number_outside_canonical_profile';
+    END IF;
+    RETURN p_value::text;
   ELSE
     RETURN p_value::text;
   END IF;
