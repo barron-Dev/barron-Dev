@@ -81,7 +81,7 @@
 
 ## Validation performed for this branch (2026-10-28)
 
-- Targeted isolated-workspace Python tests: 19 passed, covering action signing/verification, payload/event tampering, key/signature failure, tenant/run binding, chain order, honest coverage states, fixed-suite drift, provenance attestation, and migration-source assertions.
+- Targeted isolated-workspace Python tests: 20 passed, covering action signing/verification, payload/event tampering, key/signature failure, tenant/run binding, chain order, honest coverage states, fixed-suite drift, provenance attestation, and migration-source assertions.
 - Python bytecode compilation completed successfully for the new Python source/tests.
 - The new verification page passed a focused TypeScript/JSX syntax/type pass using temporary React/JSX declarations; this is not a full Next.js build.
 - Not run: full repository test suite, full Next.js production build, SQL migration execution against PostgreSQL, or CI for this new branch.
