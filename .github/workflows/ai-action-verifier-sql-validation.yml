@@ -81,7 +81,7 @@ jobs:
             tenant_id uuid REFERENCES public.tenants(id),
             key_id text NOT NULL,
             algorithm text NOT NULL CHECK (algorithm = 'ED25519'),
-            purpose text NOT NULL CHECK (purpose IN ('TRUST_PROOF','TRUST_CERTIFICATE','TRUST_EVIDENCE','TRUST_ATTESTATION')),
+            purpose text NOT NULL,
             public_key text NOT NULL,
             status text NOT NULL CHECK (status IN ('ACTIVE','RETIRED','REVOKED')),
             not_before timestamptz NOT NULL DEFAULT now(),
