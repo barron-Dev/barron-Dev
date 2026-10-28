@@ -11,7 +11,8 @@ class AgentTrustGraph:
     async def record_call(self,tenant_id:UUID,source_agent:UUID,target_agent:UUID)->dict:
         if source_agent==target_agent: raise ValueError("source and target agents must differ")
         agents=await self._owned_agents(tenant_id,source_agent,target_agent)
-        if len(agents)!=2: raise PermissionError("agent pair is not owned by tenant")
+        if len(agents)!=2 or any(str(agent.get("status") or "").lower() != "active" for agent in agents):
+            raise PermissionError("both agents must be active and owned by tenant")
         now=datetime.now(UTC); now_s=now.isoformat()
         async def load():
             client=await supabase._ensure()
