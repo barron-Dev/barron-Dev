@@ -114,6 +114,55 @@ CREATE TRIGGER ai_action_events_no_update_or_delete
 BEFORE UPDATE OR DELETE ON public.ai_action_verification_events
 FOR EACH ROW EXECUTE FUNCTION public.reject_ai_action_event_mutation();
 
+-- Match the Python canonical JSON profile before hashing/signing. Objects are
+-- sorted by key; arrays retain ordinal order; strings use PostgreSQL JSON escaping.
+CREATE OR REPLACE FUNCTION public.ai_action_canonical_jsonb(p_value jsonb)
+RETURNS text
+LANGUAGE plpgsql
+IMMUTABLE
+SET search_path TO 'pg_catalog'
+AS $function$
+DECLARE
+  v_kind text;
+  v_key text;
+  v_value jsonb;
+  v_item jsonb;
+  v_index bigint;
+  v_result text;
+  v_first boolean;
+BEGIN
+  v_kind := jsonb_typeof(p_value);
+  IF v_kind = 'object' THEN
+    v_result := '{';
+    v_first := true;
+    FOR v_key, v_value IN
+      SELECT key, value FROM jsonb_each(p_value) ORDER BY key COLLATE "C"
+    LOOP
+      IF NOT v_first THEN v_result := v_result || ','; END IF;
+      v_result := v_result || to_json(v_key)::text || ':' ||
+        public.ai_action_canonical_jsonb(v_value);
+      v_first := false;
+    END LOOP;
+    RETURN v_result || '}';
+  ELSIF v_kind = 'array' THEN
+    v_result := '[';
+    v_first := true;
+    FOR v_item, v_index IN
+      SELECT value, ordinality FROM jsonb_array_elements(p_value) WITH ORDINALITY
+    LOOP
+      IF NOT v_first THEN v_result := v_result || ','; END IF;
+      v_result := v_result || public.ai_action_canonical_jsonb(v_item);
+      v_first := false;
+    END LOOP;
+    RETURN v_result || ']';
+  ELSIF v_kind = 'string' THEN
+    RETURN to_json(p_value #>> '{}')::text;
+  ELSE
+    RETURN p_value::text;
+  END IF;
+END
+$function$;
+
 CREATE OR REPLACE FUNCTION public.commit_ai_action_verification_event(
   p_tenant_id uuid,
   p_run_id uuid,
@@ -170,6 +219,9 @@ BEGIN
   v_payload := p_payload_canonical::jsonb;
   IF jsonb_typeof(v_payload) <> 'object' THEN
     RAISE EXCEPTION 'ai_action_payload_must_be_json_object';
+  END IF;
+  IF public.ai_action_canonical_jsonb(v_payload) IS DISTINCT FROM p_payload_canonical THEN
+    RAISE EXCEPTION 'ai_action_payload_not_canonical';
   END IF;
   v_payload_hash := encode(
     extensions.digest(convert_to(p_payload_canonical, 'UTF8'), 'sha256'), 'hex'
