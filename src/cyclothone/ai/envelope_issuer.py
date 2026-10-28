@@ -85,6 +85,19 @@ class AIEnvelopeIssuer:
         if not mission or mission.get("active") is not True:
             raise EnvelopeIssuanceDenied("mission is not active")
 
+        # The run identity is resolved from the persisted run record, not trusted
+        # merely because a caller placed a UUID in an ActionPlan or request.
+        run = await supabase.select_one(
+            "ai_runs",
+            "id,tenant_id,agent_id",
+            id=str(request.run_id),
+            tenant_id=str(request.tenant_id),
+        )
+        if not run:
+            raise EnvelopeIssuanceDenied("canonical AI run does not belong to tenant")
+        if str(run.get("agent_id") or "") != str(request.agent_id):
+            raise EnvelopeIssuanceDenied("AI run/agent binding mismatch")
+
         agent = await supabase.select_one(
             "ai_agents",
             "id,tenant_id,model,declared_tools,status",
