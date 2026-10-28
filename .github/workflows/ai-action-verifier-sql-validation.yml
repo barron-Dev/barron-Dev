@@ -1,0 +1,126 @@
+name: AI Action Verifier isolated SQL validation
+
+on:
+  pull_request:
+    paths:
+      - "supabase/migrations/20261028070000_ai_action_verifier.sql"
+      - ".github/workflows/ai-action-verifier-sql-validation.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  migration-and-db-primitives:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: supabase/postgres:17.6.1.136
+        env:
+          POSTGRES_PASSWORD: test-only-password
+          POSTGRES_DB: cyclothone_sql_test
+          POSTGRES_USER: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d cyclothone_sql_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 30
+    env:
+      PGHOST: localhost
+      PGPORT: 5432
+      PGUSER: postgres
+      PGPASSWORD: test-only-password
+      PGDATABASE: cyclothone_sql_test
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PostgreSQL client and Python crypto dependency
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+          python -m pip install --disable-pip-version-check cryptography
+      - name: Confirm isolated database version and real Ed25519 primitive
+        run: |
+          psql -v ON_ERROR_STOP=1 <<'SQL'
+          SELECT version();
+          CREATE EXTENSION IF NOT EXISTS pgcrypto;
+          CREATE EXTENSION IF NOT EXISTS pgsodium;
+          SELECT to_regprocedure('pgsodium.crypto_sign_verify_detached(bytea,bytea,bytea)') IS NOT NULL AS ed25519_verify_available \gset
+          \if :{?ed25519_verify_available}
+          \else
+            \echo 'Ed25519 verification function missing from isolated database image'
+            \quit 3
+          \endif
+          SELECT CASE WHEN :ed25519_verify_available THEN 'Ed25519 verification function present' ELSE 'Ed25519 verification function missing' END;
+          SQL
+      - name: Create minimal real schema fixtures matching production dependencies
+        run: |
+          psql -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE ROLE anon NOLOGIN;
+          CREATE ROLE authenticated NOLOGIN;
+          CREATE ROLE service_role NOLOGIN;
+          CREATE SCHEMA auth;
+          CREATE FUNCTION auth.jwt() RETURNS jsonb LANGUAGE sql STABLE AS
+            $$ SELECT coalesce(nullif(current_setting('request.jwt.claims', true), ''), '{}')::jsonb $$;
+          CREATE TABLE public.tenants (id uuid PRIMARY KEY DEFAULT gen_random_uuid());
+          CREATE TABLE public.ai_runs (
+            id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+            tenant_id uuid NOT NULL REFERENCES public.tenants(id),
+            agent_id uuid NOT NULL
+          );
+          CREATE TABLE public.trust_signing_keys (
+            id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+            tenant_id uuid REFERENCES public.tenants(id),
+            key_id text NOT NULL,
+            algorithm text NOT NULL CHECK (algorithm = 'ED25519'),
+            purpose text NOT NULL CHECK (purpose IN ('TRUST_PROOF','TRUST_CERTIFICATE','TRUST_EVIDENCE','TRUST_ATTESTATION')),
+            public_key text NOT NULL,
+            status text NOT NULL CHECK (status IN ('ACTIVE','RETIRED','REVOKED')),
+            not_before timestamptz NOT NULL DEFAULT now(),
+            not_after timestamptz,
+            created_at timestamptz NOT NULL DEFAULT now(),
+            retired_at timestamptz,
+            revoked_at timestamptz,
+            CONSTRAINT trust_signing_keys_domain_check CHECK (
+              algorithm = 'ED25519' AND purpose IN ('TRUST_ATTESTATION','TRUST_PROOF','TRUST_CERTIFICATE')
+            ),
+            CONSTRAINT trust_signing_keys_purpose_check CHECK (
+              purpose IN ('TRUST_PROOF','TRUST_CERTIFICATE','TRUST_EVIDENCE','TRUST_ATTESTATION')
+            )
+          );
+          GRANT USAGE ON SCHEMA public TO service_role;
+          GRANT USAGE ON SCHEMA auth TO service_role;
+          GRANT EXECUTE ON FUNCTION auth.jwt() TO service_role;
+          SQL
+      - name: Execute proposed migration against isolated PostgreSQL
+        run: psql -v ON_ERROR_STOP=1 -f supabase/migrations/20261028070000_ai_action_verifier.sql
+      - name: Verify created objects, ACLs, append-only trigger, and real Ed25519 verify
+        run: |
+          psql -v ON_ERROR_STOP=1 <<'SQL'
+          DO $$
+          BEGIN
+            IF to_regclass('public.ai_action_verification_events') IS NULL THEN
+              RAISE EXCEPTION 'receipt table missing';
+            END IF;
+            IF to_regprocedure('public.commit_ai_action_verification_event(uuid,uuid,uuid,bigint,text,text,text,text,text,text,text,text,text,text)') IS NULL THEN
+              RAISE EXCEPTION 'commit RPC missing';
+            END IF;
+            IF to_regprocedure('pgsodium.crypto_sign_verify_detached(bytea,bytea,bytea)') IS NULL THEN
+              RAISE EXCEPTION 'real Ed25519 verifier missing';
+            END IF;
+            IF NOT EXISTS (
+              SELECT 1 FROM pg_trigger
+              WHERE tgrelid = 'public.ai_action_verification_events'::regclass
+                AND tgname = 'ai_action_events_no_update_or_delete'
+                AND NOT tgisinternal
+            ) THEN
+              RAISE EXCEPTION 'append-only trigger missing';
+            END IF;
+            IF has_table_privilege('authenticated', 'public.ai_action_verification_events', 'SELECT') THEN
+              RAISE EXCEPTION 'authenticated role unexpectedly has table SELECT';
+            END IF;
+          END $$;
+          SELECT 'isolated migration smoke checks passed' AS result;
+          SQL
