@@ -228,6 +228,8 @@ async def test_envelope_issuer_signs_only_bound_agent(monkeypatch):
     agent_id = uuid4()
 
     async def select_one(table, columns, **filters):
+        if table == "ai_runs":
+            return {"id": filters.get("id"), "tenant_id": str(tenant_id), "agent_id": str(agent_id)}
         if table == "ai_agents":
             return {
                 "id": str(agent_id), "tenant_id": str(tenant_id), "model": "model-a",
