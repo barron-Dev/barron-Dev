@@ -6,7 +6,7 @@
 
 1. Cryptographic AI Action Verifier: Ed25519 signatures, canonical payloads, SHA-256 payload commitments, hash-linked action receipts, and actual verification.
 2. Database enforcement that recomputes payload and event hashes and verifies Ed25519; never trust API-supplied verified booleans.
-3. Connected Next.js/React investor demonstration with real signing, verification, and tamper rejection; no success state before checks run.
+3. Connected Next.js/React production verification surface backed by the authenticated API, registered signing key, and durable database receipt; not implemented end to end yet.
 4. AI execution authorization/policy boundary: AI intent cannot authorize itself; bind tenant, actor/agent, run, model/provider, mission, tool, key, expiry, and replay state.
 5. Capability-restricted WASM sandbox with resource limits and no ambient filesystem/network/secret access by default.
 6. Behavioral model fingerprinting, fixed-suite drift checks, and provenance attestations bound to model/runtime/dependency versions.
@@ -37,7 +37,7 @@
 - Recompute payload SHA-256 and a domain-separated, length-framed event hash.
 - Verify Ed25519 against a key registry; bind tenant, run, sequence, previous hash, and signer key ID.
 - Add a typed result contract that refuses complete when any requested source is incomplete.
-- Add a real browser-local WebCrypto investor demo. It uses an ephemeral key and generated fixture, is explicitly local-only, and does not impersonate production trust.
+- Do not present a browser-local cryptographic exercise as an investor demonstration. The route now displays a truthful BLOCKED state until the real API, production key registry, database verification, and durable receipt read-back are connected.
 - Add a proposed database RPC/migration that recomputes hashes, checks the active tenant-scoped key, verifies Ed25519 in PostgreSQL, and inserts only after all checks. This migration is not applied.
 
 ### P1 — secure runtime/database wiring
@@ -63,26 +63,26 @@
 
 ## Current code slice and boundaries
 
-- src/cyclothone/ai/action_verifier.py: local cryptographic envelope signing/verification and chain validation.
+- src/cyclothone/ai/action_verifier.py: cryptographic envelope signing/verification and chain-validation primitives only; these do not establish live service integration.
 - src/cyclothone/ai/result_contract.py: typed honest coverage states.
 - src/cyclothone/ai/behavioral_fingerprint.py: fixed-suite input/output hashes, provenance-bound fingerprint manifest, drift comparison, and Ed25519 attestation primitive.
 - tests/test_ai_action_verifier.py and tests/test_ai_result_contract.py: tamper, binding, chain, and coverage-negative tests.
 - supabase/migrations/20261028070000_ai_action_verifier.sql: proposed database enforcement using existing trust_signing_keys and ai_runs; it adds a narrow action-event index, not a replacement trust framework. Requires pgsodium, and must remain unapplied until isolated-database verification and migration-source reconciliation.
-- console/app/(dash)/convergence/ai/verification/page.tsx: real local WebCrypto self-test and tamper rejection. It is explicitly not connected to production key registry/backend yet.
+- console/app/(dash)/convergence/ai/verification/page.tsx: truthful production-blocked status only. The former browser-local ephemeral-key/synthetic-payload self-test was removed; this page does not claim to verify a production action.
 
 ## Proof and release gates
 
 - Fresh Python tests and TypeScript/Next.js build on the new branch.
 - SQL migration applied only in an isolated DB; positive and negative tests prove DB recomputes payload hash, event hash, active key binding, Ed25519 signature, tenant/run binding, and chain predecessor.
 - Wrong key, revoked/expired key, altered payload, altered event metadata, signature mutation, duplicate event/sequence, cross-tenant run, replay, and chain truncation all reject.
-- The browser demo starts neutral, only shows success after actual Web Crypto checks, and demonstrates rejection after tampering.
+- The production verification page must remain BLOCKED until an authenticated end-to-end test proves real API signing/verification, live database enforcement, replay/tenant/run checks, and durable receipt read-back.
 - Production acceptance requires authenticated API wiring, database read-back, key rotation/revocation tests, RLS/grant checks, and fresh CI. No production-complete claim before those gates pass.
 
 
 ## Validation performed for this branch (2026-10-28)
 
-- Targeted isolated-workspace Python tests: 20 passed, covering action signing/verification, payload/event tampering, key/signature failure, tenant/run binding, chain order, honest coverage states, fixed-suite drift, provenance attestation, and migration-source assertions.
+- GitHub Actions run 3597 for commit 838f353ee74625e7897ea3ef6a840942a9795af3 was still running at the last check. Earlier passing unit tests and migration-source assertions do not establish live database crypto or end-to-end integration. Some execution-gate tests use AsyncMock/monkeypatch and must not be treated as real integration proof.
 - Python bytecode compilation completed successfully for the new Python source/tests.
-- The new verification page passed a focused TypeScript/JSX syntax/type pass using temporary React/JSX declarations; this is not a full Next.js build.
-- Not run: full repository test suite, full Next.js production build, SQL migration execution against PostgreSQL, or CI for this new branch.
+- The verification page change has not yet been confirmed by the latest full Next.js build.
+- Not yet proven: live database Ed25519 verification, production key registration, authenticated end-to-end run/action/receipt flow, full repository integration coverage, or production deployment.
 - The existing PR #93 head separately has a successful CI run (run 3529 on commit 4a079206c5350d97c36af90cce4a9c7eb9c58ae0). That result does not validate this new branch.
