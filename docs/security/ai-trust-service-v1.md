@@ -61,6 +61,14 @@
 - Connect customer evidence/decision history and internal Kontrol review/approval surfaces.
 - Measure the five-minute integration claim with a clean-room developer test; do not publish it as an achieved SLA before measurement.
 
+## Bulk implementation block — durable action receipts
+
+- Added `src/cyclothone/ai/action_receipt_service.py`. It requires a backend-held Ed25519 private key from `CYCLOTHONE_AI_ACTION_SIGNING_PRIVATE_KEY_PEM` and key ID from `CYCLOTHONE_AI_ACTION_SIGNING_KID`; it does not generate ephemeral keys or store private key material in the database.
+- Before signing, the service checks the persisted tenant/run/agent binding and confirms that the registered tenant-scoped `AI_ACTION` public key matches the externally supplied private key. It signs the next hash-chain event, calls `commit_ai_action_verification_event`, then verifies the returned event and performs a field-by-field durable database read-back.
+- Connected `ResponseOrchestrator` direct dispatch and approved dispatch paths to record a signed `dispatch_authorized` receipt before calling the dispatcher. Missing receipt service, missing external key, absent/incorrect registered public key, RPC rejection, or read-back mismatch blocks dispatch. The service is injected through the orchestrator constructor; production wiring must explicitly inject it after the migration is validated and the key is provisioned.
+- Added tests for missing/malformed external key configuration. These are fail-closed unit tests, not database integration proof.
+- **Not yet verified:** live RPC availability, actual PostgreSQL Ed25519 function support, migration execution, active key registration, a real authenticated execution-to-receipt E2E, and production wiring/key provisioning. The migration remains unapplied. Do not treat branch code or a passing unit test as production readiness.
+
 ## Current code slice and boundaries
 
 - src/cyclothone/ai/action_verifier.py: cryptographic envelope signing/verification and chain-validation primitives only; these do not establish live service integration.
