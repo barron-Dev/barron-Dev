@@ -14,10 +14,11 @@ RUNTIME = "a" * 64
 DEPENDENCIES = "b" * 64
 
 
-def _build(outputs=None, suite_version="v1", model_version="2026.10"):
+def _build(outputs=None, suite_version="v1", suite_sha256="c" * 64, model_version="2026.10"):
     return build_behavioral_fingerprint(
         suite_id="safety-regression-suite",
         suite_version=suite_version,
+        suite_sha256=suite_sha256,
         model_id="model-x",
         model_version=model_version,
         provider_id="provider-x",
@@ -50,7 +51,13 @@ def test_changed_output_is_reported_as_drift_not_compromise():
 def test_different_suite_version_is_incomparable():
     comparison = compare_behavioral_fingerprints(_build(), _build(suite_version="v2"))
     assert comparison.status == "incomparable"
-    assert comparison.reasons == ("fixed_suite_version_mismatch",)
+    assert comparison.reasons == ("fixed_suite_identity_mismatch",)
+
+
+def test_suite_source_hash_mismatch_is_incomparable():
+    comparison = compare_behavioral_fingerprints(_build(), _build(suite_sha256="d" * 64))
+    assert comparison.status == "incomparable"
+    assert comparison.reasons == ("fixed_suite_identity_mismatch",)
 
 
 def test_provenance_attestation_verifies_and_rejects_tampering():
@@ -63,6 +70,9 @@ def test_provenance_attestation_verifies_and_rejects_tampering():
     assert verify_provenance_attestation(fingerprint, attestation, public_keys=keys)
     assert not verify_provenance_attestation(
         fingerprint, replace(attestation, fingerprint_sha256="0" * 64), public_keys=keys,
+    )
+    assert not verify_provenance_attestation(
+        fingerprint, replace(attestation, measured_at="2026-10-29T00:00:00.000000Z"), public_keys=keys,
     )
     changed_fingerprint = replace(fingerprint, model_version="different-version")
     assert not verify_provenance_attestation(changed_fingerprint, attestation, public_keys=keys)
