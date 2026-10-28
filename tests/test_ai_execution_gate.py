@@ -383,3 +383,56 @@ async def test_supabase_replay_claim_includes_authoritative_run_id(monkeypatch):
     assert rpc.await_args.args[0] == "claim_ai_execution_envelope"
     assert rpc.await_args.args[1]["p_tenant_id"] == str(tenant_id)
     assert rpc.await_args.args[1]["p_run_id"] == str(run_id)
+
+
+@pytest.mark.asyncio
+async def test_approval_dispatch_revalidates_and_consumes_same_run_binding(monkeypatch):
+    from cyclothone.ai.execution_gate import AgentEnvelope
+    from cyclothone.response.orchestrator import ResponseOrchestrator
+
+    tenant_id, agent_id, run_id, case_action_id, device_id = (
+        uuid4(), uuid4(), uuid4(), uuid4(), uuid4()
+    )
+    env = AgentEnvelope(
+        "env-approved", tenant_id, agent_id, "model-a", "provider-a",
+        "kill_process", "kill_process", {"pid": 7}, "device-1",
+        datetime.now(UTC), datetime.now(UTC) + timedelta(minutes=2),
+        "kid", "signed", "1", "a" * 64, "mission-a", 1, "d" * 64, run_id,
+    )
+    row = {
+        "status": "pending_approval",
+        "tenant_id": str(tenant_id),
+        "ai_run_id": str(run_id),
+        "case_id": str(uuid4()),
+        "device_id": str(device_id),
+        "action": "kill_process",
+        "args": {"pid": 7},
+        "target": "device-1",
+        "model_id": "model-a",
+        "provider_id": "provider-a",
+        "agent_envelope": env.to_record(),
+    }
+    store = AsyncMock()
+    store.get = AsyncMock(return_value=row)
+    store.update = AsyncMock()
+    gate = AsyncMock()
+    dispatcher = AsyncMock()
+    dispatcher.issue = AsyncMock(return_value={"id": "cmd-approved"})
+    authorizer = AsyncMock(return_value={"allowed": True, "committed": True})
+    monkeypatch.setattr(
+        "cyclothone.response.orchestrator.create_response_execution_approval",
+        AsyncMock(return_value={"approval_id": "approval-1"}),
+    )
+    orchestrator = ResponseOrchestrator(
+        dispatcher, store, execution_gate=gate,
+        execution_authorizer=authorizer,
+    )
+
+    result = await orchestrator.approve(case_action_id, uuid4())
+
+    assert result["command_id"] == "cmd-approved"
+    gate.validate.assert_awaited_once()
+    assert gate.validate.await_args.kwargs["expected_run_id"] == run_id
+    gate.consume.assert_awaited_once()
+    assert gate.consume.await_args.kwargs["run_id"] == run_id
+    dispatcher.issue.assert_awaited_once()
