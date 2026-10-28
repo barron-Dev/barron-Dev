@@ -88,10 +88,13 @@
 - Production acceptance requires authenticated API wiring, database read-back, key rotation/revocation tests, RLS/grant checks, and fresh CI. No production-complete claim before those gates pass.
 
 
-## Validation performed for this branch (2026-10-28)
+## Validation performed for this branch (2026-10-28, latest checkpoint)
 
-- GitHub Actions run 3597 for commit 838f353ee74625e7897ea3ef6a840942a9795af3 was still running at the last check. Earlier passing unit tests and migration-source assertions do not establish live database crypto or end-to-end integration. Some execution-gate tests use AsyncMock/monkeypatch and must not be treated as real integration proof.
-- Python bytecode compilation completed successfully for the new Python source/tests.
-- The verification page change has not yet been confirmed by the latest full Next.js build.
-- Not yet proven: live database Ed25519 verification, production key registration, authenticated end-to-end run/action/receipt flow, full repository integration coverage, or production deployment.
-- The existing PR #93 head separately has a successful CI run (run 3529 on commit 4a079206c5350d97c36af90cce4a9c7eb9c58ae0). That result does not validate this new branch.
+- GitHub Actions run **3624** for commit `d89c002ed8bc2b51843b1c06906c1176a5527ed9` completed successfully.
+- Python test suite: **424 passed, 2 warnings**. This is automated repository test evidence, not live database integration.
+- Console build: passed.
+- Production image build: passed.
+- Vercel check for this branch commit: success; this is not evidence that the PR was merged or that production backend services were deployed.
+- Live Supabase read-only preflight: PostgreSQL 17.6; `pgsodium` is available but not installed, `pgsodium.crypto_sign_verify_detached` is absent, and `ai_action_verification_events` plus `commit_ai_action_verification_event` are absent. The production `trust_signing_keys` registry currently has no active AI_ACTION key.
+- The migration remains unapplied. No production key was provisioned, no merge or deployment was performed, and no authenticated end-to-end receipt test has been completed.
+- **Release decision remains BLOCKED** until an isolated PostgreSQL run validates extension/function compatibility, canonical JSON/hash parity, valid/invalid Ed25519 signatures, tenant/run/agent enforcement, concurrent chain sequencing, append-only controls, and durable receipt read-back; then perform authenticated E2E and obtain explicit production-change approval.
