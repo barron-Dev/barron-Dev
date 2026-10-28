@@ -130,7 +130,7 @@ jobs:
           END $$;
           SELECT 'isolated migration smoke checks passed' AS result;
           SQL
-- name: Exercise real signed receipt, rejection, concurrency, and chain behavior
+      - name: Exercise real signed receipt, rejection, concurrency, and chain behavior
         run: |
           python - <<'PY'
           import concurrent.futures
