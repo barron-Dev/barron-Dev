@@ -130,3 +130,161 @@ jobs:
           END $$;
           SELECT 'isolated migration smoke checks passed' AS result;
           SQL
+- name: Exercise real signed receipt, rejection, concurrency, and chain behavior
+        run: |
+          python - <<'PY'
+          import concurrent.futures
+          import hashlib
+          import json
+          import subprocess
+          import uuid
+          from cryptography.hazmat.primitives import serialization
+          from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+          def run_sql(sql):
+              return subprocess.run(
+                  ["psql", "-X", "-v", "ON_ERROR_STOP=1", "-A", "-t", "-F", "|"],
+                  input=sql, text=True, capture_output=True
+              )
+
+          def require(condition, message):
+              if not condition:
+                  raise AssertionError(message)
+
+          def q(value):
+              return "'" + str(value).replace("'", "''") + "'"
+
+          tenant_id = uuid.uuid4()
+          other_tenant_id = uuid.uuid4()
+          run_id = uuid.uuid4()
+          agent_id = uuid.uuid4()
+          signer_key_id = "sql-validation-ai-action-key"
+          private_key = Ed25519PrivateKey.generate()
+          public_key_hex = private_key.public_key().public_bytes(
+              encoding=serialization.Encoding.Raw,
+              format=serialization.PublicFormat.Raw
+          ).hex()
+
+          setup_sql = f"""
+          INSERT INTO public.tenants(id) VALUES ({q(tenant_id)}), ({q(other_tenant_id)});
+          INSERT INTO public.ai_runs(id, tenant_id, agent_id)
+          VALUES ({q(run_id)}, {q(tenant_id)}, {q(agent_id)});
+          INSERT INTO public.trust_signing_keys
+            (tenant_id, key_id, algorithm, purpose, public_key, status, not_before, not_after)
+          VALUES
+            ({q(tenant_id)}, {q(signer_key_id)}, 'ED25519', 'AI_ACTION',
+             {q(public_key_hex)}, 'ACTIVE', now() - interval '1 minute', now() + interval '1 day');
+          """
+          setup = run_sql(setup_sql)
+          require(setup.returncode == 0, "test identity/key setup failed: " + setup.stderr)
+
+          actor_id = "sql-validation-worker"
+          action_type = "dispatch_authorized"
+          occurred_at = "2026-10-28T14:00:00.000000Z"
+          payload_canonical = json.dumps(
+              {"action": action_type, "run_id": str(run_id)},
+              ensure_ascii=False, separators=(",", ":"), sort_keys=True
+          )
+          payload_hash = hashlib.sha256(payload_canonical.encode("utf-8")).hexdigest()
+          genesis = "0" * 64
+
+          def make_event(sequence, tenant, previous_hash, event_id=None):
+              event_id = event_id or uuid.uuid4()
+              fields = [
+                  str(sequence), str(event_id), str(tenant), str(run_id), actor_id,
+                  str(agent_id), action_type, payload_hash, previous_hash,
+                  signer_key_id, occurred_at
+              ]
+              framed = "cyclothone.ai-action.event.v1:" + "".join(
+                  f"{len(value.encode('utf-8'))}:{value}" for value in fields
+              )
+              event_hash = hashlib.sha256(framed.encode("utf-8")).hexdigest()
+              signature = private_key.sign(event_hash.encode("utf-8")).hex()
+              return {
+                  "tenant": tenant, "run": run_id, "event": event_id,
+                  "sequence": sequence, "actor": actor_id, "agent": agent_id,
+                  "action": action_type, "payload": payload_canonical,
+                  "payload_hash": payload_hash, "previous": previous_hash,
+                  "event_hash": event_hash, "key_id": signer_key_id,
+                  "signature": signature, "occurred": occurred_at
+              }
+
+          def call_sql(event, signature=None):
+              signature = signature or event["signature"]
+              args = [
+                  q(event["tenant"]), q(event["run"]), q(event["event"]),
+                  str(event["sequence"]), q(event["actor"]), q(event["agent"]),
+                  q(event["action"]), q(event["payload"]), q(event["payload_hash"]),
+                  q(event["previous"]), q(event["event_hash"]), q(event["key_id"]),
+                  q(signature), q(event["occurred"])
+              ]
+              return "SELECT e.event_hash FROM public.commit_ai_action_verification_event(" + ",".join(args) + ") AS e;"
+
+          first = make_event(1, tenant_id, genesis)
+          accepted = run_sql(call_sql(first))
+          require(accepted.returncode == 0, "valid Ed25519 receipt was rejected: " + accepted.stderr)
+          require(accepted.stdout.strip() == first["event_hash"], "RPC did not return the expected event hash")
+
+          invalid = make_event(2, tenant_id, first["event_hash"])
+          bad_signature = bytearray.fromhex(invalid["signature"])
+          bad_signature[-1] ^= 1
+          rejected_signature = run_sql(call_sql(invalid, bad_signature.hex()))
+          require(rejected_signature.returncode != 0, "invalid Ed25519 signature was accepted")
+          require("ai_action_signature_invalid" in rejected_signature.stderr,
+                  "invalid signature failed for an unexpected reason: " + rejected_signature.stderr)
+
+          wrong_tenant = make_event(2, other_tenant_id, first["event_hash"])
+          rejected_tenant = run_sql(call_sql(wrong_tenant))
+          require(rejected_tenant.returncode != 0, "cross-tenant run binding was accepted")
+          require("ai_action_run_tenant_mismatch" in rejected_tenant.stderr,
+                  "cross-tenant attempt failed for an unexpected reason: " + rejected_tenant.stderr)
+
+          candidates = [
+              make_event(2, tenant_id, first["event_hash"]),
+              make_event(2, tenant_id, first["event_hash"])
+          ]
+          with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+              results = list(pool.map(lambda event: run_sql(call_sql(event)), candidates))
+          winners = [event for event, result in zip(candidates, results) if result.returncode == 0]
+          losers = [result for result in results if result.returncode != 0]
+          require(len(winners) == 1 and len(losers) == 1,
+                  "concurrent same-sequence commits did not produce exactly one winner: " +
+                  repr([(r.returncode, r.stderr[-300:]) for r in results]))
+          winner = winners[0]
+
+          mutation = run_sql(
+              f"UPDATE public.ai_action_verification_events SET actor_id = 'tampered' "
+              f"WHERE tenant_id = {q(tenant_id)} AND run_id = {q(run_id)} AND sequence = 1;"
+          )
+          require(mutation.returncode != 0, "append-only ledger allowed an UPDATE")
+          require("ai_action_verification_events_are_append_only" in mutation.stderr,
+                  "UPDATE was rejected for an unexpected reason: " + mutation.stderr)
+
+          third = make_event(3, tenant_id, winner["event_hash"])
+          accepted_third = run_sql(call_sql(third))
+          require(accepted_third.returncode == 0,
+                  "valid next-chain receipt was rejected: " + accepted_third.stderr)
+
+          bad_chain = make_event(4, tenant_id, "f" * 64)
+          rejected_chain = run_sql(call_sql(bad_chain))
+          require(rejected_chain.returncode != 0, "incorrect predecessor hash was accepted")
+          require("ai_action_previous_hash_mismatch" in rejected_chain.stderr,
+                  "bad predecessor failed for an unexpected reason: " + rejected_chain.stderr)
+
+          readback = run_sql(f"""
+            SELECT sequence || '|' || event_hash || '|' || signature_hex || '|' ||
+                   payload_hash || '|' || previous_hash || '|' || occurred_at_canonical
+            FROM public.ai_action_verification_events
+            WHERE tenant_id = {q(tenant_id)} AND run_id = {q(run_id)}
+            ORDER BY sequence;
+          """)
+          require(readback.returncode == 0, "durable receipt read-back failed: " + readback.stderr)
+          rows = [line.strip() for line in readback.stdout.splitlines() if line.strip()]
+          expected = [
+              f"1|{first['event_hash']}|{first['signature']}|{first['payload_hash']}|{genesis}|{occurred_at}",
+              f"2|{winner['event_hash']}|{winner['signature']}|{winner['payload_hash']}|{first['event_hash']}|{occurred_at}",
+              f"3|{third['event_hash']}|{third['signature']}|{third['payload_hash']}|{winner['event_hash']}|{occurred_at}"
+          ]
+          require(rows == expected, "durable receipt read-back did not match signed canonical values: " + repr(rows))
+          print("PASS: valid Ed25519 signature, invalid signature rejection, tenant/run binding, concurrent sequence uniqueness, append-only enforcement, predecessor rejection, and durable read-back")
+          PY
