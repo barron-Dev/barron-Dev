@@ -119,16 +119,19 @@ class ONVIFMediaClient:
                 auth=self._auth, timeout=self._timeout, follow_redirects=False,
                 verify=True, trust_env=False,
             ) as client:
-                response = await client.post(endpoint, content=payload, headers=headers)
+                async with client.stream("POST", endpoint, content=payload, headers=headers) as response:
+                    if response.is_redirect:
+                        raise ONVIFProtocolError("onvif_redirect_forbidden")
+                    if response.status_code < 200 or response.status_code >= 300:
+                        raise ONVIFProtocolError(f"onvif_http_status_{response.status_code}")
+                    body = bytearray()
+                    async for chunk in response.aiter_bytes():
+                        body.extend(chunk)
+                        if len(body) > 2 * 1024 * 1024:
+                            raise ONVIFProtocolError("onvif_response_too_large")
         except httpx.HTTPError as exc:
             raise ONVIFProtocolError("onvif_transport_failed") from exc
-        if response.is_redirect:
-            raise ONVIFProtocolError("onvif_redirect_forbidden")
-        if response.status_code < 200 or response.status_code >= 300:
-            raise ONVIFProtocolError(f"onvif_http_status_{response.status_code}")
-        if len(response.content) > 2 * 1024 * 1024:
-            raise ONVIFProtocolError("onvif_response_too_large")
-        return _body_root(response.content)
+        return _body_root(bytes(body))
 
     async def negotiate_profiles(self) -> tuple[ONVIFProfile, ...]:
         """Return actual camera profiles and their authorized RTSP stream URIs."""
