@@ -117,7 +117,7 @@ The live project has RLS enabled on all 340 inspected public tables, but 39 have
 - `source_registry_edges`
 - `source_registry_events`
 
-Four of those tables (`dw_sector_source_catalog`, `dw_source_categories`, `source_registry`, `source_registry_edges`, `source_registry_events`) were also observed with RLS enabled and no policy. The query confirms the grant, not that an exploit has occurred. PostgreSQL `TRUNCATE` is not row-filtered by RLS, so treat these grants as a **high-priority least-privilege defect to validate and remediate**. No rows were modified and no grants were revoked during this inspection.
+Five of those tables (`dw_sector_source_catalog`, `dw_source_categories`, `source_registry`, `source_registry_edges`, `source_registry_events`) were also observed with RLS enabled and no policy. The query confirms the grant, not that an exploit has occurred. PostgreSQL `TRUNCATE` is not row-filtered by RLS, so treat these grants as a **high-priority least-privilege defect to validate and remediate**. No rows were modified and no grants were revoked during this inspection.
 
 Before changing privileges:
 1. Inspect table ACLs, inherited/default grants, all policies, dependent RPCs, and intended client access for each table.
