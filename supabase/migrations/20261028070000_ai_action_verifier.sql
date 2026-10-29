@@ -1,5 +1,5 @@
--- AI Action Verifier v1. Additive proposal only; do not apply to production until
--- pgsodium availability, migration history alignment, and isolated DB tests pass.
+-- AI Action Verifier v1. Additive proposal only; do not apply to production until migration-history alignment and isolated database tests pass.
+-- Ed25519 verification occurs in the trusted Python backend; this migration has no pgsodium dependency.
 -- Reuses the existing trust_signing_keys registry and ai_runs identity boundary.
 
 
