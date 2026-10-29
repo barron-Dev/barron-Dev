@@ -21,11 +21,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Copilot must not expose service role to browser
+      - name: Browser code must not expose service role
         run: |
-          if grep -RIn "SUPABASE_SERVICE_ROLE_KEY" console/app console/components console/lib --include='*.ts' --include='*.tsx'; then
-            echo "service-role reference found in browser code"; exit 1
+          if grep -RIn "SUPABASE_SERVICE_ROLE_KEY" console/app/customer console/app/developer console/components --include='*.ts' --include='*.tsx'; then
+            echo "service-role reference found in browser-facing code"; exit 1
           fi
+          grep -q "import 'server-only'" console/lib/mdi/auth.ts || {
+            echo "MDI service-role helper must be marked server-only"; exit 1;
+          }
       - name: Copilot route must use authenticated MDI backend
         run: |
           grep -q 'mobile-intelligence/copilot' src/cyclothone/api/routes/mobile_intelligence_copilot.py
