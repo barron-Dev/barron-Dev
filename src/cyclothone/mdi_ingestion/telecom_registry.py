@@ -22,3 +22,35 @@ def parse_registry_csv(content: bytes) -> tuple[list[dict[str,Any]],str]:
         seen.add((mcc,mnc)); result.append({"mcc":mcc,"mnc":mnc,"country_iso":country,"provider_name":provider,"source_sha256":digest})
     if not result: raise TelecomRegistryError("registry contains no rows")
     return result,digest
+
+def persist_registry_rows(rows: list[dict[str, Any]], *, source_name: str, source_url: str | None = None) -> int:
+    """Upsert validated rows into the global reference table from a trusted worker."""
+    import os
+    from urllib.parse import urlparse
+    import httpx
+    if not source_name.strip() or len(source_name)>200:
+        raise TelecomRegistryError("source_name is required and must be <=200 characters")
+    if source_url is not None:
+        parsed=urlparse(source_url)
+        if parsed.scheme!="https" or not parsed.netloc:
+            raise TelecomRegistryError("source_url must be HTTPS")
+    if os.environ.get("CYCLOTHONE_MDI_INGESTION_ENABLED","").lower()!="true":
+        raise TelecomRegistryError("MDI ingestion is disabled")
+    base=os.environ.get("SUPABASE_URL","").rstrip("/")
+    key=os.environ.get("SUPABASE_SERVICE_ROLE_KEY","")
+    if not base.startswith("https://") or not key:
+        raise TelecomRegistryError("trusted worker Supabase configuration missing")
+    if not rows:
+        return 0
+    payload=[]
+    for row in rows:
+        payload.append({"mcc":row["mcc"],"mnc":row["mnc"],"country_iso":row["country_iso"],
+          "provider_name":row["provider_name"],"source_sha256":row["source_sha256"],
+          "source_name":source_name,"source_url":source_url,"imported_at":__import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat()})
+    with httpx.Client(timeout=httpx.Timeout(10,connect=3),follow_redirects=False) as client:
+        response=client.post(f"{base}/rest/v1/mdi_global_telecom_registry?on_conflict=mcc,mnc",
+          headers={"apikey":key,"Authorization":f"Bearer {key}","Content-Type":"application/json",
+                   "Prefer":"resolution=merge-duplicates,return=minimal"},json=payload)
+    if response.status_code not in (200,201,204):
+        raise TelecomRegistryError(f"registry upsert failed ({response.status_code}); response omitted")
+    return len(payload)
