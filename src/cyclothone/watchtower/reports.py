@@ -51,14 +51,15 @@ def build_report_payload(
     language_code: str,
     period_start: datetime,
     period_end: datetime,
+    generated_at: datetime,
     events: Iterable[ReportEvent],
     source_coverage: str,
     coverage_gaps: Iterable[str],
 ) -> dict:
     """Build a data-only report payload; rendering and delivery are separate.
 
-    No 'no threats detected' assertion is generated. The report says only what
-    the observed event records and explicit source coverage support.
+    The caller must supply the persisted report-generation timestamp so retries
+    produce the same payload. No 'no threats detected' assertion is generated.
     """
     if not all(isinstance(v, str) and v.strip() for v in (
         report_id, tenant_id, camera_group_id, language_code
@@ -68,9 +69,11 @@ def build_report_payload(
         raise ValueError("invalid_report_type")
     if source_coverage not in COVERAGE:
         raise ValueError("invalid_source_coverage")
-    start_utc, end_utc = _utc(period_start), _utc(period_end)
+    start_utc, end_utc, generated_utc = _utc(period_start), _utc(period_end), _utc(generated_at)
     if end_utc <= start_utc:
         raise ValueError("period_end_must_follow_period_start")
+    if generated_utc < end_utc:
+        raise ValueError("generated_at_must_not_precede_period_end")
     gaps = sorted(set(coverage_gaps))
     if source_coverage == "complete" and gaps:
         raise ValueError("complete_coverage_cannot_have_gaps")
@@ -98,7 +101,7 @@ def build_report_payload(
         "language_code": language_code,
         "period_start": _timestamp(start_utc),
         "period_end": _timestamp(end_utc),
-        "generated_at": _timestamp(datetime.now(timezone.utc)),
+        "generated_at": _timestamp(generated_utc),
         "source_coverage": source_coverage,
         "coverage_gaps": gaps,
         "event_count": len(rows),
