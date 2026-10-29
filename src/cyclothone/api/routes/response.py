@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from cyclothone.ai.envelope_issuer import AIEnvelopeIssuer
+from cyclothone.ai.action_receipt_service import ActionReceiptService
 from cyclothone.ai.execution_gate import AgentExecutionGate, SupabaseReplayStore
 from cyclothone.ai.mission_authority import SupabaseMissionAuthority
 from cyclothone.ai.provider_binding import SupabaseProviderBinding
@@ -51,6 +52,7 @@ def _runner() -> PlaybookRunner:
         SupabaseActionStore(),
         execution_gate=execution_gate,
         envelope_issuer=envelope_issuer,
+        action_receipt_service=ActionReceiptService(),
     )
     return PlaybookRunner(orchestrator)
 
@@ -156,6 +158,7 @@ async def approve(case_action_id: UUID, principal: DeveloperPrincipal = Depends(
             SupabaseActionStore(),
             execution_gate=execution_gate,
             envelope_issuer=envelope_issuer,
+            action_receipt_service=ActionReceiptService(),
         )
         return await orchestrator.approve(case_action_id, UUID(principal.app_id))
     except RuntimeError as exc:

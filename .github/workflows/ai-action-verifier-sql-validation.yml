@@ -1,0 +1,316 @@
+name: AI Action Verifier isolated SQL validation
+
+on:
+  pull_request:
+    paths:
+      - "supabase/migrations/20261028070000_ai_action_verifier.sql"
+      - ".github/workflows/ai-action-verifier-sql-validation.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  migration-and-db-primitives:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: supabase/postgres:17.6.1.136
+        env:
+          POSTGRES_PASSWORD: test-only-password
+          POSTGRES_DB: cyclothone_sql_test
+          POSTGRES_USER: supabase_admin
+          POSTGRES_INITDB_ARGS: --username=supabase_admin
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U supabase_admin -d cyclothone_sql_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-start-period 30s
+          --health-retries 30
+    env:
+      PGHOST: localhost
+      PGPORT: 5432
+      PGUSER: supabase_admin
+      PGPASSWORD: test-only-password
+      PGDATABASE: cyclothone_sql_test
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PostgreSQL client and Python crypto dependency
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+          python -m pip install --disable-pip-version-check cryptography
+      - name: Confirm isolated database version and supported crypto boundary
+        run: |
+          psql -v ON_ERROR_STOP=1 <<'SQL'
+          SELECT version();
+          CREATE EXTENSION IF NOT EXISTS pgcrypto;
+          SELECT 'Ed25519 verification is performed in the trusted Python backend; no pgsodium dependency.' AS crypto_boundary;
+          SQL
+      - name: Create minimal real schema fixtures matching production dependencies
+        run: |
+          psql -v ON_ERROR_STOP=1 <<'SQL'
+          DO $roles$
+          BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN CREATE ROLE anon NOLOGIN; END IF;
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN CREATE ROLE authenticated NOLOGIN; END IF;
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') THEN CREATE ROLE service_role NOLOGIN; END IF;
+          END
+          $roles$;
+          CREATE SCHEMA IF NOT EXISTS auth;
+          CREATE OR REPLACE FUNCTION auth.jwt() RETURNS jsonb LANGUAGE sql STABLE AS
+            $jwt$ SELECT coalesce(nullif(current_setting('request.jwt.claims', true), ''), '{}')::jsonb $jwt$;
+          CREATE TABLE IF NOT EXISTS public.tenants (id uuid PRIMARY KEY DEFAULT gen_random_uuid());
+          CREATE TABLE IF NOT EXISTS public.ai_runs (
+            id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+            tenant_id uuid NOT NULL REFERENCES public.tenants(id),
+            agent_id uuid NOT NULL
+          );
+          CREATE TABLE IF NOT EXISTS public.trust_signing_keys (
+            id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+            tenant_id uuid REFERENCES public.tenants(id),
+            key_id text NOT NULL,
+            algorithm text NOT NULL CHECK (algorithm = 'ED25519'),
+            purpose text NOT NULL,
+            public_key text NOT NULL,
+            status text NOT NULL CHECK (status IN ('ACTIVE','RETIRED','REVOKED')),
+            not_before timestamptz NOT NULL DEFAULT now(),
+            not_after timestamptz,
+            created_at timestamptz NOT NULL DEFAULT now(),
+            retired_at timestamptz,
+            revoked_at timestamptz,
+            CONSTRAINT trust_signing_keys_domain_check CHECK (
+              algorithm = 'ED25519' AND purpose IN ('TRUST_ATTESTATION','TRUST_PROOF','TRUST_CERTIFICATE')
+            ),
+            CONSTRAINT trust_signing_keys_purpose_check CHECK (
+              purpose IN ('TRUST_PROOF','TRUST_CERTIFICATE','TRUST_EVIDENCE','TRUST_ATTESTATION')
+            )
+          );
+          GRANT USAGE ON SCHEMA public TO service_role;
+          GRANT USAGE ON SCHEMA auth TO service_role;
+          GRANT EXECUTE ON FUNCTION auth.jwt() TO service_role;
+          SQL
+      - name: Execute proposed migration against isolated PostgreSQL
+        run: psql -v ON_ERROR_STOP=1 -f supabase/migrations/20261028070000_ai_action_verifier.sql
+      - name: Verify created objects, RPC ACLs, append-only trigger, and no pgsodium dependency
+        run: |
+          psql -v ON_ERROR_STOP=1 <<'SQL'
+          DO $$
+          BEGIN
+            IF to_regclass('public.ai_action_verification_events') IS NULL THEN
+              RAISE EXCEPTION 'receipt table missing';
+            END IF;
+            IF to_regprocedure('public.commit_ai_action_verification_event(uuid,uuid,uuid,bigint,text,text,text,text,text,text,text,text,text,text)') IS NULL THEN
+              RAISE EXCEPTION 'commit RPC missing';
+            END IF;
+
+            IF NOT EXISTS (
+              SELECT 1 FROM pg_trigger
+              WHERE tgrelid = 'public.ai_action_verification_events'::regclass
+                AND tgname = 'ai_action_events_no_update_or_delete'
+                AND NOT tgisinternal
+            ) THEN
+              RAISE EXCEPTION 'append-only trigger missing';
+            END IF;
+            IF has_table_privilege('authenticated', 'public.ai_action_verification_events', 'SELECT') THEN
+              RAISE EXCEPTION 'authenticated role unexpectedly has table SELECT';
+            END IF;
+            IF has_function_privilege('authenticated', 'public.commit_ai_action_verification_event(uuid,uuid,uuid,bigint,text,text,text,text,text,text,text,text,text,text)', 'EXECUTE') THEN
+              RAISE EXCEPTION 'authenticated role unexpectedly can commit receipts';
+            END IF;
+            IF has_function_privilege('anon', 'public.commit_ai_action_verification_event(uuid,uuid,uuid,bigint,text,text,text,text,text,text,text,text,text,text)', 'EXECUTE') THEN
+              RAISE EXCEPTION 'anon role unexpectedly can commit receipts';
+            END IF;
+            IF NOT has_function_privilege('service_role', 'public.commit_ai_action_verification_event(uuid,uuid,uuid,bigint,text,text,text,text,text,text,text,text,text,text)', 'EXECUTE') THEN
+              RAISE EXCEPTION 'service_role cannot commit receipts';
+            END IF;
+          END $$;
+          SELECT 'isolated migration smoke checks passed' AS result;
+          SQL
+      - name: Exercise real signed receipt, rejection, concurrency, and chain behavior
+        run: |
+          python - <<'PY'
+          import concurrent.futures
+          import hashlib
+          import importlib.util
+          import sys
+          from dataclasses import replace
+          spec = importlib.util.spec_from_file_location('cyclothone_action_verifier_isolated', 'src/cyclothone/ai/action_verifier.py')
+          action_verifier = importlib.util.module_from_spec(spec)
+          sys.modules[spec.name] = action_verifier
+          spec.loader.exec_module(action_verifier)
+          ActionEnvelope = action_verifier.ActionEnvelope
+          verify_action_envelope = action_verifier.verify_action_envelope
+          import json
+          import subprocess
+          import uuid
+          from cryptography.hazmat.primitives import serialization
+          from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+          def run_sql(sql):
+              return subprocess.run(
+                  ["psql", "-X", "-v", "ON_ERROR_STOP=1", "-A", "-t", "-F", "|"],
+                  input=sql, text=True, capture_output=True
+              )
+
+          def require(condition, message):
+              if not condition:
+                  raise AssertionError(message)
+
+          def q(value):
+              return "'" + str(value).replace("'", "''") + "'"
+
+          tenant_id = uuid.uuid4()
+          other_tenant_id = uuid.uuid4()
+          run_id = uuid.uuid4()
+          agent_id = uuid.uuid4()
+          signer_key_id = "sql-validation-ai-action-key"
+          private_key = Ed25519PrivateKey.generate()
+          public_key_hex = private_key.public_key().public_bytes(
+              encoding=serialization.Encoding.Raw,
+              format=serialization.PublicFormat.Raw
+          ).hex()
+
+          setup_sql = f"""
+          INSERT INTO public.tenants(id) VALUES ({q(tenant_id)}), ({q(other_tenant_id)});
+          INSERT INTO public.ai_runs(id, tenant_id, agent_id)
+          VALUES ({q(run_id)}, {q(tenant_id)}, {q(agent_id)});
+          INSERT INTO public.trust_signing_keys
+            (tenant_id, key_id, algorithm, purpose, public_key, status, not_before, not_after)
+          VALUES
+            ({q(tenant_id)}, {q(signer_key_id)}, 'ED25519', 'AI_ACTION',
+             {q(public_key_hex)}, 'ACTIVE', now() - interval '1 minute', now() + interval '1 day');
+          """
+          setup = run_sql(setup_sql)
+          require(setup.returncode == 0, "test identity/key setup failed: " + setup.stderr)
+
+          actor_id = "sql-validation-worker"
+          action_type = "dispatch_authorized"
+          occurred_at = "2026-10-28T14:00:00.000000Z"
+          payload_canonical = json.dumps(
+              {"action": action_type, "run_id": str(run_id)},
+              ensure_ascii=False, separators=(",", ":"), sort_keys=True
+          )
+          payload_hash = hashlib.sha256(payload_canonical.encode("utf-8")).hexdigest()
+          genesis = "0" * 64
+
+          def make_event(sequence, tenant, previous_hash, event_id=None):
+              event_id = event_id or uuid.uuid4()
+              fields = [
+                  str(sequence), str(event_id), str(tenant), str(run_id), actor_id,
+                  str(agent_id), action_type, payload_hash, previous_hash,
+                  signer_key_id, occurred_at
+              ]
+              framed = "cyclothone.ai-action.event.v1:" + "".join(
+                  f"{len(value.encode('utf-8'))}:{value}" for value in fields
+              )
+              event_hash = hashlib.sha256(framed.encode("utf-8")).hexdigest()
+              signature = private_key.sign(event_hash.encode("utf-8")).hex()
+              return {
+                  "tenant": tenant, "run": run_id, "event": event_id,
+                  "sequence": sequence, "actor": actor_id, "agent": agent_id,
+                  "action": action_type, "payload": payload_canonical,
+                  "payload_hash": payload_hash, "previous": previous_hash,
+                  "event_hash": event_hash, "key_id": signer_key_id,
+                  "signature": signature, "occurred": occurred_at
+              }
+
+          def call_sql(event, signature=None):
+              signature = signature or event["signature"]
+              args = [
+                  q(event["tenant"]), q(event["run"]), q(event["event"]),
+                  str(event["sequence"]), q(event["actor"]), q(event["agent"]),
+                  q(event["action"]), q(event["payload"]), q(event["payload_hash"]),
+                  q(event["previous"]), q(event["event_hash"]), q(event["key_id"]),
+                  q(signature), q(event["occurred"])
+              ]
+              return "SELECT e.event_hash FROM public.commit_ai_action_verification_event(" + ",".join(args) + ") AS e;"
+
+          first = make_event(1, tenant_id, genesis)
+          envelope = ActionEnvelope(
+              protocol="cyclothone.ai-action.v1", sequence=first["sequence"],
+              event_id=str(first["event"]), tenant_id=str(first["tenant"]),
+              run_id=str(first["run"]), actor_id=first["actor"], agent_id=str(first["agent"]),
+              action_type=first["action"], payload_canonical=first["payload"],
+              payload_hash=first["payload_hash"], previous_hash=first["previous"],
+              event_hash=first["event_hash"], signer_key_id=first["key_id"],
+              signature_hex=first["signature"], occurred_at=first["occurred"]
+          )
+          verified = verify_action_envelope(
+              envelope, public_keys={signer_key_id: private_key.public_key()},
+              expected_tenant_id=str(tenant_id), expected_run_id=str(run_id),
+              expected_previous_hash=genesis, expected_sequence=1
+          )
+          require(verified.ok, "trusted-backend verifier rejected a valid Ed25519 receipt: " + verified.reason)
+          bad_signature = bytearray.fromhex(first["signature"])
+          bad_signature[-1] ^= 1
+          forged = replace(envelope, signature_hex=bad_signature.hex())
+          forged_result = verify_action_envelope(
+              forged, public_keys={signer_key_id: private_key.public_key()},
+              expected_tenant_id=str(tenant_id), expected_run_id=str(run_id),
+              expected_previous_hash=genesis, expected_sequence=1
+          )
+          require(not forged_result.ok, "trusted-backend verifier accepted a forged signature")
+
+          accepted = run_sql(call_sql(first))
+          require(accepted.returncode == 0, "valid receipt was rejected by database chain enforcement: " + accepted.stderr)
+          require(accepted.stdout.strip() == first["event_hash"], "RPC did not return the expected event hash")
+
+          wrong_tenant = make_event(2, other_tenant_id, first["event_hash"])
+          rejected_tenant = run_sql(call_sql(wrong_tenant))
+          require(rejected_tenant.returncode != 0, "cross-tenant run binding was accepted")
+          require("ai_action_run_tenant_mismatch" in rejected_tenant.stderr,
+                  "cross-tenant attempt failed for an unexpected reason: " + rejected_tenant.stderr)
+
+          candidates = [
+              make_event(2, tenant_id, first["event_hash"]),
+              make_event(2, tenant_id, first["event_hash"])
+          ]
+          with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+              results = list(pool.map(lambda event: run_sql(call_sql(event)), candidates))
+          winners = [event for event, result in zip(candidates, results) if result.returncode == 0]
+          losers = [result for result in results if result.returncode != 0]
+          require(len(winners) == 1 and len(losers) == 1,
+                  "concurrent same-sequence commits did not produce exactly one winner: " +
+                  repr([(r.returncode, r.stderr[-300:]) for r in results]))
+          winner = winners[0]
+
+          mutation = run_sql(
+              f"UPDATE public.ai_action_verification_events SET actor_id = 'tampered' "
+              f"WHERE tenant_id = {q(tenant_id)} AND run_id = {q(run_id)} AND sequence = 1;"
+          )
+          require(mutation.returncode != 0, "append-only ledger allowed an UPDATE")
+          require("ai_action_verification_events_are_append_only" in mutation.stderr,
+                  "UPDATE was rejected for an unexpected reason: " + mutation.stderr)
+
+          third = make_event(3, tenant_id, winner["event_hash"])
+          accepted_third = run_sql(call_sql(third))
+          require(accepted_third.returncode == 0,
+                  "valid next-chain receipt was rejected: " + accepted_third.stderr)
+
+          bad_chain = make_event(4, tenant_id, "f" * 64)
+          rejected_chain = run_sql(call_sql(bad_chain))
+          require(rejected_chain.returncode != 0, "incorrect predecessor hash was accepted")
+          require("ai_action_previous_hash_mismatch" in rejected_chain.stderr,
+                  "bad predecessor failed for an unexpected reason: " + rejected_chain.stderr)
+
+          readback = run_sql(f"""
+            SELECT sequence || '|' || event_hash || '|' || signature_hex || '|' ||
+                   payload_hash || '|' || previous_hash || '|' || occurred_at_canonical
+            FROM public.ai_action_verification_events
+            WHERE tenant_id = {q(tenant_id)} AND run_id = {q(run_id)}
+            ORDER BY sequence;
+          """)
+          require(readback.returncode == 0, "durable receipt read-back failed: " + readback.stderr)
+          rows = [line.strip() for line in readback.stdout.splitlines() if line.strip()]
+          expected = [
+              f"1|{first['event_hash']}|{first['signature']}|{first['payload_hash']}|{genesis}|{occurred_at}",
+              f"2|{winner['event_hash']}|{winner['signature']}|{winner['payload_hash']}|{first['event_hash']}|{occurred_at}",
+              f"3|{third['event_hash']}|{third['signature']}|{third['payload_hash']}|{winner['event_hash']}|{occurred_at}"
+          ]
+          require(rows == expected, "durable receipt read-back did not match signed canonical values: " + repr(rows))
+          print("PASS: trusted-backend Ed25519 verification and forged-signature rejection; database tenant/run binding, service_role ACLs, concurrent sequence uniqueness, append-only enforcement, predecessor rejection, and durable read-back")
+          PY

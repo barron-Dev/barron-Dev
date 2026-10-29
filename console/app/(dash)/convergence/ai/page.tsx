@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import { executeAIRun, startAIRun, type AIRunExecution, type AIRunStart } from "../../../../lib/api";
 
@@ -50,6 +51,12 @@ export default function AISecurityPage() {
           <h1 className="mt-1 text-2xl font-semibold">AI Security Runtime</h1>
           <p className="mt-1 text-xs text-[#8a97a8]">Route and start a canonical AI execution. Model and provider authority remain server-derived.</p>
         </header>
+
+        <Link href="/convergence/ai/verification" className="block border border-[#00d9ff]/30 bg-[#0a0e14] p-4 hover:border-[#00d9ff]">
+          <div className="text-xs uppercase tracking-[.12em] text-[#00d9ff]">Cryptographic Action Verifier</div>
+          <p className="mt-1 text-sm text-[#e8eef6]">View the production verification status and outstanding real integration requirements.</p>
+          <p className="mt-1 text-[11px] text-[#5a6675]">No synthetic receipts or browser-local pass results are presented.</p>
+        </Link>
 
         <section className="border border-[#1a2330] bg-[#0a0e14] p-5 space-y-4">
           <div className="grid gap-3 md:grid-cols-2">

@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from decimal import Decimal
 from enum import StrEnum
@@ -12,6 +12,7 @@ from uuid import UUID
 
 from cyclothone.ai.envelope_issuer import AIEnvelopeIssuer, EnvelopeIssueRequest
 from cyclothone.ai.execution_gate import AgentEnvelope, AgentExecutionGate
+from cyclothone.ai.action_receipt_service import ActionReceiptService
 from cyclothone.response.execution_authority import (
     authorize_response_execution,
     complete_response_execution,
@@ -123,6 +124,7 @@ class ResponseOrchestrator:
         signer: Signer | None = None,
         execution_gate: AgentExecutionGate | None = None,
         envelope_issuer: AIEnvelopeIssuer | None = None,
+        action_receipt_service: ActionReceiptService | None = None,
         execution_authorizer=authorize_response_execution,
     ) -> None:
         self.dispatcher = dispatcher
@@ -130,6 +132,7 @@ class ResponseOrchestrator:
         self.signer = signer
         self.execution_gate = execution_gate
         self.envelope_issuer = envelope_issuer
+        self.action_receipt_service = action_receipt_service
         self.execution_authorizer = execution_authorizer
 
     async def _fail_committed_execution(self, run_id: UUID, reason: str, actor: str) -> None:
@@ -166,7 +169,7 @@ class ResponseOrchestrator:
                         raise RuntimeError("authoritative AI envelope issuer and execution gate are required for destructive response actions")
                     if step.envelope_request is None:
                         raise RuntimeError("destructive response requires an envelope issuance request")
-                    request = step.envelope_request
+                    request = replace(step.envelope_request, run_id=step.run_id)
                     if request.tenant_id != tenant_id or request.action != step.action or request.args != step.args:
                         raise RuntimeError("envelope issuance request does not match response plan")
                     if step.model_id and request.model_id != step.model_id:
@@ -191,6 +194,7 @@ class ResponseOrchestrator:
                         expected_mission_id=request.mission_id,
                         expected_mission_version=request.mission_version,
                         expected_mission_hash=request.mission_hash,
+                        expected_run_id=step.run_id,
                         twin=DigitalTwinService(tenant_id),
                     )
                     step = ActionPlan(
@@ -219,6 +223,7 @@ class ResponseOrchestrator:
                         await self.execution_gate.consume(
                             envelope=step_envelope,
                             tenant_id=tenant_id,
+                            run_id=step.run_id,
                         )
 
                 if blast_rule_id and device_id and not await self.store.blast_allowed(blast_rule_id, blast_limit, tenant_id=tenant_id, device_id=device_id):
@@ -264,6 +269,24 @@ class ResponseOrchestrator:
                     dispatched.append(row_id)
                     continue
 
+                if action_class in (ActionClass.MEDIUM, ActionClass.HIGH, ActionClass.CRITICAL):
+                    if self.action_receipt_service is None:
+                        raise RuntimeError("durable AI Action Verifier is required before response dispatch")
+                    if step.run_id is None or step.agent_envelope is None:
+                        raise RuntimeError("signed agent envelope and canonical run are required for action receipt")
+                    await self.action_receipt_service.record_action(
+                        tenant_id=tenant_id, run_id=step.run_id,
+                        actor_id=f"response:{issued_by}", agent_id=step.agent_envelope.agent_id,
+                        action_type="response.dispatch_authorized",
+                        payload={
+                            "action": step.action, "args": step.args, "target": step.target,
+                            "agent_envelope_id": step.agent_envelope.envelope_id,
+                            "agent_envelope_hash": self._envelope_hash(step.agent_envelope),
+                            "model_id": step.model_id, "provider_id": step.provider_id,
+                            "mission_id": step.mission_id, "mission_version": step.mission_version,
+                            "mission_hash": step.mission_hash,
+                        },
+                    )
                 row_id = await self._dispatch_step(tenant_id, case_id, device_id, step, issued_by, initiated_by_rule)
                 dispatched.append(row_id)
                 if blast_rule_id and device_id:
@@ -319,9 +342,16 @@ class ResponseOrchestrator:
                         mission_id=str(envelope_data.get("mission_id")) if envelope_data.get("mission_id") else None,
                         mission_version=int(envelope_data["mission_version"]) if envelope_data.get("mission_version") is not None else None,
                         mission_hash=str(envelope_data.get("mission_hash")) if envelope_data.get("mission_hash") else None,
+                        run_id=UUID(str(envelope_data["run_id"])),
                     )
                 except (KeyError, TypeError, ValueError) as exc:
                     raise RuntimeError("invalid persisted agent envelope") from exc
+                run_id_raw = row.get("ai_run_id")
+                if not run_id_raw:
+                    raise RuntimeError("approved response action is missing canonical AI run binding")
+                run_id = UUID(str(run_id_raw))
+                if envelope.run_id != run_id:
+                    raise RuntimeError("persisted envelope run binding mismatch")
                 if self.execution_gate is None:
                     raise RuntimeError("AI execution gate is required for destructive approval")
                 await self.execution_gate.validate(
@@ -332,6 +362,7 @@ class ResponseOrchestrator:
                     expected_mission_id=envelope.mission_id,
                     expected_mission_version=envelope.mission_version,
                     expected_mission_hash=envelope.mission_hash,
+                    expected_run_id=run_id,
                     twin=__import__("cyclothone.twin.service", fromlist=["DigitalTwinService"]).DigitalTwinService(UUID(str(row["tenant_id"]))),
                 )
                 run_id_raw = row.get("ai_run_id")
@@ -377,6 +408,23 @@ class ResponseOrchestrator:
                 await self.execution_gate.consume(
                     envelope=envelope,
                     tenant_id=UUID(str(row["tenant_id"])),
+                    run_id=run_id,
+                )
+                if self.action_receipt_service is None:
+                    raise RuntimeError("durable AI Action Verifier is required before approved response dispatch")
+                await self.action_receipt_service.record_action(
+                    tenant_id=UUID(str(row["tenant_id"])), run_id=run_id,
+                    actor_id=f"approval:{approved_by}", agent_id=envelope.agent_id,
+                    action_type="response.approved_dispatch_authorized",
+                    payload={
+                        "case_action_id": str(case_action_id), "action": row["action"],
+                        "args": row.get("args") or {}, "target": envelope.target,
+                        "agent_envelope_id": envelope.envelope_id,
+                        "agent_envelope_hash": self._envelope_hash(envelope),
+                        "model_id": envelope.model_id, "provider_id": envelope.provider_id,
+                        "mission_id": envelope.mission_id, "mission_version": envelope.mission_version,
+                        "mission_hash": envelope.mission_hash,
+                    },
                 )
             execution_context = {
                 "case_action_id": str(case_action_id),

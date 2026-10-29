@@ -7,7 +7,7 @@ import pytest
 from cyclothone.ai.execution_gate import AgentEnvelope, AgentExecutionDenied
 
 def envelope():
-    return AgentEnvelope("env-1", uuid4(), uuid4(), "model-a", "provider-a", "kill_process", "kill_process", {"pid": 7}, "device-1", datetime.now(UTC), datetime.now(UTC) + timedelta(minutes=1), "kid", "sig", "1", "a" * 64, "mission-a", 1, "d" * 64)
+    return AgentEnvelope("env-1", uuid4(), uuid4(), "model-a", "provider-a", "kill_process", "kill_process", {"pid": 7}, "device-1", datetime.now(UTC), datetime.now(UTC) + timedelta(minutes=1), "kid", "sig", "1", "a" * 64, "mission-a", 1, "d" * 64, uuid4())
 
 def test_envelope_canonical_binds_security_context():
     env = envelope()
@@ -22,7 +22,7 @@ async def test_invalid_signature_fails_closed_before_replay():
     gate = __import__("cyclothone.ai.execution_gate", fromlist=["AgentExecutionGate"]).AgentExecutionGate(Replay())
     env = envelope()
     with pytest.raises(AgentExecutionDenied, match="invalid envelope signature"):
-        await gate.authorize(envelope=env, tenant_id=env.tenant_id, expected_model_id="model-a", expected_provider_id="provider-a", twin=AsyncMock(), expected_mission_id=env.mission_id, expected_mission_version=env.mission_version, expected_mission_hash=env.mission_hash)
+        await gate.authorize(envelope=env, tenant_id=env.tenant_id, expected_model_id="model-a", expected_provider_id="provider-a", twin=AsyncMock(), expected_mission_id=env.mission_id, expected_mission_version=env.mission_version, expected_mission_hash=env.mission_hash, expected_run_id=env.run_id)
 
 @pytest.mark.asyncio
 async def test_destructive_orchestrator_requires_gate():
@@ -71,13 +71,14 @@ async def test_approval_required_validates_without_consuming_replay(monkeypatch)
         expected_mission_id=env.mission_id,
         expected_mission_version=env.mission_version,
         expected_mission_hash=env.mission_hash,
+        expected_run_id=env.run_id,
     )
 
     assert result["authorized"] is True
     assert result["requires_approval"] is True
     assert replay.claims == 0
 
-    await gate.consume(envelope=env, tenant_id=env.tenant_id)
+    await gate.consume(envelope=env, tenant_id=env.tenant_id, run_id=env.run_id)
     assert replay.claims == 1
 
 
@@ -111,6 +112,7 @@ async def test_denied_policy_is_not_treated_as_approval(monkeypatch):
             expected_mission_id=env.mission_id,
             expected_mission_version=env.mission_version,
             expected_mission_hash=env.mission_hash,
+            expected_run_id=env.run_id,
         )
 
 
@@ -123,6 +125,8 @@ async def test_envelope_issuer_requires_authoritative_agent_and_provider_binding
     agent_id = uuid4()
 
     async def owned(*args, **kwargs):
+        if args and args[0] == "ai_runs":
+            return {"id": kwargs.get("id"), "tenant_id": str(tenant), "agent_id": str(agent_id)}
         return {
             "id": str(agent_id), "tenant_id": str(tenant), "model": "model-a",
             "declared_tools": ["isolate_host"], "status": "active",
@@ -143,6 +147,7 @@ async def test_envelope_issuer_requires_authoritative_agent_and_provider_binding
 
     env = await AIEnvelopeIssuer(Provider(), AsyncMock(resolve=AsyncMock(return_value={"active": True}))).issue(
         EnvelopeIssueRequest(
+            run_id=uuid4(),
             tenant_id=tenant, agent_id=agent_id, model_id="model-a",
             provider_id="provider-a", tool_name="isolate_host",
             action="isolate_host", args={}, target="device-1", mission_id="mission-a", mission_version=1, mission_hash="d" * 64,
@@ -162,6 +167,8 @@ async def test_envelope_issuer_rejects_undeclared_tool(monkeypatch):
     agent_id = uuid4()
 
     async def owned(*args, **kwargs):
+        if args and args[0] == "ai_runs":
+            return {"id": kwargs.get("id"), "tenant_id": str(tenant), "agent_id": str(agent_id)}
         return {"id": str(agent_id), "tenant_id": str(tenant), "model": "model-a",
                 "declared_tools": [], "status": "active"}
 
@@ -170,6 +177,7 @@ async def test_envelope_issuer_rejects_undeclared_tool(monkeypatch):
     with pytest.raises(Exception, match="tool is not declared by agent"):
         await AIEnvelopeIssuer(AsyncMock(), AsyncMock(resolve=AsyncMock(return_value={"active": True}))).issue(
             EnvelopeIssueRequest(
+                run_id=uuid4(),
                 tenant_id=tenant, agent_id=agent_id, model_id="model-a",
                 provider_id="provider-a", tool_name="isolate_host",
                 action="isolate_host", args={}, target="device-1", mission_id="mission-a", mission_version=1, mission_hash="d" * 64,
@@ -186,6 +194,8 @@ async def test_envelope_issuer_requires_persisted_provider_authority(monkeypatch
     agent_id = uuid4()
 
     async def select_one(table, columns, **filters):
+        if table == "ai_runs":
+            return {"id": filters.get("id"), "tenant_id": str(tenant_id), "agent_id": str(agent_id)}
         if table == "ai_agents":
             return {
                 "id": str(agent_id), "tenant_id": str(tenant_id), "model": "model-a",
@@ -202,6 +212,7 @@ async def test_envelope_issuer_requires_persisted_provider_authority(monkeypatch
     issuer = AIEnvelopeIssuer(Binding(), AsyncMock(resolve=AsyncMock(return_value={"active": True})))
     with pytest.raises(EnvelopeIssuanceDenied, match="provider binding"):
         await issuer.issue(EnvelopeIssueRequest(
+            run_id=uuid4(),
             tenant_id=tenant_id, agent_id=agent_id, model_id="model-a",
             provider_id="provider-a", tool_name="kill_process", action="kill_process",
             args={"pid": 7}, target="device-1", mission_id="mission-a", mission_version=1, mission_hash="d" * 64,
@@ -217,6 +228,8 @@ async def test_envelope_issuer_signs_only_bound_agent(monkeypatch):
     agent_id = uuid4()
 
     async def select_one(table, columns, **filters):
+        if table == "ai_runs":
+            return {"id": filters.get("id"), "tenant_id": str(tenant_id), "agent_id": str(agent_id)}
         if table == "ai_agents":
             return {
                 "id": str(agent_id), "tenant_id": str(tenant_id), "model": "model-a",
@@ -236,6 +249,7 @@ async def test_envelope_issuer_signs_only_bound_agent(monkeypatch):
             return {"active": True, "binding_hash": "a" * 64}
 
     envelope = await AIEnvelopeIssuer(Binding(), AsyncMock(resolve=AsyncMock(return_value={"active": True}))).issue(EnvelopeIssueRequest(
+        run_id=uuid4(),
         tenant_id=tenant_id, agent_id=agent_id, model_id="model-a",
         provider_id="provider-a", tool_name="kill_process", action="kill_process",
         args={"pid": 7}, target="device-1", mission_id="mission-a", mission_version=1, mission_hash="d" * 64,
@@ -274,12 +288,14 @@ async def test_destructive_orchestrator_mints_and_consumes_authoritative_envelop
 
     tenant = uuid4()
     agent = uuid4()
+    run_id = uuid4()
     env = AgentEnvelope(
         "env-issued", tenant, agent, "model-a", "provider-a", "kill_process", "kill_process",
         {"pid": 7}, "device-1", datetime.now(UTC), datetime.now(UTC) + timedelta(minutes=1),
-        "kid", "sig", "1", "b" * 64,
+        "kid", "sig", "1", "b" * 64, run_id=run_id,
     )
     request = EnvelopeIssueRequest(
+        run_id=run_id,
         tenant_id=tenant, agent_id=agent, model_id="model-a", provider_id="provider-a",
         tool_name="kill_process", action="kill_process", args={"pid": 7}, target="device-1",
     )
@@ -293,12 +309,14 @@ async def test_destructive_orchestrator_mints_and_consumes_authoritative_envelop
     dispatcher = AsyncMock()
     dispatcher.issue = AsyncMock(return_value={"id": "cmd-1"})
 
+    receipt_service = AsyncMock()
     result = await ResponseOrchestrator(
         dispatcher, store, execution_gate=gate, envelope_issuer=issuer,
+        action_receipt_service=receipt_service,
         execution_authorizer=AsyncMock(return_value={"status": "authorized"}),
     ).run_chain(
         tenant_id=tenant, case_id=uuid4(), device_id=uuid4(),
-        plan=[ActionPlan("kill_process", {"pid": 7}, envelope_request=request, run_id=uuid4())],
+        plan=[ActionPlan("kill_process", {"pid": 7}, envelope_request=request, run_id=run_id)],
         issued_by="test",
     )
 
@@ -306,6 +324,7 @@ async def test_destructive_orchestrator_mints_and_consumes_authoritative_envelop
     issuer.issue.assert_awaited_once_with(request)
     gate.validate.assert_awaited_once()
     gate.consume.assert_awaited_once()
+    receipt_service.record_action.assert_awaited_once()
     dispatcher.issue.assert_awaited_once()
 
 
@@ -317,7 +336,7 @@ async def test_execution_gate_rejects_stale_mission_binding(monkeypatch):
     env = AgentEnvelope(
         "env-mission", uuid4(), uuid4(), "model-a", "provider-a", "kill_process", "kill_process",
         {"pid": 7}, "device-1", datetime.now(UTC), datetime.now(UTC) + timedelta(minutes=1),
-        "kid", "sig", "1", "a" * 64, "mission-a", 2, "d" * 64,
+        "kid", "sig", "1", "a" * 64, "mission-a", 2, "d" * 64, uuid4(),
     )
     monkeypatch.setattr("cyclothone.ai.execution_gate.verify_digest_signature", AsyncMock(return_value=True))
     gate.policy.check = AsyncMock(return_value={"allowed": True, "requires_approval": False})
@@ -325,7 +344,7 @@ async def test_execution_gate_rejects_stale_mission_binding(monkeypatch):
         await gate.validate(
             envelope=env, tenant_id=env.tenant_id, expected_model_id="model-a",
             expected_provider_id="provider-a", expected_mission_id="mission-a",
-            expected_mission_version=1, expected_mission_hash="d" * 64, twin=AsyncMock(),
+            expected_mission_version=1, expected_mission_hash="d" * 64, expected_run_id=env.run_id, twin=AsyncMock(),
         )
 
 
@@ -337,6 +356,123 @@ def test_mission_binding_changes_envelope_canonical_digest():
         env.envelope_id, env.tenant_id, env.agent_id, env.model_id, env.provider_id,
         env.tool_name, env.action, env.args, env.target, env.issued_at, env.expires_at,
         env.signer_kid, env.signature_b64, env.version, env.binding_hash,
-        "mission-b", 1, "d" * 64,
+        "mission-b", 1, "d" * 64, env.run_id,
     )
     assert a != AgentExecutionGate._envelope_hash(changed)
+
+
+@pytest.mark.asyncio
+async def test_run_binding_mismatch_fails_before_replay_claim():
+    from cyclothone.ai.execution_gate import AgentExecutionGate
+
+    class Replay:
+        async def claim(self, **kwargs):
+            raise AssertionError("replay store must not be reached for a mismatched run")
+
+    env = envelope()
+    gate = AgentExecutionGate(Replay())
+    with pytest.raises(AgentExecutionDenied, match="envelope run binding mismatch"):
+        await gate.consume(envelope=env, tenant_id=env.tenant_id, run_id=uuid4())
+
+
+@pytest.mark.asyncio
+async def test_supabase_replay_claim_includes_authoritative_run_id(monkeypatch):
+    from cyclothone.ai.execution_gate import SupabaseReplayStore
+
+    tenant_id, run_id = uuid4(), uuid4()
+    rpc = AsyncMock(return_value=True)
+    monkeypatch.setattr("cyclothone.ai.execution_gate.supabase.rpc", rpc)
+    store = SupabaseReplayStore()
+    assert await store.claim(
+        tenant_id=tenant_id,
+        run_id=run_id,
+        envelope_id="env-run-bound",
+        expires_at=datetime.now(UTC) + timedelta(minutes=1),
+        envelope_hash="a" * 64,
+    )
+    rpc.assert_awaited_once()
+    assert rpc.await_args.args[0] == "claim_ai_execution_envelope"
+    assert rpc.await_args.args[1]["p_tenant_id"] == str(tenant_id)
+    assert rpc.await_args.args[1]["p_run_id"] == str(run_id)
+
+
+@pytest.mark.asyncio
+async def test_approval_dispatch_revalidates_and_consumes_same_run_binding(monkeypatch):
+    from cyclothone.ai.execution_gate import AgentEnvelope
+    from cyclothone.response.orchestrator import ResponseOrchestrator
+
+    tenant_id, agent_id, run_id, case_action_id, device_id = (
+        uuid4(), uuid4(), uuid4(), uuid4(), uuid4()
+    )
+    env = AgentEnvelope(
+        "env-approved", tenant_id, agent_id, "model-a", "provider-a",
+        "kill_process", "kill_process", {"pid": 7}, "device-1",
+        datetime.now(UTC), datetime.now(UTC) + timedelta(minutes=2),
+        "kid", "signed", "1", "a" * 64, "mission-a", 1, "d" * 64, run_id,
+    )
+    row = {
+        "status": "pending_approval",
+        "tenant_id": str(tenant_id),
+        "ai_run_id": str(run_id),
+        "case_id": str(uuid4()),
+        "device_id": str(device_id),
+        "action": "kill_process",
+        "args": {"pid": 7},
+        "target": "device-1",
+        "model_id": "model-a",
+        "provider_id": "provider-a",
+        "agent_envelope": env.to_record(),
+    }
+    store = AsyncMock()
+    store.get = AsyncMock(return_value=row)
+    store.update = AsyncMock()
+    gate = AsyncMock()
+    dispatcher = AsyncMock()
+    dispatcher.issue = AsyncMock(return_value={"id": "cmd-approved"})
+    authorizer = AsyncMock(return_value={"allowed": True, "committed": True})
+    monkeypatch.setattr(
+        "cyclothone.response.orchestrator.create_response_execution_approval",
+        AsyncMock(return_value={"approval_id": "approval-1"}),
+    )
+    receipt_service = AsyncMock()
+    orchestrator = ResponseOrchestrator(
+        dispatcher, store, execution_gate=gate,
+        action_receipt_service=receipt_service,
+        execution_authorizer=authorizer,
+    )
+
+    result = await orchestrator.approve(case_action_id, uuid4())
+
+    assert result["command_id"] == "cmd-approved"
+    gate.validate.assert_awaited_once()
+    assert gate.validate.await_args.kwargs["expected_run_id"] == run_id
+    gate.consume.assert_awaited_once()
+    assert gate.consume.await_args.kwargs["run_id"] == run_id
+    receipt_service.record_action.assert_awaited_once()
+    dispatcher.issue.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_envelope_issuer_rejects_run_bound_to_different_agent(monkeypatch):
+    from cyclothone.ai.envelope_issuer import AIEnvelopeIssuer, EnvelopeIssueRequest, EnvelopeIssuanceDenied
+
+    tenant_id, agent_id = uuid4(), uuid4()
+
+    async def select_one(table, columns, **filters):
+        if table == "ai_runs":
+            return {"id": filters.get("id"), "tenant_id": str(tenant_id), "agent_id": str(uuid4())}
+        raise AssertionError("agent authority must not be consulted after run/agent mismatch")
+
+    monkeypatch.setattr("cyclothone.ai.envelope_issuer.supabase.select_one", select_one)
+    issuer = AIEnvelopeIssuer(
+        AsyncMock(resolve=AsyncMock(return_value={"active": True, "binding_hash": "a" * 64})),
+        AsyncMock(resolve=AsyncMock(return_value={"active": True})),
+    )
+    with pytest.raises(EnvelopeIssuanceDenied, match="AI run/agent binding mismatch"):
+        await issuer.issue(EnvelopeIssueRequest(
+            run_id=uuid4(), tenant_id=tenant_id, agent_id=agent_id,
+            model_id="model-a", provider_id="provider-a",
+            tool_name="kill_process", action="kill_process",
+            args={"pid": 7}, target="device-1", mission_id="mission-a",
+            mission_version=1, mission_hash="d" * 64,
+        ))

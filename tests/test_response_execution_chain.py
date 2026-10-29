@@ -164,3 +164,30 @@ def test_command_canonical_payload_binds_case_action_and_ai_context():
     first = command_digest(payload)
     payload["execution_context"]["envelope_id"] = "env-2"
     assert command_digest(payload) != first
+
+
+def test_playbook_compiler_binds_run_id_into_envelope_request():
+    from cyclothone.response.playbook_runtime import compile_playbook_steps
+
+    run_id = UUID("44444444-4444-4444-4444-444444444444")
+    agent_id = UUID("55555555-5555-5555-5555-555555555555")
+    step = compile_playbook_steps(
+        [{
+            "action": "kill_process",
+            "args": {"pid": 77},
+            "model_id": "model-real",
+            "provider_id": "provider-real",
+            "target": "endpoint-77",
+            "agent_id": str(agent_id),
+            "mission_id": "mission-prod",
+            "mission_version": 3,
+            "mission_hash": "a" * 64,
+            "ai_run_id": str(run_id),
+        }],
+        tenant_id=TENANT,
+    )[0]
+
+    assert step.run_id == run_id
+    assert step.envelope_request is not None
+    assert step.envelope_request.run_id == run_id
+    assert step.envelope_request.agent_id == agent_id

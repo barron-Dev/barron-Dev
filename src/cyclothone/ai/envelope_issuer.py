@@ -38,6 +38,7 @@ class EnvelopeIssueRequest:
     mission_id: str | None = None
     mission_version: int | None = None
     mission_hash: str | None = None
+    run_id: UUID | None = None
 
 
 def _canonical_hash(envelope: AgentEnvelope) -> str:
@@ -60,6 +61,8 @@ class AIEnvelopeIssuer:
         self.mission_authority = mission_authority
 
     async def issue(self, request: EnvelopeIssueRequest) -> AgentEnvelope:
+        if request.run_id is None:
+            raise EnvelopeIssuanceDenied("authoritative AI run id is required")
         if request.version != "1":
             raise EnvelopeIssuanceDenied("unsupported envelope version")
         if not 1 <= request.ttl_seconds <= 900:
@@ -81,6 +84,19 @@ class AIEnvelopeIssuer:
         mission = await self.mission_authority.resolve(tenant_id=request.tenant_id, mission_id=request.mission_id, version=request.mission_version, compiled_hash=request.mission_hash)
         if not mission or mission.get("active") is not True:
             raise EnvelopeIssuanceDenied("mission is not active")
+
+        # The run identity is resolved from the persisted run record, not trusted
+        # merely because a caller placed a UUID in an ActionPlan or request.
+        run = await supabase.select_one(
+            "ai_runs",
+            "id,tenant_id,agent_id",
+            id=str(request.run_id),
+            tenant_id=str(request.tenant_id),
+        )
+        if not run:
+            raise EnvelopeIssuanceDenied("canonical AI run does not belong to tenant")
+        if str(run.get("agent_id") or "") != str(request.agent_id):
+            raise EnvelopeIssuanceDenied("AI run/agent binding mismatch")
 
         agent = await supabase.select_one(
             "ai_agents",
@@ -127,6 +143,7 @@ class AIEnvelopeIssuer:
             mission_id=request.mission_id,
             mission_version=request.mission_version,
             mission_hash=request.mission_hash,
+            run_id=request.run_id,
         )
         if (
             len(envelope.binding_hash) != 64
@@ -155,4 +172,5 @@ class AIEnvelopeIssuer:
             mission_id=envelope.mission_id,
             mission_version=envelope.mission_version,
             mission_hash=envelope.mission_hash,
+            run_id=envelope.run_id,
         )
