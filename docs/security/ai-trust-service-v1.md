@@ -27,8 +27,8 @@
 - Live Supabase project whcomikcftbousoqzeal contains ai_trust_execution_decisions, ai_trust_execution_identities, ai_trust_subject_bindings, trust_evidence, trust_proofs, trust_attestations, trust_signing_keys, and related routines. RLS is enabled on the inspected AI decision/identity and trust evidence/proof tables.
 - The live trust_commit_evidence_verification routine checks the supplied payload hash against the stored evidence hash and checks signer/key bindings and key status, but its inspected body does not call a cryptographic Ed25519 verifier. Do not treat its VERIFIED state as proof that the signature itself was verified by that function.
 - Live Supabase has pgcrypto installed; this design avoids pgsodium. The trusted Python backend performs Ed25519 verification using the maintained `cryptography` dependency, and the database RPC is restricted to `service_role` while independently checking payload/event hashes, tenant/run/agent binding, key status, chain sequence, and append-only rules.
-- Live migration history includes entries through 2026-10-25, while the repository’s visible supabase/migrations directory ends at 2026-10-17. Reconcile repository/production migration-source drift before applying new production migrations.
-- Vercel project barron-dev is Next.js and has customer/developer/Kontrol domains configured. Project metadata reported live=false while a latest deployment record was READY; do not claim this feature is live or deployed. No deployment was promoted or sent to production. A preview deployment automatically queued for this feature branch was canceled before build to avoid an unapproved preview/build; the GitHub Vercel check on that head consequently reports failure due to cancellation, not a code-test result.
+- Live Supabase migration history currently reports latest applied version `20261025065948`. The repository now includes the proposed `20261028070000_ai_action_verifier.sql`, which is not applied. Reconcile any migration-source drift before production application.
+- Vercel project `barron-dev` has customer/developer/Kontrol domains configured. The latest checked Vercel commit status for the current PR head is success, but this is not proof that this feature is live or deployed. No deployment was promoted or sent to production.
 
 ## Ordered implementation plan
 
@@ -38,10 +38,10 @@
 - Verify Ed25519 against a key registry; bind tenant, run, sequence, previous hash, and signer key ID.
 - Add a typed result contract that refuses complete when any requested source is incomplete.
 - Do not present a browser-local cryptographic exercise as an investor demonstration. The route now displays a truthful BLOCKED state until the real API, production key registry, trusted-backend Ed25519 verification, database receipt enforcement, and durable receipt read-back are connected.
-- Add a proposed database RPC/migration that recomputes hashes, checks the active tenant-scoped key, and inserts only after all database checks. The trusted backend verifies Ed25519 before calling the service_role-only RPC. This migration is not applied.
+- Add a proposed database RPC/migration that recomputes hashes, checks the active tenant-scoped key, and inserts only after all database checks. The trusted backend verifies Ed25519 before calling the service_role-only RPC. The migration remains unapplied to production.
 
 ### P1 — secure runtime/database wiring
-- Align migration history; test backend Ed25519 verification and service_role-only RPC grants in an isolated DB; test key purpose/status/revocation, RLS/grants, negative paths, and durable read-back.
+- Align migration history; test backend Ed25519 verification and service_role-only RPC grants in an isolated DB; test key purpose/status/revocation, RLS/grants, negative paths, and durable read-back. The isolated PostgreSQL workflow and full Python suite have now passed; authenticated live E2E remains outstanding.
 - Connect the backend signer to the RPC, with key custody outside model/browser control.
 - Review trust_authorize_ai_run policy-unbound behavior and ensure policy-required workloads fail closed without weakening intentionally optional workloads.
 - Add request replay/idempotency, append-only verification records, and a verifier CLI for exported bundles.
@@ -82,23 +82,23 @@
 ## Proof and release gates
 
 - Fresh Python tests and TypeScript/Next.js build on the new branch.
-- SQL migration applied only in an isolated DB; positive and negative tests prove DB recomputes payload hash, event hash, active key binding, Ed25519 signature, tenant/run binding, and chain predecessor.
+- Proposed SQL migration executed only in a disposable isolated DB; tests prove the DB recomputes payload/event hashes, enforces active key binding, tenant/run binding, chain predecessor, and append-only rules. The real Python verifier separately proves valid Ed25519 acceptance and forged-signature rejection.
 - Wrong key, revoked/expired key, altered payload, altered event metadata, signature mutation, duplicate event/sequence, cross-tenant run, replay, and chain truncation all reject.
 - The production verification page must remain BLOCKED until an authenticated end-to-end test proves real API signing/verification, live database enforcement, replay/tenant/run checks, and durable receipt read-back.
 - Production acceptance requires authenticated API wiring, database read-back, key rotation/revocation tests, RLS/grant checks, and fresh CI. No production-complete claim before those gates pass.
 
 
-## Validation performed for this branch (2026-10-28, latest checkpoint)
+## Validation performed for this branch (2026-10-29, latest checkpoint)
 
 - GitHub Actions run **3624** for commit `d89c002ed8bc2b51843b1c06906c1176a5527ed9` completed successfully.
 - Python test suite: **424 passed, 2 warnings**. This is automated repository test evidence, not live database integration.
 - Console build: passed.
 - Production image build: passed.
 - Vercel check for this branch commit: success; this is not evidence that the PR was merged or that production backend services were deployed.
-- Live Supabase read-only preflight: PostgreSQL 17.6; `ai_action_verification_events` plus `commit_ai_action_verification_event` are absent. The new design avoids a `pgsodium` dependency. The production `trust_signing_keys` registry currently has no active AI_ACTION key.
+- Live Supabase read-only preflight: PostgreSQL 17.6; latest applied migration version is `20261025065948`; `ai_action_verification_events` and `commit_ai_action_verification_event` are absent; active and total production `AI_ACTION` key counts are both zero. The new design avoids a `pgsodium` dependency.
 - The migration remains unapplied. No production key was provisioned, no merge or deployment was performed, and no authenticated end-to-end receipt test has been completed.
-- **Release decision remains BLOCKED** until an isolated PostgreSQL run validates extension/function compatibility, canonical JSON/hash parity, valid/invalid Ed25519 signatures, tenant/run/agent enforcement, concurrent chain sequencing, append-only controls, and durable receipt read-back; then perform authenticated E2E and obtain explicit production-change approval.
+- **Release decision remains BLOCKED** until isolated PostgreSQL validation and the real Python Ed25519 positive/forged-signature checks pass (now passed), followed by authenticated E2E, migration-source reconciliation, key provisioning through an approved secret manager, and explicit production-change approval.
 
 - Additional read-only schema reconciliation completed: the live `ai_runs` identity columns are UUID and `agent_id` is NOT NULL; the existing `trust_register_signing_key(uuid,text,text,text,text,timestamptz,timestamptz)` is SECURITY DEFINER with execution granted only to `service_role`. The proposed migration targets that exact signature and extends its allowed purpose list.
 - Live preflight confirmed `extensions.digest(bytea,text)` exists. No production DDL was executed.
-- Validation limitation at the prior checkpoint: SQL parsing/execution and actual Ed25519 verification had not been run in isolation. The current PR now has a disposable PostgreSQL workflow that executes the proposed migration and exercises the real Python Ed25519 verifier; the result of the latest rerun must be checked before claiming this validation passes.
+- Current CI proof: disposable PostgreSQL migration/ACL/hash-chain validation passed; full Python suite passed with `424 passed`; console build passed; latest checked Vercel commit status is success. The SQL workflow runs the actual Python Ed25519 verifier for valid and forged receipts. These results do not establish production deployment or authenticated live E2E.
