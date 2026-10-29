@@ -16,10 +16,11 @@
 - Camera endpoint validation requiring RTSP/RTSPS, exact host allowlisting, and forbidding credentials/query tokens in endpoint URLs.
 - Shutdown handling that avoids blocking forever when the bounded queue is full.
 - Ed25519 signed evidence records with canonical JSON, SHA-256 record hashes, previous-hash chaining, trusted signer-key binding, sequence/replay checks, and tenant/journal isolation verification. These are cryptographic primitives only; they are not yet transactionally persisted or backed by a production KMS/HSM.
+- Source/model provenance contracts require frame hashes, ingest record references, pinned model artifact/runtime/label-set versions, valid confidence and bounding-box metadata, and tenant/site/camera/time consistency between observations and events. These validators do not run a detector and require callers to resolve references against durable storage.
 
 ## Honest runtime boundary
 
-The RTSP reader is code, not proof that a camera is connected. It has not been exercised against a client-authorized live camera in this change. It intentionally does not support credentials embedded in RTSP URLs. Production authenticated cameras require a reviewed credential broker/local proxy, plus network egress controls enforcing the camera allowlist. FFmpeg must be installed on the edge node. The stream reader is not yet wired to a camera registry, detector, durable persistence, authenticated API, or a persisted evidence journal.
+The RTSP reader is code, not proof that a camera is connected. It has not been exercised against a client-authorized live camera in this change. It intentionally does not support credentials embedded in RTSP URLs. Production authenticated cameras require a reviewed credential broker/local proxy, plus network egress controls enforcing the camera allowlist. FFmpeg must be installed on the edge node. The stream reader is not yet wired to a camera registry, detector, durable persistence, authenticated API, or a persisted evidence journal. Provenance contracts validate metadata only; they cannot prove a claimed frame record exists until backed by storage lookup.
 
 The ONVIF client does not yet perform WS-Discovery subnet discovery, and its profile negotiation has not been validated against real camera hardware. Detector/ByteTrack/pose inference, durable tenant-scoped persistence, transactional journal writes, production key custody/rotation, cross-service fusion, weather/sensor enrichment, report scheduling/rendering/delivery, and customer/developer/Kontrol UI integration are not yet wired.
 
@@ -38,7 +39,8 @@ The ONVIF client does not yet perform WS-Discovery subnet discovery, and its pro
 
 - Real-camera validation of FFmpeg ingest and authenticated camera credential brokering.
 - WS-Discovery and profile negotiation validation against real camera hardware, including firmware-specific ONVIF behavior and camera credential handling.
-- Actual detector/model artifact provisioning, license review, and hardware benchmarks.
+- Actual detector/model artifact provisioning, license review, and hardware benchmarks; provenance contracts are not detector output.
+- Durable lookup that resolves every frame and observation reference before accepting a derived event.
 - ByteTrack continuity and modality-specific pose/behavior evaluation with measured false-positive/negative rates.
 - Durable tenant-scoped camera/site/zone/observation/event/report/journal schema and restricted RPC/API path.
 - Transactional integration of the Ed25519 journal with durable writes, production key custody/rotation, and independent verification service.
