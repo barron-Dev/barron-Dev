@@ -90,14 +90,12 @@
 
 ## Validation performed for this branch (2026-10-29, latest checkpoint)
 
-- GitHub Actions run **3624** for commit `d89c002ed8bc2b51843b1c06906c1176a5527ed9` completed successfully.
-- Python test suite: **424 passed, 2 warnings**. This is automated repository test evidence, not live database integration.
-- Console build: passed.
-- Production image build: passed.
-- Vercel check for this branch commit: success; this is not evidence that the PR was merged or that production backend services were deployed.
+- GitHub Actions run ID `40810171709` (Cyclothone CI) completed successfully; its Python job reports **424 passed, 2 warnings**.
+- GitHub Actions run ID `40810172339` (AI Action Verifier isolated SQL validation) completed successfully.
+- Console build: passed. Latest checked Vercel commit status: success. These are branch/CI checks, not proof of production deployment.
 - Live Supabase read-only preflight: PostgreSQL 17.6; latest applied migration version is `20261025065948`; `ai_action_verification_events` and `commit_ai_action_verification_event` are absent; active and total production `AI_ACTION` key counts are both zero. The new design avoids a `pgsodium` dependency.
 - The migration remains unapplied. No production key was provisioned, no merge or deployment was performed, and no authenticated end-to-end receipt test has been completed.
-- **Release decision remains BLOCKED** until isolated PostgreSQL validation and the real Python Ed25519 positive/forged-signature checks pass (now passed), followed by authenticated E2E, migration-source reconciliation, key provisioning through an approved secret manager, and explicit production-change approval.
+- **Release decision remains BLOCKED** because 28 migration versions applied in live Supabase after `20261017180000` have no matching migration files in either current `main` or this feature branch. Recover/reconcile those sources first, then complete authenticated E2E and obtain explicit production-change approval.
 
 - Additional read-only schema reconciliation completed: the live `ai_runs` identity columns are UUID and `agent_id` is NOT NULL; the existing `trust_register_signing_key(uuid,text,text,text,text,timestamptz,timestamptz)` is SECURITY DEFINER with execution granted only to `service_role`. The proposed migration targets that exact signature and extends its allowed purpose list.
 - Live preflight confirmed `extensions.digest(bytea,text)` exists. No production DDL was executed.
