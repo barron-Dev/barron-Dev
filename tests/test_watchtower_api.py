@@ -7,8 +7,9 @@ from cyclothone.api.routes.watchtower import _validated_endpoint
 def test_watchtower_endpoint_requires_server_allowlisted_host(monkeypatch):
     monkeypatch.setenv("WATCHTOWER_CAMERA_ALLOWED_HOSTS", "10.20.30.40, camera.internal ")
     assert _validated_endpoint("rtsps://camera.internal/live") == ("camera.internal", "rtsps")
-    with pytest.raises(HTTPException, match="camera_host_not_allowlisted_by_server"):
+    with pytest.raises(HTTPException) as exc:
         _validated_endpoint("rtsp://10.20.30.41/live")
+    assert exc.value.detail == "camera_host_not_allowlisted_by_server"
 
 
 @pytest.mark.parametrize(
