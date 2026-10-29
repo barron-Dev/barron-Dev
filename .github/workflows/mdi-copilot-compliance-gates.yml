@@ -31,8 +31,9 @@ jobs:
           grep -q "^import 'server-only';" console/lib/mdi/auth.ts || { echo "privileged MDI helper must import server-only"; exit 1; }
       - name: Copilot route must use authenticated MDI backend
         run: |
-          grep -q 'mobile-intelligence/copilot' src/cyclothone/api/routes/mobile_intelligence_copilot.py
-          grep -q 'authenticate_request' src/cyclothone/api/routes/mobile_intelligence_copilot.py
+          grep -q 'prefix="/mobile-intelligence"' src/cyclothone/api/routes/mobile_intelligence_copilot.py
+          grep -q '@router.post("/copilot")' src/cyclothone/api/routes/mobile_intelligence_copilot.py
+          grep -q 'Depends(authenticate_request)' src/cyclothone/api/routes/mobile_intelligence_copilot.py
       - name: Compliance rule coverage
         run: |
           for j in GDPR UAE_PDPL SAUDI_PDPL POPIA DPDP_IN; do
