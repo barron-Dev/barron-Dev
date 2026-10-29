@@ -67,10 +67,10 @@ def evaluate_loitering(
 ) -> list[RuleEvent]:
     """Emit loitering events only for continuous observations in one zone.
 
-    Observations must be actual output from an authorized edge detector/tracker.
-    A gap greater than max_observation_gap breaks continuity; the algorithm
-    will not bridge missing footage. Each camera/track/zone emits at most once
-    per continuous segment. Results are deterministic for the same input.
+    A zone change, non-increasing timestamp, or gap greater than
+    max_observation_gap resets continuity. Missing footage is never bridged.
+    Each camera/track emits at most once per continuous segment. Results are
+    deterministic for the same input.
     """
     if threshold <= timedelta(0):
         raise ValueError("threshold_must_be_positive")
@@ -82,18 +82,23 @@ def evaluate_loitering(
     ordered = sorted(
         observations,
         key=lambda o: (
-            o.tenant_id, o.camera_id, o.track_id, o.zone_id,
+            o.tenant_id, o.camera_id, o.track_id,
             _aware_utc(o.observed_at, "observed_at"), o.source_sequence,
         ),
     )
-    state: dict[tuple[str, str, str, str], dict] = {}
+    state: dict[tuple[str, str, str], dict] = {}
     events: list[RuleEvent] = []
     for obs in ordered:
-        key = (obs.tenant_id, obs.camera_id, obs.track_id, obs.zone_id)
+        key = (obs.tenant_id, obs.camera_id, obs.track_id)
         now = _aware_utc(obs.observed_at, "observed_at")
         current = state.get(key)
-        if current is None or now <= current["last_at"] or now - current["last_at"] > max_observation_gap:
-            state[key] = {"start": now, "last_at": now, "hashes": [obs.frame_sha256], "emitted": False}
+        if (current is None or obs.zone_id != current["zone_id"]
+                or now <= current["last_at"]
+                or now - current["last_at"] > max_observation_gap):
+            state[key] = {
+                "zone_id": obs.zone_id, "start": now, "last_at": now,
+                "hashes": [obs.frame_sha256], "emitted": False,
+            }
             continue
         current["last_at"] = now
         if obs.frame_sha256 not in current["hashes"]:
@@ -119,8 +124,8 @@ def evaluate_loitering(
 def coverage_outcome(*, source_available: bool, frames_observed: int, gaps: Iterable[str]) -> str:
     """Never report 'clear' when a source is unavailable or has coverage gaps."""
     gap_list = tuple(gaps)
-    if frames_observed < 0:
-        raise ValueError("frames_observed_must_be_nonnegative")
+    if isinstance(frames_observed, bool) or not isinstance(frames_observed, int) or frames_observed < 0:
+        raise ValueError("frames_observed_must_be_nonnegative_integer")
     if not source_available or frames_observed == 0:
         return "unavailable"
     if gap_list:

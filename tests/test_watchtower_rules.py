@@ -44,6 +44,16 @@ def test_missing_observation_gap_breaks_continuity():
     assert events == []
 
 
+def test_zone_change_and_return_resets_dwell_time():
+    events = evaluate_loitering(
+        [observation(0, zone="zone-a"), observation(200, zone="zone-b"),
+         observation(250, zone="zone-a"), observation(400, zone="zone-a")],
+        threshold=timedelta(seconds=300),
+        max_observation_gap=timedelta(seconds=300),
+    )
+    assert events == []
+
+
 def test_zone_change_does_not_join_dwell_time():
     events = evaluate_loitering(
         [observation(0, zone="zone-a"), observation(200, zone="zone-b")],
@@ -68,6 +78,8 @@ def test_coverage_never_equates_unavailable_source_with_clear():
     assert coverage_outcome(source_available=False, frames_observed=0, gaps=[]) == "unavailable"
     assert coverage_outcome(source_available=True, frames_observed=12, gaps=["stream_disconnected"]) == "partial_coverage"
     assert coverage_outcome(source_available=True, frames_observed=12, gaps=[]) == "complete"
+    with pytest.raises(ValueError, match="nonnegative_integer"):
+        coverage_outcome(source_available=True, frames_observed=-1, gaps=[])
 
 
 def test_report_is_data_only_and_does_not_claim_threat_free():
