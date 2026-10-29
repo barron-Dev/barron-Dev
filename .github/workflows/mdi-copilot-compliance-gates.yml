@@ -41,4 +41,4 @@ jobs:
           done
       - name: No production database dependency
         run: |
-          ! grep -RIn "DATABASE_URL" .github/workflows/mdi-copilot-compliance-gates.yml
+          ! grep -RIn "DATABASE_URL" src/cyclothone/api/routes/mobile_intelligence_copilot.py services/copilot services/compliance --include="*.py" --include="*.ts" --include="*.tsx"
