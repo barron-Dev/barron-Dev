@@ -1,0 +1,6 @@
+# Optional trusted-worker dependencies for public orbital and passive RF ingestion.
+httpx[socks]==0.28.1
+skyfield==1.53
+numpy==2.2.6
+scipy==1.15.3
+# Install SoapySDR and the matching driver via the edge host's supported OS/vendor packages.
