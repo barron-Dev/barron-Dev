@@ -67,3 +67,39 @@ Attach the following to the recovery PR/release record:
 - [ ] explicit list of blocked checks and reason.
 
 **Exit criterion:** customer DW and Kontrol are not declared end-to-end ready until the authenticated request-to-evidence chain and Engineering AI runtime checks pass against the real deployed service.
+
+
+## F. Weekend upgrade: owner-authorized recovery sequence
+
+### Known resource identifiers (verify in Railway UI before acting)
+- Railway project: `c40a4695-f8b0-41c1-bddf-f5a48a921cbd`
+- Service: `cyclothone-api`
+- Environment ID last recorded: `5cb394f1-2176-4cef-9f2b-f604f64b24e9`
+- Railway had been paused after trial expiry in the last recorded checkpoint. Treat status as stale until rechecked.
+- Supabase project ref: `whcomikcftbousoqzeal`
+- Repository: `barron-Dev/barron-Dev`; Vercel project: `barron-dev`; production deployment last verified from `main` at SHA `55f78c0b80bd03ae1bc1c532da8c4d626e942ab2`.
+
+### Upgrade-day ordered procedure
+1. Owner confirms upgrade/billing is active and explicitly authorizes Railway inspection and recovery. Do not infer approval from the plan upgrade alone.
+2. Reconfirm project, environment, service IDs, and region in the Railway UI. Do not create a duplicate project/service or environment.
+3. Capture the pre-change service state, latest deployment ID/SHA, health-check configuration, restart policy, replica count, and recent redacted logs. Keep a rollback reference.
+4. Compare deployed SHA with the approved GitHub branch/commit. Do not deploy a feature branch or draft-PR head directly to production. Use the owner-approved release commit only.
+5. Inspect required variable names and whether each is present; never print or copy secret values into logs or this runbook. Do not rotate, regenerate, or replace secrets unless separately approved.
+6. Check build/start command, root directory, runtime version, port binding, and health path from repository configuration. Do not guess a new start command.
+7. Start/redeploy only after the previous checks pass. Observe startup and confirm `GET /health` from the actual running service; a Vercel build or local test is not a Railway health proof.
+8. From the live service, verify Supabase connectivity with a minimal read-only authenticated query and confirm schema expectations. Do not apply migrations as part of runtime recovery.
+9. Run one authenticated developer test through watchlist create/read/update/delete and one explicitly approved request path. Capture request IDs and persisted read-back. Do not seed fake findings or drain old queues.
+10. Confirm worker lease/claim/heartbeat and per-source outcomes for the single controlled request. If no worker is deployed or no approved source is available, report blocked/partial; do not claim monitoring is active.
+11. Keep native onion collection disabled until the Tor proxy/circuit, approved seed retrieval, persisted probe evidence, and rollback tests are independently proven in the service runtime.
+12. Run Kontrol Engineering AI read-only checks and verify provider failures are surfaced honestly. Do not enable write tools or grant broader credentials as a workaround.
+13. Attach redacted evidence to the PR/release record, then stop for review. Production promotion, database migrations, signing-key provisioning, and any queue activation remain separate approval gates.
+
+### Current cross-platform blockers to resolve before/after Railway returns
+- **Migration-source parity:** live Supabase latest recorded migration is `20261025065948`; 28 versions after `20261017180000` are absent from the inspected `main` timestamped migration directory. Recover exact source/history and validate parity before any schema-changing deployment. Never synthesize missing historical migrations from guessed names or current schema.
+- **RLS policy review:** latest read-only inventory found 340 public tables, zero with RLS disabled, and 39 with RLS enabled but no policy. This is not automatically a vulnerability or a fix instruction: inventory ownership, grants, service-role-only intent, and expected access before changing policy.
+- **AI Action Verifier:** receipt table/RPC and production `AI_ACTION` key are not present; the verifier PR remains draft. No production signing key or migration should be created during basic Railway recovery.
+- **Omni-Vision:** signed evidence primitives are not yet wired to real media ingestion, detector runtimes, authenticated persistence, or customer UI. Do not advertise it as operational.
+- **Vercel:** production is currently recorded on `main` SHA `55f78c0b80bd03ae1bc1c532da8c4d626e942ab2`; recent branch preview deployments do not imply production promotion.
+
+### Stop/rollback triggers
+Stop and preserve evidence if the service cannot boot, health checks fail, deployed SHA is unapproved, Supabase auth/schema checks fail, a worker claims unsupported work, secrets are exposed, cross-tenant access is observed, or queue/source state changes unexpectedly. Roll back only to the captured owner-approved known-good deployment; do not use schema rollback as a substitute for application rollback.
