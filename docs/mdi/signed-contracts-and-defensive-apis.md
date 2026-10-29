@@ -4,7 +4,7 @@
 
 - `contracts.py` creates deterministic canonical JSON, SHA-256 evidence and contract hashes, and Ed25519 signatures. Verification detects payload alteration.
 - `mdi_journal_events` is an append-only, tenant-scoped journal source migration. A service-role-only RPC locks per tenant and rejects stale journal heads; mutation triggers reject UPDATE/DELETE.
-- `a2p_verifier.py` authenticates a tenant API request using HMAC, strict E.164 fields, request timestamp bounds and payload-size limits. This is API-client integrity only. It is **not** carrier-origin authentication, SMS delivery, SHAKEN/STIR signing, or a routing API.
+- `a2p_verifier.py` and `POST /api/v1/mobile-intelligence/a2p/request-integrity/verify` authenticate a tenant API request using HMAC, strict E.164 fields, request timestamp bounds and payload-size limits. The route requires the existing `mobile:intelligence` permission and exact tenant match. Configure `CYCLOTHONE_MDI_A2P_TENANT_KEYS_JSON` as a trusted server-side JSON map from tenant UUID to base64-encoded random key (at least 32 bytes); never expose it to the browser. This is API-client integrity only. It is **not** carrier-origin authentication, SMS delivery, SHAKEN/STIR signing, or a routing API.
 - `voice_analysis.py` is a consent-gated interface. It reports unavailable when no validated model is configured; it never manufactures a deepfake score. Any returned model score is a review indicator, not proof or an automatic call-disconnect command.
 
 ## Release and trust boundaries
