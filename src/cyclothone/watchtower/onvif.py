@@ -7,7 +7,7 @@ lifetime. Network egress policy must independently restrict reachable devices.
 """
 from __future__ import annotations
 
-import ipaddress
+import math
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from urllib.parse import urlsplit
@@ -97,7 +97,7 @@ class ONVIFMediaClient:
         host = _validate_http_endpoint(device_service_url, allowed_hosts)
         if not isinstance(username, str) or not username or not isinstance(password, str) or not password:
             raise ONVIFConfigurationError("separate_camera_credentials_required")
-        if not 0.5 <= timeout_seconds <= 15:
+        if (isinstance(timeout_seconds, bool) or not isinstance(timeout_seconds, (int, float)) or not math.isfinite(timeout_seconds) or not 0.5 <= timeout_seconds <= 15):
             raise ONVIFConfigurationError("timeout_seconds_out_of_range")
         self._device_url = device_service_url
         self._allowed_hosts = allowed_hosts
@@ -161,13 +161,6 @@ class ONVIFMediaClient:
             name = node.findtext("tt:Name", default="", namespaces=NS).strip()
             if not token:
                 raise ONVIFProtocolError("camera_profile_token_missing")
-            stream_response = await self._post(
-                media_url,
-                MEDIA_NS + "/GetStreamUri",
-                _soap_envelope("GetStreamUri", MEDIA_NS, {
-                    f"{{{MEDIA_NS}}}StreamSetup": "",
-                }),
-            ) if False else None
             # Construct the nested ONVIF StreamSetup/Transport structure explicitly.
             request = ET.Element(f"{{{SOAP_NS}}}Envelope")
             body = ET.SubElement(request, f"{{{SOAP_NS}}}Body")
@@ -189,6 +182,8 @@ class ONVIFMediaClient:
                 raise ONVIFProtocolError("camera_returned_non_rtsp_stream_uri")
             if parsed.username is not None or parsed.password is not None:
                 raise ONVIFProtocolError("camera_stream_uri_embeds_credentials")
+            if parsed.query or parsed.fragment:
+                raise ONVIFProtocolError("camera_stream_uri_query_or_fragment_forbidden")
             if parsed.hostname.rstrip(".").lower() not in {
                 item.rstrip(".").lower() for item in self._allowed_hosts
             }:
