@@ -23,7 +23,7 @@ create index if not exists ai_model_artifact_attestations_lookup
   on public.ai_model_artifact_attestations (tenant_id, model_id, model_version, created_at desc);
 alter table public.ai_model_artifact_attestations enable row level security;
 revoke all on public.ai_model_artifact_attestations from public, anon, authenticated;
-grant select, insert, update on public.ai_model_artifact_attestations to service_role;
+grant select, insert on public.ai_model_artifact_attestations to service_role;
 
 create table if not exists public.ai_threat_hunt_reviews (
   id uuid primary key default gen_random_uuid(),
@@ -95,6 +95,9 @@ $$;
 revoke all on function public.reject_ai_security_evidence_mutation() from public, anon, authenticated;
 grant execute on function public.reject_ai_security_evidence_mutation() to service_role;
 
+drop trigger if exists ai_model_artifact_attestations_append_only on public.ai_model_artifact_attestations;
+create trigger ai_model_artifact_attestations_append_only before update or delete
+  on public.ai_model_artifact_attestations for each row execute function public.reject_ai_security_evidence_mutation();
 drop trigger if exists ai_threat_hunt_reviews_append_only on public.ai_threat_hunt_reviews;
 create trigger ai_threat_hunt_reviews_append_only before update or delete
   on public.ai_threat_hunt_reviews for each row execute function public.reject_ai_security_evidence_mutation();
