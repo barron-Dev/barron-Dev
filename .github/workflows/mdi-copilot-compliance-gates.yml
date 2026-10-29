@@ -44,4 +44,5 @@ jobs:
           done
       - name: No production database dependency
         run: |
-          ! grep -RIn "DATABASE_URL" .github/workflows/mdi-copilot-compliance-gates.yml
+          database_key="DATABASE""_URL"
+          ! grep -RIn "$database_key" .github/workflows/mdi-copilot-compliance-gates.yml
