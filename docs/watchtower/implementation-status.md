@@ -18,6 +18,17 @@
 - Ed25519 signed evidence records with canonical JSON, SHA-256 record hashes, previous-hash chaining, trusted signer-key binding, sequence/replay checks, and tenant/journal isolation verification. These are cryptographic primitives only; they are not yet transactionally persisted or backed by a production KMS/HSM.
 - Source/model provenance contracts require frame hashes, ingest record references, pinned model artifact/runtime/label-set versions, valid confidence and bounding-box metadata, and tenant/site/camera/time consistency between observations and events. These validators do not run a detector and require callers to resolve references against durable storage.
 
+## Authenticated camera registry and probe API (new in this block)
+
+- Added `POST /api/v1/watchtower/cameras` and `GET /api/v1/watchtower/cameras`, protected by explicit `watchtower:manage` / `watchtower:read` scopes and tenant-bound queries.
+- Camera endpoints must use RTSP/RTSPS, have no embedded credentials, query string, or fragment, and match the server-configured `WATCHTOWER_CAMERA_ALLOWED_HOSTS` exact-host allowlist. Optional site IDs are verified within the authenticated tenant.
+- Added `POST /api/v1/watchtower/cameras/{camera_id}/probe`: it attempts a real FFmpeg stream, captures the first actual frame hash, terminates the stream, and persists a probe outcome. Failures are persisted as failed/unavailable evidence where the database is available; errors never become a clean result.
+- Added `GET /api/v1/watchtower/cameras/{camera_id}/probes` for tenant-scoped probe history.
+- Added a migration source for a tenant-scoped camera registry and append-only probe evidence; anon/authenticated roles receive no direct table grants. FFmpeg is installed in the API container image.
+- Added API endpoint validation regression tests. CI is required to validate these changes; no runtime or live camera has been tested yet.
+
+**Important:** the migration is source-only and has not been applied to production. Live migration history reports versions that are not all represented in the checked-in migration directory. Reconcile that drift first. The camera registry currently accepts credential-free RTSP URLs only; it does not yet integrate the ONVIF credential broker. Host allowlisting must be reinforced by network egress policy to mitigate DNS rebinding/SSRF.
+
 ## Honest runtime boundary
 
 The RTSP reader is code, not proof that a camera is connected. It has not been exercised against a client-authorized live camera in this change. It intentionally does not support credentials embedded in RTSP URLs. Production authenticated cameras require a reviewed credential broker/local proxy, plus network egress controls enforcing the camera allowlist. FFmpeg must be installed on the edge node. The stream reader is not yet wired to a camera registry, detector, durable persistence, authenticated API, or a persisted evidence journal. Provenance contracts validate metadata only; they cannot prove a claimed frame record exists until backed by storage lookup.
