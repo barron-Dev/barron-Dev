@@ -135,10 +135,15 @@ jobs:
           python - <<'PY'
           import concurrent.futures
           import hashlib
+          import importlib.util
           import sys
           from dataclasses import replace
-          sys.path.insert(0, 'src')
-          from cyclothone.ai.action_verifier import ActionEnvelope, verify_action_envelope
+          spec = importlib.util.spec_from_file_location('cyclothone_action_verifier_isolated', 'src/cyclothone/ai/action_verifier.py')
+          action_verifier = importlib.util.module_from_spec(spec)
+          sys.modules[spec.name] = action_verifier
+          spec.loader.exec_module(action_verifier)
+          ActionEnvelope = action_verifier.ActionEnvelope
+          verify_action_envelope = action_verifier.verify_action_envelope
           import json
           import subprocess
           import uuid
