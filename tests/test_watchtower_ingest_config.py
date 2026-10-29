@@ -46,7 +46,7 @@ def test_rtsp_config_rejects_unsafe_frame_rates_and_timeouts():
             allowed_hosts=frozenset({"10.20.30.40"}),
             frames_per_second=60,
         )
-    with pytest.raises(CameraConfigurationError, match="timeout_out_of_range"):
+    with pytest.raises(CameraConfigurationError, match="read_timeout_seconds_out_of_range"):
         RTSPCameraConfig(
             tenant_id="tenant", camera_id="camera",
             endpoint="rtsp://10.20.30.40/live",
