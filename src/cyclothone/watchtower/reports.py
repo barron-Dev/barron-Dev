@@ -11,10 +11,14 @@ COVERAGE = frozenset({"complete", "partial_coverage", "unavailable"})
 SOURCE_STATUSES = frozenset({"available", "partial_coverage", "unavailable"})
 
 
-def _timestamp(value: datetime) -> str:
+def _utc(value: datetime) -> datetime:
     if not isinstance(value, datetime) or value.tzinfo is None or value.utcoffset() is None:
         raise ValueError("timestamp_must_be_timezone_aware")
-    return value.astimezone(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+    return value.astimezone(timezone.utc)
+
+
+def _timestamp(value: datetime) -> str:
+    return _utc(value).isoformat(timespec="microseconds").replace("+00:00", "Z")
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,7 +39,7 @@ class ReportEvent:
         for digest in self.evidence_hashes:
             if not isinstance(digest, str) or len(digest) != 64 or any(c not in "0123456789abcdef" for c in digest):
                 raise ValueError("evidence_hash_must_be_lowercase_sha256")
-        _timestamp(self.observed_at)
+        _utc(self.observed_at)
 
 
 def build_report_payload(
@@ -64,8 +68,8 @@ def build_report_payload(
         raise ValueError("invalid_report_type")
     if source_coverage not in COVERAGE:
         raise ValueError("invalid_source_coverage")
-    start, end = _timestamp(period_start), _timestamp(period_end)
-    if period_end <= period_start:
+    start_utc, end_utc = _utc(period_start), _utc(period_end)
+    if end_utc <= start_utc:
         raise ValueError("period_end_must_follow_period_start")
     gaps = sorted(set(coverage_gaps))
     if source_coverage == "complete" and gaps:
@@ -74,12 +78,12 @@ def build_report_payload(
         raise ValueError("partial_coverage_requires_gaps")
     rows = []
     for event in events:
-        stamp = _timestamp(event.observed_at)
-        if stamp < start or stamp > end:
+        event_time = _utc(event.observed_at)
+        if event_time < start_utc or event_time > end_utc:
             raise ValueError("event_outside_report_period")
         rows.append({
             "event_type": event.event_type,
-            "observed_at": stamp,
+            "observed_at": _timestamp(event_time),
             "camera_id": event.camera_id,
             "evidence_hashes": list(event.evidence_hashes),
             "source_status": event.source_status,
@@ -92,8 +96,8 @@ def build_report_payload(
         "camera_group_id": camera_group_id,
         "report_type": report_type,
         "language_code": language_code,
-        "period_start": start,
-        "period_end": end,
+        "period_start": _timestamp(start_utc),
+        "period_end": _timestamp(end_utc),
         "generated_at": _timestamp(datetime.now(timezone.utc)),
         "source_coverage": source_coverage,
         "coverage_gaps": gaps,

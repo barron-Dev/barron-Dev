@@ -166,13 +166,8 @@ async def stream_rtsp_frames(config: RTSPCameraConfig):
         except BaseException as exc:
             failure = exc
         finally:
-            if queue.full():
-                try:
-                    queue.get_nowait()
-                    queue.task_done()
-                except asyncio.QueueEmpty:
-                    pass
-            queue.put_nowait(None)
+            # Drain the final pending frame before signalling stream completion.
+            await queue.put(None)
 
     producer = asyncio.create_task(produce(), name=f"watchtower-rtsp-{config.camera_id}")
     try:
@@ -182,6 +177,7 @@ async def stream_rtsp_frames(config: RTSPCameraConfig):
             except asyncio.TimeoutError as exc:
                 raise CameraStreamError("camera_stream_read_timeout") from exc
             if item is None:
+                queue.task_done()
                 break
             queue.task_done()
             yield item
