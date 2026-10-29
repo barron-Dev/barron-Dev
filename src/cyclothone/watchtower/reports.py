@@ -8,10 +8,11 @@ from typing import Iterable
 
 REPORT_TYPES = frozenset({"brief", "detailed", "full"})
 COVERAGE = frozenset({"complete", "partial_coverage", "unavailable"})
+SOURCE_STATUSES = frozenset({"available", "partial_coverage", "unavailable"})
 
 
 def _timestamp(value: datetime) -> str:
-    if value.tzinfo is None or value.utcoffset() is None:
+    if not isinstance(value, datetime) or value.tzinfo is None or value.utcoffset() is None:
         raise ValueError("timestamp_must_be_timezone_aware")
     return value.astimezone(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
@@ -22,15 +23,17 @@ class ReportEvent:
     observed_at: datetime
     camera_id: str
     evidence_hashes: tuple[str, ...]
-    source_status: str = "complete"
+    source_status: str = "available"
 
     def __post_init__(self) -> None:
-        if not self.event_type or not self.camera_id:
-            raise ValueError("event_type_and_camera_id_required")
-        if self.source_status not in COVERAGE:
+        if not isinstance(self.event_type, str) or not self.event_type.strip():
+            raise ValueError("event_type_required")
+        if not isinstance(self.camera_id, str) or not self.camera_id.strip():
+            raise ValueError("camera_id_required")
+        if self.source_status not in SOURCE_STATUSES:
             raise ValueError("invalid_source_status")
         for digest in self.evidence_hashes:
-            if len(digest) != 64 or any(c not in "0123456789abcdef" for c in digest):
+            if not isinstance(digest, str) or len(digest) != 64 or any(c not in "0123456789abcdef" for c in digest):
                 raise ValueError("evidence_hash_must_be_lowercase_sha256")
         _timestamp(self.observed_at)
 
