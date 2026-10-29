@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { apiFetch } from "../../../../../../lib/api";
+import { apiFetch } from "../../../../../lib/api";
 
 type Camera = { id: string; name: string; endpoint_host?: string; protocol?: string; enabled?: boolean; created_at?: string };
 type Probe = { id: string; outcome: string; observed_at: string; duration_ms?: number; frame_sha256?: string | null; error_code?: string | null };
