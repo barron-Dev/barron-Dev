@@ -1,7 +1,7 @@
 """Cyclothone-owned, evidence-bounded app-hash intelligence primitives.
 
 This module does not fetch third-party feeds, inspect apps, or quarantine them.
-Only trusted, source-backed records may be promoted into a signed registry.
+This builder cannot validate source trust; promotion requires a separate trusted verifier.
 """
 from __future__ import annotations
 import hashlib, json, re
@@ -37,14 +37,13 @@ def build_hash_intel_record(*, app_sha256: str, verdict: str, source_ids: Iterab
     if len(set(ids)) != len(ids):
         raise ThreatHashError("duplicate source identifier")
     ids = sorted(ids)
-    if verdict=="malicious" and len(ids)<2:
-        confidence,action = 0,"monitor_and_collect_evidence"
-    elif verdict=="malicious":
-        confidence,action = 100,"recommend_corporate_app_quarantine_pending_policy"
-    elif verdict=="revoked":
-        confidence,action = 100,"reject_registry_contract_and_require_review"
+    # Source IDs alone do not prove source independence, accuracy, freshness,
+    # or signature authority. This pure builder never promotes verdicts into
+    # enforcement. A trusted ingestion verifier must validate provenance first.
+    if verdict in {"malicious", "revoked"}:
+        confidence,action = 0,"require_trusted_provenance_review_before_enforcement"
     elif verdict=="benign":
-        confidence,action = 50,"allow_only_under_tenant_policy"
+        confidence,action = 0,"unknown_until_trusted_provenance_review"
     else:
         confidence,action = 0,"monitor_and_collect_evidence"
     payload = {"app_sha256":app_sha256,"verdict":verdict,"confidence":confidence,"source_ids":ids,"rule_version":rule_version,"action":action}
