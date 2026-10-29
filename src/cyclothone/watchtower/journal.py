@@ -154,19 +154,22 @@ def verify_signed_record(
         raise JournalValidationError("record_hash_mismatch")
     try:
         embedded = Ed25519PublicKey.from_public_bytes(bytes.fromhex(record.public_key_hex))
-        if trusted_public_keys is not None:
-            trusted = trusted_public_keys.get(record.signer_key_id)
-            if trusted is None:
-                raise JournalValidationError("signer_key_not_trusted")
-            trusted_bytes = trusted.public_bytes(Encoding.Raw, PublicFormat.Raw)
-            if trusted_bytes.hex() != record.public_key_hex:
-                raise JournalValidationError("signer_key_binding_mismatch")
-            embedded = trusted
+    except ValueError as exc:
+        raise JournalValidationError("public_key_invalid") from exc
+    if trusted_public_keys is not None:
+        trusted = trusted_public_keys.get(record.signer_key_id)
+        if trusted is None:
+            raise JournalValidationError("signer_key_not_trusted")
+        trusted_bytes = trusted.public_bytes(Encoding.Raw, PublicFormat.Raw)
+        if trusted_bytes.hex() != record.public_key_hex:
+            raise JournalValidationError("signer_key_binding_mismatch")
+        embedded = trusted
+    try:
         embedded.verify(bytes.fromhex(record.signature_hex), bytes.fromhex(record.record_hash))
     except InvalidSignature as exc:
         raise JournalValidationError("signature_invalid") from exc
     except ValueError as exc:
-        raise JournalValidationError("public_key_or_signature_invalid") from exc
+        raise JournalValidationError("signature_encoding_invalid") from exc
 
 
 def verify_chain(
