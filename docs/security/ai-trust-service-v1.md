@@ -5,7 +5,7 @@
 ## User-request inventory
 
 1. Cryptographic AI Action Verifier: Ed25519 signatures, canonical payloads, SHA-256 payload commitments, hash-linked action receipts, and actual verification.
-2. Database enforcement that recomputes payload and event hashes and verifies Ed25519; never trust API-supplied verified booleans.
+2. Trusted-backend Ed25519 verification plus database enforcement that recomputes payload and event hashes; never trust API-supplied verified booleans.
 3. Connected Next.js/React production verification surface backed by the authenticated API, registered signing key, and durable database receipt; not implemented end to end yet.
 4. AI execution authorization/policy boundary: AI intent cannot authorize itself; bind tenant, actor/agent, run, model/provider, mission, tool, key, expiry, and replay state.
 5. Capability-restricted WASM sandbox with resource limits and no ambient filesystem/network/secret access by default.
@@ -26,7 +26,7 @@
 - Existing src/cyclothone/ai/execution_gate.py implements a fail-closed gate around signed AI envelopes, tenant/model/provider/mission binding, tool policy, twin simulation, and replay consumption. Existing tests cover invalid signatures and policy/approval behavior. Extend this rather than duplicating it.
 - Live Supabase project whcomikcftbousoqzeal contains ai_trust_execution_decisions, ai_trust_execution_identities, ai_trust_subject_bindings, trust_evidence, trust_proofs, trust_attestations, trust_signing_keys, and related routines. RLS is enabled on the inspected AI decision/identity and trust evidence/proof tables.
 - The live trust_commit_evidence_verification routine checks the supplied payload hash against the stored evidence hash and checks signer/key bindings and key status, but its inspected body does not call a cryptographic Ed25519 verifier. Do not treat its VERIFIED state as proof that the signature itself was verified by that function.
-- Live Supabase has pgcrypto installed but does not currently have pgsodium installed. The proposed database-native Ed25519 RPC therefore has a hard dependency/preflight. Do not apply the migration until the extension can be installed and tested in an isolated database.
+- Live Supabase has pgcrypto installed but does not currently have pgsodium installed. New use of pgsodium is avoided; the trusted Python backend performs Ed25519 verification using the maintained `cryptography` dependency, and the database RPC is restricted to `service_role` while independently checking payload/event hashes, tenant/run/agent binding, key status, chain sequence, and append-only rules.
 - Live migration history includes entries through 2026-10-25, while the repository’s visible supabase/migrations directory ends at 2026-10-17. Reconcile repository/production migration-source drift before applying new production migrations.
 - Vercel project barron-dev is Next.js and has customer/developer/Kontrol domains configured. Project metadata reported live=false while a latest deployment record was READY; do not claim this feature is live or deployed. No deployment was promoted or sent to production. A preview deployment automatically queued for this feature branch was canceled before build to avoid an unapproved preview/build; the GitHub Vercel check on that head consequently reports failure due to cancellation, not a code-test result.
 
@@ -38,10 +38,10 @@
 - Verify Ed25519 against a key registry; bind tenant, run, sequence, previous hash, and signer key ID.
 - Add a typed result contract that refuses complete when any requested source is incomplete.
 - Do not present a browser-local cryptographic exercise as an investor demonstration. The route now displays a truthful BLOCKED state until the real API, production key registry, database verification, and durable receipt read-back are connected.
-- Add a proposed database RPC/migration that recomputes hashes, checks the active tenant-scoped key, verifies Ed25519 in PostgreSQL, and inserts only after all checks. This migration is not applied.
+- Add a proposed database RPC/migration that recomputes hashes, checks the active tenant-scoped key, and inserts only after all database checks. The trusted backend verifies Ed25519 before calling the service_role-only RPC. This migration is not applied.
 
 ### P1 — secure runtime/database wiring
-- Align migration history, install/test pgsodium in an isolated DB, test key purpose/status/revocation and RLS/grants, add negative-path DB tests, and read back committed evidence.
+- Align migration history; test backend Ed25519 verification and service_role-only RPC grants in an isolated DB; test key purpose/status/revocation, RLS/grants, negative paths, and durable read-back.
 - Connect the backend signer to the RPC, with key custody outside model/browser control.
 - Review trust_authorize_ai_run policy-unbound behavior and ensure policy-required workloads fail closed without weakening intentionally optional workloads.
 - Add request replay/idempotency, append-only verification records, and a verifier CLI for exported bundles.
@@ -68,7 +68,7 @@
 - Connected `ResponseOrchestrator` direct dispatch and approved dispatch paths to record a signed `dispatch_authorized` receipt before calling the dispatcher. Missing receipt service, missing external key, absent/incorrect registered public key, RPC rejection, or read-back mismatch blocks dispatch. The service is injected through the orchestrator constructor; production wiring must explicitly inject it after the migration is validated and the key is provisioned.
 - Added tests for missing/malformed external key configuration. These are fail-closed unit tests, not database integration proof.
 - Runtime wiring is now present in `src/cyclothone/api/routes/response.py` for both playbook execution and approval dispatch. The playbook compiler also carries the canonical `ai_run_id` into `EnvelopeIssueRequest`; a regression test checks that exact binding.
-- **Not yet verified:** live RPC availability, actual PostgreSQL Ed25519 function support, migration execution, active key registration, a real authenticated execution-to-receipt E2E, and production key provisioning. Live Supabase read-only inspection confirmed that `pgsodium` is not installed, the detached-signature function is absent, and the receipt table/RPC do not exist. The migration remains unapplied. Do not treat branch code or a passing unit test as production readiness.
+- **Not yet verified:** live RPC availability, trusted-backend Ed25519 verification and service_role-only RPC grants, migration execution, active key registration, a real authenticated execution-to-receipt E2E, and production key provisioning. Live Supabase read-only inspection confirmed that `pgsodium` is not installed, the detached-signature function is absent, and the receipt table/RPC do not exist. The migration remains unapplied. Do not treat branch code or a passing unit test as production readiness.
 
 ## Current code slice and boundaries
 
