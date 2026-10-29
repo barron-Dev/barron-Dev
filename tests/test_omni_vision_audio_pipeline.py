@@ -46,6 +46,8 @@ def test_no_speech_is_explicit_partial_coverage():
 
 
 def test_sample_rate_is_not_silently_misrepresented():
-    with pytest.raises(ValueError):
-        process_audio(bytes(320), sample_rate=8000, target_language="ja",
-                      transcriber=FakeTranscriber())
+    result = process_audio(bytes(320), sample_rate=8000, target_language="ja",
+                           transcriber=FakeTranscriber())
+    assert result.transcript is None
+    assert result.coverage_status == "unavailable"
+    assert "audio_resampling_adapter_required" in result.coverage_gaps
