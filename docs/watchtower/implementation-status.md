@@ -12,12 +12,13 @@
 - Deterministic loitering evaluation over timestamped tracker observations, with zone-change and missing-frame-gap resets.
 - Explicit source coverage outcomes; missing source data cannot imply a clean result.
 - Structured report payload contract that prohibits inferring a threat-free result from an empty event list.
-- An FFmpeg RTSP reader that yields actual JPEG frames, hashes the original JPEG bytes, and uses a one-frame latest-value queue so slow inference does not create an unbounded frame backlog.
+- An FFmpeg RTSP/RTSPS reader that yields actual JPEG frames, hashes the original JPEG bytes, uses a one-frame latest-value queue, and bounds network I/O waits.
 - Camera endpoint validation requiring RTSP/RTSPS, exact host allowlisting, and forbidding credentials/query tokens in endpoint URLs.
+- Shutdown handling that avoids blocking forever when the bounded queue is full.
 
 ## Honest runtime boundary
 
-The RTSP reader is code, not proof that a camera is connected. It has not been exercised against a client-authorized live camera in this change. It intentionally does not support credentials embedded in RTSP URLs. Production authenticated cameras require a reviewed credential broker/local proxy, plus network egress controls enforcing the camera allowlist. FFmpeg must be installed on the edge node.
+The RTSP reader is code, not proof that a camera is connected. It has not been exercised against a client-authorized live camera in this change. It intentionally does not support credentials embedded in RTSP URLs. Production authenticated cameras require a reviewed credential broker/local proxy, plus network egress controls enforcing the camera allowlist. FFmpeg must be installed on the edge node. The stream reader is not yet wired to a camera registry, detector, durable persistence, authenticated API, or evidence journal.
 
 This code does not yet perform ONVIF discovery/profile negotiation, detector/ByteTrack/pose inference, durable tenant-scoped persistence, signed event journaling, cross-service fusion, weather/sensor enrichment, report scheduling/rendering/delivery, or customer/developer/Kontrol UI integration.
 
