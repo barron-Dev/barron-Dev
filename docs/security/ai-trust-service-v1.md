@@ -37,7 +37,7 @@
 - Recompute payload SHA-256 and a domain-separated, length-framed event hash.
 - Verify Ed25519 against a key registry; bind tenant, run, sequence, previous hash, and signer key ID.
 - Add a typed result contract that refuses complete when any requested source is incomplete.
-- Do not present a browser-local cryptographic exercise as an investor demonstration. The route now displays a truthful BLOCKED state until the real API, production key registry, database verification, and durable receipt read-back are connected.
+- Do not present a browser-local cryptographic exercise as an investor demonstration. The route now displays a truthful BLOCKED state until the real API, production key registry, trusted-backend Ed25519 verification, database receipt enforcement, and durable receipt read-back are connected.
 - Add a proposed database RPC/migration that recomputes hashes, checks the active tenant-scoped key, and inserts only after all database checks. The trusted backend verifies Ed25519 before calling the service_role-only RPC. This migration is not applied.
 
 ### P1 — secure runtime/database wiring
@@ -101,4 +101,4 @@
 
 - Additional read-only schema reconciliation completed: the live `ai_runs` identity columns are UUID and `agent_id` is NOT NULL; the existing `trust_register_signing_key(uuid,text,text,text,text,timestamptz,timestamptz)` is SECURITY DEFINER with execution granted only to `service_role`. The proposed migration targets that exact signature and extends its allowed purpose list.
 - Live preflight confirmed `extensions.digest(bytea,text)` exists. No production DDL was executed.
-- Validation limitation: this execution environment has no PostgreSQL server/client, Docker runtime, or offline SQL parser package; package installation could not reach the package index. Therefore SQL parsing/execution and actual Ed25519 verification were **not** run in isolation. Source-level assertions and Python CI are not substitutes for that database proof.
+- Validation limitation at the prior checkpoint: SQL parsing/execution and actual Ed25519 verification had not been run in isolation. The current PR now has a disposable PostgreSQL workflow that executes the proposed migration and exercises the real Python Ed25519 verifier; the result of the latest rerun must be checked before claiming this validation passes.
