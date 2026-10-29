@@ -102,6 +102,9 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
     if (current) response = await fetchWithCurrentSession(path, init);
   }
 
+  // FastAPI delete endpoints may correctly return HTTP 204 with no response body.
+  if (response.status === 204) return undefined as T;
+
   const contentType = response.headers.get("content-type") ?? "";
   const raw = await response.text();
   let payload: unknown = null;
