@@ -34,7 +34,7 @@ def write_rf_observations(peaks: list[dict[str, Any]], *, observer_id: str | Non
                "rf_hash":str(p["rf_hash"]),"center_frequency_hz":int(p["center_frequency_hz"]),
                "peak_frequency_hz":int(p["peak_frequency_hz"]),"sample_rate_hz":int(p["sample_rate_hz"]),
                "sample_count":int(p["sample_count"]),"relative_power_db":power,
-               "measurement_unit":p.get("measurement_unit","dBFS"),"noise_floor_db":float(p["noise_floor_db"]),
+               "measurement_unit":p.get("measurement_unit","dBFS/Hz"),"noise_floor_db":float(p["noise_floor_db"]),
                "coverage_note":"passive spectrum energy only; no protocol or identity decoded"}
         row = {"radio":"sdr_spectrum","observed_at":str(p["observed_at"]),"raw":raw}
         if observer_id: row["observer_id"] = observer_id
