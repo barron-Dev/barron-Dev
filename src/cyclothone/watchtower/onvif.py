@@ -63,7 +63,8 @@ def _soap_envelope(operation: str, namespace: str, fields: dict[str, str] | None
     body = ET.SubElement(envelope, f"{{{SOAP_NS}}}Body")
     request = ET.SubElement(body, f"{{{namespace}}}{operation}")
     for key, value in (fields or {}).items():
-        ET.SubElement(request, key).text = value
+        tag = key if key.startswith("{") else f"{{{namespace}}}{key}"
+        ET.SubElement(request, tag).text = value
     return ET.tostring(envelope, encoding="utf-8", xml_declaration=True)
 
 
