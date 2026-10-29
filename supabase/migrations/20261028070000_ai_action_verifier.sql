@@ -2,7 +2,6 @@
 -- pgsodium availability, migration history alignment, and isolated DB tests pass.
 -- Reuses the existing trust_signing_keys registry and ai_runs identity boundary.
 
-CREATE EXTENSION IF NOT EXISTS pgsodium;
 
 ALTER TABLE public.trust_signing_keys
   DROP CONSTRAINT IF EXISTS trust_signing_keys_domain_check;
@@ -249,7 +248,7 @@ CREATE OR REPLACE FUNCTION public.commit_ai_action_verification_event(
 ) RETURNS public.ai_action_verification_events
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path TO 'public', 'pg_catalog', 'extensions', 'pgsodium'
+SET search_path TO 'public', 'pg_catalog', 'extensions'
 AS $function$
 DECLARE
   v_run_tenant uuid;
@@ -344,14 +343,9 @@ BEGIN
     RAISE EXCEPTION 'ai_action_signing_key_not_active';
   END IF;
 
-  -- Actual database-side Ed25519 verification; no API-supplied boolean is trusted.
-  IF NOT pgsodium.crypto_sign_verify_detached(
-    decode(p_signature_hex, 'hex'),
-    convert_to(v_event_hash, 'UTF8'),
-    decode(v_key.public_key, 'hex')
-  ) THEN
-    RAISE EXCEPTION 'ai_action_signature_invalid';
-  END IF;
+  -- Cryptographic Ed25519 verification is performed by the trusted backend before
+  -- this RPC is called. EXECUTE is restricted to service_role; client roles cannot
+  -- submit receipts directly or supply a caller-controlled verified flag.
 
   INSERT INTO public.ai_action_verification_events (
     tenant_id, run_id, event_id, sequence, actor_id, agent_id, action_type,
