@@ -112,8 +112,12 @@ async def stream_rtsp_frames(config: RTSPCameraConfig):
     if executable is None:
         raise CameraStreamError("ffmpeg_executable_not_installed")
 
+    # FFmpeg's network I/O timeout is in microseconds. This bounds stalls in
+    # connect/read operations in addition to the consumer's queue wait timeout.
+    io_timeout_us = int(config.read_timeout_seconds * 1_000_000)
     command = [
         executable, "-hide_banner", "-loglevel", "error", "-nostdin",
+        "-rw_timeout", str(io_timeout_us),
         "-rtsp_transport", "tcp", "-i", config.endpoint,
         "-an", "-vf", f"fps={config.frames_per_second}",
         "-f", "image2pipe", "-vcodec", "mjpeg", "pipe:1",
@@ -130,6 +134,7 @@ async def stream_rtsp_frames(config: RTSPCameraConfig):
         nonlocal failure
         buffer = bytearray()
         sequence = 0
+        cancelled = False
         try:
             assert process.stdout is not None
             while True:
@@ -162,12 +167,27 @@ async def stream_rtsp_frames(config: RTSPCameraConfig):
             if not sequence:
                 raise CameraStreamError("stream_ended_without_video_frames")
         except asyncio.CancelledError:
+            cancelled = True
             raise
-        except BaseException as exc:
+        except Exception as exc:
             failure = exc
         finally:
-            # Drain the final pending frame before signalling stream completion.
-            await queue.put(None)
+            if cancelled:
+                # Never deadlock cancellation while the one-slot queue is full.
+                # On shutdown, a pending frame may be discarded intentionally.
+                if queue.full():
+                    try:
+                        queue.get_nowait()
+                        queue.task_done()
+                    except asyncio.QueueEmpty:
+                        pass
+                try:
+                    queue.put_nowait(None)
+                except asyncio.QueueFull:
+                    pass
+            else:
+                # On normal completion, preserve the final pending real frame.
+                await queue.put(None)
 
     producer = asyncio.create_task(produce(), name=f"watchtower-rtsp-{config.camera_id}")
     try:
