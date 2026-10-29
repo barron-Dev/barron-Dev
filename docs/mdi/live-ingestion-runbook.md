@@ -1,7 +1,7 @@
 # MDI live ingestion pipes
 
 ## Included
-- Passive local SDR energy detection using Welch PSD and median noise floor. Power is dBFS unless the receiver is separately calibrated. No protocol decoding, IMSI/IMEI extraction, call interception, or subscriber tracking.
+- Passive local SDR energy detection using Welch PSD and median noise floor. Welch power spectral density is recorded in dBFS/Hz for normalized IQ samples; it is not calibrated dBm. No protocol decoding, IMSI/IMEI extraction, call interception, or subscriber tracking.
 - Public CelesTrak weather-group OMM fetch, source-response SHA-256, and Skyfield/SGP4 orbital position propagation.
 - Strict CSV parser for an authoritative, licensed MCC/MNC export. No guessed ITU endpoint and no fabricated registry rows.
 - Server-side PostgREST writers targeting the existing MDI RF and satellite tables. Service-role keys are required only in trusted worker environments.
