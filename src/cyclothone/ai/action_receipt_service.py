@@ -8,7 +8,12 @@ from uuid import UUID, uuid4
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-from cyclothone.ai.action_verifier import GENESIS_HASH, ActionEnvelope, sign_action_envelope
+from cyclothone.ai.action_verifier import (
+    GENESIS_HASH,
+    ActionEnvelope,
+    sign_action_envelope,
+    verify_action_envelope,
+)
 from cyclothone.storage.supabase_client import supabase
 
 
@@ -20,8 +25,9 @@ class ActionReceiptService:
     """Persist signed AI action receipts with externally held private-key material.
 
     The private key is supplied only by the backend secret manager environment.
-    Only the public key is registered in trust_signing_keys. The database RPC
-    independently recomputes hashes and verifies the signature before insertion.
+    Only the public key is registered in trust_signing_keys. This trusted backend
+    performs real Ed25519 verification before calling the service_role-only RPC;
+    PostgreSQL independently recomputes hashes and enforces identity and chain rules.
     """
 
     def __init__(self, *, signing_key_id_env: str = "CYCLOTHONE_AI_ACTION_SIGNING_KID",
@@ -73,6 +79,13 @@ class ActionReceiptService:
         ).hex()
         if registered_public_hex != derived_public_hex:
             raise ActionReceiptError("AI_ACTION private key does not match registered public key")
+        now = datetime.now(UTC)
+        not_before = registered.get("not_before")
+        not_after = registered.get("not_after")
+        if not_before and datetime.fromisoformat(str(not_before).replace("Z", "+00:00")) > now:
+            raise ActionReceiptError("AI_ACTION signing key is not yet valid")
+        if not_after and datetime.fromisoformat(str(not_after).replace("Z", "+00:00")) <= now:
+            raise ActionReceiptError("AI_ACTION signing key has expired")
 
         client = await supabase._ensure()
         head_response = await client.table("ai_action_verification_events").select(
@@ -102,6 +115,17 @@ class ActionReceiptService:
             event_id=str(uuid4()),
             occurred_at=occurred_at,
         )
+        verification = verify_action_envelope(
+            envelope,
+            public_keys={key_id: private_key.public_key()},
+            expected_tenant_id=tenant,
+            expected_run_id=run,
+            expected_previous_hash=previous_hash,
+            expected_sequence=sequence,
+        )
+        if not verification.ok:
+            raise ActionReceiptError(f"backend Ed25519 receipt verification failed: {verification.reason}")
+
         params = {
             "p_tenant_id": tenant,
             "p_run_id": run,
