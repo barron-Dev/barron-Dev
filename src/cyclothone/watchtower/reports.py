@@ -1,0 +1,113 @@
+"""Deterministic Watchtower report contracts; no free-form LLM narration."""
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from typing import Iterable
+
+
+REPORT_TYPES = frozenset({"brief", "detailed", "full"})
+COVERAGE = frozenset({"complete", "partial_coverage", "unavailable"})
+SOURCE_STATUSES = frozenset({"available", "partial_coverage", "unavailable"})
+
+
+def _utc(value: datetime) -> datetime:
+    if not isinstance(value, datetime) or value.tzinfo is None or value.utcoffset() is None:
+        raise ValueError("timestamp_must_be_timezone_aware")
+    return value.astimezone(timezone.utc)
+
+
+def _timestamp(value: datetime) -> str:
+    return _utc(value).isoformat(timespec="microseconds").replace("+00:00", "Z")
+
+
+@dataclass(frozen=True, slots=True)
+class ReportEvent:
+    event_type: str
+    observed_at: datetime
+    camera_id: str
+    evidence_hashes: tuple[str, ...]
+    source_status: str = "available"
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.event_type, str) or not self.event_type.strip():
+            raise ValueError("event_type_required")
+        if not isinstance(self.camera_id, str) or not self.camera_id.strip():
+            raise ValueError("camera_id_required")
+        if self.source_status not in SOURCE_STATUSES:
+            raise ValueError("invalid_source_status")
+        for digest in self.evidence_hashes:
+            if not isinstance(digest, str) or len(digest) != 64 or any(c not in "0123456789abcdef" for c in digest):
+                raise ValueError("evidence_hash_must_be_lowercase_sha256")
+        _utc(self.observed_at)
+
+
+def build_report_payload(
+    *,
+    report_id: str,
+    tenant_id: str,
+    camera_group_id: str,
+    report_type: str,
+    language_code: str,
+    period_start: datetime,
+    period_end: datetime,
+    generated_at: datetime,
+    events: Iterable[ReportEvent],
+    source_coverage: str,
+    coverage_gaps: Iterable[str],
+) -> dict:
+    """Build a data-only report payload; rendering and delivery are separate.
+
+    The caller must supply the persisted report-generation timestamp so retries
+    produce the same payload. No 'no threats detected' assertion is generated.
+    """
+    if not all(isinstance(v, str) and v.strip() for v in (
+        report_id, tenant_id, camera_group_id, language_code
+    )):
+        raise ValueError("report_identity_fields_required")
+    if report_type not in REPORT_TYPES:
+        raise ValueError("invalid_report_type")
+    if source_coverage not in COVERAGE:
+        raise ValueError("invalid_source_coverage")
+    start_utc, end_utc, generated_utc = _utc(period_start), _utc(period_end), _utc(generated_at)
+    if end_utc <= start_utc:
+        raise ValueError("period_end_must_follow_period_start")
+    if generated_utc < end_utc:
+        raise ValueError("generated_at_must_not_precede_period_end")
+    gaps = sorted(set(coverage_gaps))
+    if source_coverage == "complete" and gaps:
+        raise ValueError("complete_coverage_cannot_have_gaps")
+    if source_coverage == "partial_coverage" and not gaps:
+        raise ValueError("partial_coverage_requires_gaps")
+    rows = []
+    for event in events:
+        event_time = _utc(event.observed_at)
+        if event_time < start_utc or event_time > end_utc:
+            raise ValueError("event_outside_report_period")
+        rows.append({
+            "event_type": event.event_type,
+            "observed_at": _timestamp(event_time),
+            "camera_id": event.camera_id,
+            "evidence_hashes": list(event.evidence_hashes),
+            "source_status": event.source_status,
+        })
+    rows.sort(key=lambda r: (r["observed_at"], r["camera_id"], r["event_type"]))
+    return {
+        "schema": "cyclothone.watchtower.report.v1",
+        "report_id": report_id,
+        "tenant_id": tenant_id,
+        "camera_group_id": camera_group_id,
+        "report_type": report_type,
+        "language_code": language_code,
+        "period_start": _timestamp(start_utc),
+        "period_end": _timestamp(end_utc),
+        "generated_at": _timestamp(generated_utc),
+        "source_coverage": source_coverage,
+        "coverage_gaps": gaps,
+        "event_count": len(rows),
+        "events": rows,
+        "claims": {
+            "threat_free": False,
+            "meaning": "No threat-free conclusion is inferred from absence of recorded events."
+        },
+    }

@@ -35,6 +35,11 @@ export default function CustomerServices(){
      <div className="relative z-10 mt-6 border-t border-white/10 pt-5"><div className="text-[9px] uppercase tracking-[.16em] text-[#4e707b]">What you receive</div><p className="mt-2 text-xs leading-6 text-[#9ab0b6]">{SERVICES[0].outcome}</p></div>
      <div className="relative z-10 mt-6 flex items-center justify-between"><span className="text-[10px] text-[#59747d]">{requestCount} request{requestCount===1?"":"s"} · {caseCount} case{caseCount===1?"":"s"}</span><span className="flex h-10 w-10 items-center justify-center rounded-full border border-[#c2f35a]/25 bg-[#c2f35a]/[0.06] text-xl text-[#c2f35a] transition-transform group-hover:translate-x-1">→</span></div>
     </a>
+    <a href="/customer/services/ai_security" className="group relative mt-4 block overflow-hidden rounded-[2rem] border border-amber-300/20 bg-white/[0.035] px-7 py-7 transition-all hover:border-amber-300/40 hover:bg-white/[0.05]">
+     <div className="font-mono text-[9px] text-amber-300">WORKSPACE · RELEASE GATES OPEN</div><div className="mt-2 flex flex-wrap items-start justify-between gap-4"><h2 className="text-2xl font-medium">AI Security</h2><span className="text-[9px] uppercase tracking-wider text-amber-300">Not production-ready</span></div>
+     <p className="mt-4 max-w-2xl text-sm leading-7 text-[#9ab0b6]">Open the AI Security workspace for Watchtower, AI Action Verification and Omni-Vision. The workspace marks integrations that still require real runtime and authenticated end-to-end proof; it does not invent detections or provider health.</p>
+     <div className="mt-5 flex items-center justify-between border-t border-white/10 pt-4"><span className="text-[10px] text-[#59747d]">Live service health is not assumed</span><span className="flex h-10 w-10 items-center justify-center rounded-full border border-amber-300/25 text-xl text-amber-300 transition-transform group-hover:translate-x-1">→</span></div>
+    </a>
    </div>}
   </div>
  </main>
