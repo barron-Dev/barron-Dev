@@ -58,6 +58,16 @@ def _validate_http_endpoint(endpoint: str, allowed_hosts: frozenset[str]) -> str
     return host
 
 
+async def _read_bounded_body(response: httpx.Response, max_bytes: int = 2 * 1024 * 1024) -> bytes:
+    """Consume a streamed response without buffering unbounded camera-controlled data."""
+    body = bytearray()
+    async for chunk in response.aiter_bytes():
+        body.extend(chunk)
+        if len(body) > max_bytes:
+            raise ONVIFProtocolError("onvif_response_too_large")
+    return bytes(body)
+
+
 def _soap_envelope(operation: str, namespace: str, fields: dict[str, str] | None = None) -> bytes:
     envelope = ET.Element(f"{{{SOAP_NS}}}Envelope")
     body = ET.SubElement(envelope, f"{{{SOAP_NS}}}Body")
@@ -124,11 +134,7 @@ class ONVIFMediaClient:
                         raise ONVIFProtocolError("onvif_redirect_forbidden")
                     if response.status_code < 200 or response.status_code >= 300:
                         raise ONVIFProtocolError(f"onvif_http_status_{response.status_code}")
-                    body = bytearray()
-                    async for chunk in response.aiter_bytes():
-                        body.extend(chunk)
-                        if len(body) > 2 * 1024 * 1024:
-                            raise ONVIFProtocolError("onvif_response_too_large")
+                    body = await _read_bounded_body(response)
         except httpx.HTTPError as exc:
             raise ONVIFProtocolError("onvif_transport_failed") from exc
         return _body_root(bytes(body))
