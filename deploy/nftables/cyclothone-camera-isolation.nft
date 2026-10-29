@@ -1,0 +1,16 @@
+# Cyclothone camera VLAN isolation policy template.
+# Review topology and required ports before applying; this file does not persist itself.
+# Camera subnet: 10.0.10.0/24. Edge node: 10.0.10.1.
+#
+# IMPORTANT: RTSP/RTSPS does not universally support client-certificate mTLS.
+# If camera firmware lacks mutual TLS, terminate mTLS at a hardened edge gateway/tunnel.
+# Frame hashing proves byte integrity after capture, not sensor identity or freshness.
+table inet cyclothone_camera_isolation {
+  chain forward {
+    type filter hook forward priority -10; policy accept;
+    ip saddr 10.0.10.0/24 ip daddr 10.0.10.1 accept
+    ip daddr 10.0.10.0/24 ct state established,related accept
+    ip saddr 10.0.10.0/24 drop
+    ip daddr 10.0.10.0/24 drop
+  }
+}
