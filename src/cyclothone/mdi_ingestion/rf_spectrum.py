@@ -16,7 +16,7 @@ class SpectrumPeak:
     observed_at: str
     rf_hash: str
     method: str = "welch_median_energy_v1"
-    measurement_unit: str = "dBFS"
+    measurement_unit: str = "dBFS/Hz"
 
 def detect_spectrum_peaks(samples: Any, *, center_frequency_hz: int, sample_rate_hz: int,
                           observed_at: datetime | None = None, peak_margin_db: float = 10.0,
