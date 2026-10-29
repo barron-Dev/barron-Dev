@@ -76,7 +76,7 @@
 - src/cyclothone/ai/result_contract.py: typed honest coverage states.
 - src/cyclothone/ai/behavioral_fingerprint.py: fixed-suite input/output hashes, provenance-bound fingerprint manifest, drift comparison, and Ed25519 attestation primitive.
 - tests/test_ai_action_verifier.py and tests/test_ai_result_contract.py: tamper, binding, chain, and coverage-negative tests.
-- supabase/migrations/20261028070000_ai_action_verifier.sql: proposed database enforcement using existing trust_signing_keys and ai_runs; it adds a narrow action-event index, not a replacement trust framework. Requires pgsodium, and must remain unapplied until isolated-database verification and migration-source reconciliation.
+- supabase/migrations/20261028070000_ai_action_verifier.sql: proposed database enforcement using existing trust_signing_keys and ai_runs; it adds a narrow action-event index, not a replacement trust framework. Must remain unapplied until isolated-database verification and migration-source reconciliation.
 - console/app/(dash)/convergence/ai/verification/page.tsx: truthful production-blocked status only. The former browser-local ephemeral-key/synthetic-payload self-test was removed; this page does not claim to verify a production action.
 
 ## Proof and release gates
@@ -95,10 +95,10 @@
 - Console build: passed.
 - Production image build: passed.
 - Vercel check for this branch commit: success; this is not evidence that the PR was merged or that production backend services were deployed.
-- Live Supabase read-only preflight: PostgreSQL 17.6; `pgsodium` is available but not installed, `pgsodium.crypto_sign_verify_detached` is absent, and `ai_action_verification_events` plus `commit_ai_action_verification_event` are absent. The production `trust_signing_keys` registry currently has no active AI_ACTION key.
+- Live Supabase read-only preflight: PostgreSQL 17.6; `ai_action_verification_events` plus `commit_ai_action_verification_event` are absent. The new design avoids a `pgsodium` dependency. The production `trust_signing_keys` registry currently has no active AI_ACTION key.
 - The migration remains unapplied. No production key was provisioned, no merge or deployment was performed, and no authenticated end-to-end receipt test has been completed.
 - **Release decision remains BLOCKED** until an isolated PostgreSQL run validates extension/function compatibility, canonical JSON/hash parity, valid/invalid Ed25519 signatures, tenant/run/agent enforcement, concurrent chain sequencing, append-only controls, and durable receipt read-back; then perform authenticated E2E and obtain explicit production-change approval.
 
 - Additional read-only schema reconciliation completed: the live `ai_runs` identity columns are UUID and `agent_id` is NOT NULL; the existing `trust_register_signing_key(uuid,text,text,text,text,timestamptz,timestamptz)` is SECURITY DEFINER with execution granted only to `service_role`. The proposed migration targets that exact signature and extends its allowed purpose list.
-- Live preflight also confirmed `extensions.digest(bytea,text)` exists, while `pgsodium.crypto_sign_verify_detached(bytea,bytea,bytea)` does not. The extension catalog lists pgsodium 3.1.8 as available, not installed. No production DDL was executed.
+- Live preflight confirmed `extensions.digest(bytea,text)` exists. No production DDL was executed.
 - Validation limitation: this execution environment has no PostgreSQL server/client, Docker runtime, or offline SQL parser package; package installation could not reach the package index. Therefore SQL parsing/execution and actual Ed25519 verification were **not** run in isolation. Source-level assertions and Python CI are not substitutes for that database proof.
