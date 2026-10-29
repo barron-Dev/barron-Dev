@@ -6,7 +6,7 @@ from cyclothone.vision.trajectory import (
 
 def test_prediction_forecast_requires_review():
     prediction = predict_constant_velocity((Point(0, 0, 1), Point(2, 0, 2)))
-    result = forecast_zone_intersection(prediction, ((4, -1), (7, -1), (7, 1), (4, 1)))
+    result = forecast_zone_intersection(prediction, ((7, -1), (9, -1), (9, 1), (7, 1)))
     assert result["forecast_intersects_zone"] is True
     assert result["requires_human_review"] is True
     assert result["automatic_actuation_permitted"] is False
