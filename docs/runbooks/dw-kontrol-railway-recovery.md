@@ -103,3 +103,25 @@ Attach the following to the recovery PR/release record:
 
 ### Stop/rollback triggers
 Stop and preserve evidence if the service cannot boot, health checks fail, deployed SHA is unapproved, Supabase auth/schema checks fail, a worker claims unsupported work, secrets are exposed, cross-tenant access is observed, or queue/source state changes unexpectedly. Roll back only to the captured owner-approved known-good deployment; do not use schema rollback as a substitute for application rollback.
+
+
+### High-priority Supabase grant finding (read-only inspection, 2026-10-29)
+The live project has RLS enabled on all 340 inspected public tables, but 39 have no RLS policy. More importantly, read-only role-grant inspection found the `authenticated` role has explicit `TRUNCATE` privilege on nine public tables:
+- `dw_sector_source_catalog`
+- `dw_source_categories`
+- `security_claim_history`
+- `security_claim_requests`
+- `security_claims`
+- `security_targets`
+- `source_registry`
+- `source_registry_edges`
+- `source_registry_events`
+
+Four of those tables (`dw_sector_source_catalog`, `dw_source_categories`, `source_registry`, `source_registry_edges`, `source_registry_events`) were also observed with RLS enabled and no policy. The query confirms the grant, not that an exploit has occurred. PostgreSQL `TRUNCATE` is not row-filtered by RLS, so treat these grants as a **high-priority least-privilege defect to validate and remediate**. No rows were modified and no grants were revoked during this inspection.
+
+Before changing privileges:
+1. Inspect table ACLs, inherited/default grants, all policies, dependent RPCs, and intended client access for each table.
+2. Confirm the application does not rely on direct authenticated table writes; prefer narrow RPCs with explicit authorization and tenant binding.
+3. Prepare a reviewed, additive migration that revokes unnecessary `TRUNCATE`, `TRIGGER`, `REFERENCES`, and broad DML privileges from `anon`/`authenticated` while preserving required read paths. Do not blanket-revoke without verifying dependency impact.
+4. Test against a disposable clone and verify authenticated users cannot truncate protected tables; verify approved API/RPC paths still work.
+5. Do not apply to production until the 28-version migration-source parity gap is reconciled and the exact grant delta has review approval.
