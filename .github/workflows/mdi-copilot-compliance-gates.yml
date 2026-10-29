@@ -16,6 +16,9 @@ on:
       - "services/compliance/**"
       - "src/cyclothone/api/routes/mobile_intelligence_*.py"
       - "console/app/customer/services/**"
+      - "console/app/developer/services/**"
+      - "console/lib/mdi/auth.ts"
+      - ".github/workflows/mdi-copilot-compliance-gates.yml"
 jobs:
   static-gates:
     runs-on: ubuntu-latest
