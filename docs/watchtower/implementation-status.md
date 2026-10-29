@@ -12,7 +12,7 @@
 - Deterministic loitering evaluation over timestamped tracker observations, with zone-change and missing-frame-gap resets.
 - Explicit source coverage outcomes; missing source data cannot imply a clean result.
 - Structured report payload contract that prohibits inferring a threat-free result from an empty event list.
-- An FFmpeg RTSP/RTSPS reader that yields actual JPEG frames, hashes the original JPEG bytes, uses a one-frame latest-value queue, and bounds network I/O waits.
+- An FFmpeg RTSP/RTSPS reader that yields actual JPEG frames, hashes the original JPEG bytes, uses a one-frame latest-value queue, and bounds network I/O waits.\n- An ONVIF Media1 client for explicitly configured cameras that requests capabilities, enumerates profiles, and requests stream URIs with separate credentials, bounded timeouts, no redirects, and strict host allowlisting. Protocol code and validation tests are present; no live camera handshake has been verified.
 - Camera endpoint validation requiring RTSP/RTSPS, exact host allowlisting, and forbidding credentials/query tokens in endpoint URLs.
 - Shutdown handling that avoids blocking forever when the bounded queue is full.
 
@@ -20,7 +20,7 @@
 
 The RTSP reader is code, not proof that a camera is connected. It has not been exercised against a client-authorized live camera in this change. It intentionally does not support credentials embedded in RTSP URLs. Production authenticated cameras require a reviewed credential broker/local proxy, plus network egress controls enforcing the camera allowlist. FFmpeg must be installed on the edge node. The stream reader is not yet wired to a camera registry, detector, durable persistence, authenticated API, or evidence journal.
 
-This code does not yet perform ONVIF discovery/profile negotiation, detector/ByteTrack/pose inference, durable tenant-scoped persistence, signed event journaling, cross-service fusion, weather/sensor enrichment, report scheduling/rendering/delivery, or customer/developer/Kontrol UI integration.
+The ONVIF client does not yet perform WS-Discovery subnet discovery, and its profile negotiation has not been validated against real camera hardware. Detector/ByteTrack/pose inference, durable tenant-scoped persistence, signed event journaling, cross-service fusion, weather/sensor enrichment, report scheduling/rendering/delivery, and customer/developer/Kontrol UI integration are not yet wired.
 
 ## Non-negotiable correctness and safety rules
 
@@ -36,7 +36,7 @@ This code does not yet perform ONVIF discovery/profile negotiation, detector/Byt
 ## Not yet production-ready
 
 - Real-camera validation of FFmpeg ingest and authenticated camera credential brokering.
-- ONVIF discovery and profile negotiation against real camera hardware.
+- WS-Discovery and profile negotiation validation against real camera hardware, including firmware-specific ONVIF behavior and camera credential handling.
 - Actual detector/model artifact provisioning, license review, and hardware benchmarks.
 - ByteTrack continuity and modality-specific pose/behavior evaluation with measured false-positive/negative rates.
 - Durable tenant-scoped camera/site/zone/observation/event/report schema and restricted RPC/API path.
