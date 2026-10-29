@@ -7,6 +7,7 @@ from cyclothone.watchtower.reports import ReportEvent, build_report_payload
 
 
 T0 = datetime(2026, 10, 29, 8, 0, tzinfo=timezone.utc)
+GENERATED = T0 + timedelta(hours=1)
 
 
 def observation(seconds: int, seq: int | None = None, *, zone: str = "zone-a", digest: str | None = None):
@@ -82,28 +83,42 @@ def test_coverage_never_equates_unavailable_source_with_clear():
         coverage_outcome(source_available=True, frames_observed=-1, gaps=[])
 
 
-def test_report_is_data_only_and_does_not_claim_threat_free():
-    payload = build_report_payload(
+def _report_payload(**overrides):
+    values = dict(
         report_id="r-1",
         tenant_id="tenant-1",
         camera_group_id="group-1",
         report_type="brief",
         language_code="en",
         period_start=T0,
-        period_end=T0 + timedelta(hours=1),
+        period_end=GENERATED,
+        generated_at=GENERATED,
         events=[ReportEvent("loitering", T0 + timedelta(minutes=5), "camera-1", ("a" * 64,))],
         source_coverage="partial_coverage",
         coverage_gaps=["camera_disconnected"],
     )
+    values.update(overrides)
+    return build_report_payload(**values)
+
+
+def test_report_is_data_only_and_does_not_claim_threat_free():
+    payload = _report_payload()
     assert payload["event_count"] == 1
     assert payload["claims"]["threat_free"] is False
     assert payload["source_coverage"] == "partial_coverage"
 
 
+def test_report_payload_is_reproducible_for_same_persisted_generation_time():
+    first = _report_payload()
+    second = _report_payload()
+    assert first == second
+
+
+def test_report_generation_time_cannot_precede_period_end():
+    with pytest.raises(ValueError, match="generated_at_must_not_precede_period_end"):
+        _report_payload(generated_at=T0)
+
+
 def test_partial_report_requires_explicit_gap():
     with pytest.raises(ValueError, match="partial_coverage_requires_gaps"):
-        build_report_payload(
-            report_id="r-1", tenant_id="t", camera_group_id="g", report_type="brief",
-            language_code="en", period_start=T0, period_end=T0 + timedelta(hours=1),
-            events=[], source_coverage="partial_coverage", coverage_gaps=[],
-        )
+        _report_payload(source_coverage="partial_coverage", coverage_gaps=[])
