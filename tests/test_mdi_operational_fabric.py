@@ -26,7 +26,7 @@ def test_single_source_malware_claim_does_not_trigger_quarantine():
 def test_hash_intel_is_order_independent_and_requires_valid_hash():
     a=build_hash_intel_record(app_sha256="a"*64,verdict="malicious",source_ids=["two","one"],rule_version="v1")
     b=build_hash_intel_record(app_sha256="a"*64,verdict="malicious",source_ids=["one","two"],rule_version="v1")
-    assert a==b and a.confidence==100
+    assert a==b and a.confidence==0\n    assert a.action=="require_trusted_provenance_review_before_enforcement"
     try: build_hash_intel_record(app_sha256="not-hash",verdict="benign",source_ids=[],rule_version="v1"); assert False
     except ThreatHashError: pass
 
