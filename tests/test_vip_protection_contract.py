@@ -12,7 +12,7 @@ def test_vip_assignment_schema_is_purpose_bound_and_short_lived():
     assert "create table if not exists public.vip_assignment_events" in sql
     assert "vip_assignment_event_immutable" in sql
     assert "cron.schedule(" in sql
-    assert "0 * * * *" in sql
+    assert "* * * * *" in sql
     assert "purge_expired_vip_data" in sql
 
 
