@@ -60,9 +60,12 @@ async def customer_workspace(p: DeveloperPrincipal = Depends(customer_principal)
     return await _workspace(p.tenant_id)
 
 
-async def _developer_or_customer(authorization: str | None = Header(None)) -> DeveloperPrincipal:
+async def _developer_or_customer(
+    authorization: str | None = Header(None),
+    x_api_key: str | None = Header(None),
+) -> DeveloperPrincipal:
     try:
-        p = await authenticate_request(authorization=authorization, x_api_key=None)
+        p = await authenticate_request(authorization=authorization, x_api_key=x_api_key)
         p.require(("mobile:intelligence",))
         return p
     except HTTPException as exc:
