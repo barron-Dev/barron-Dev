@@ -362,8 +362,8 @@ async def scan_sbom(body: SbomScanRequest, p: DeveloperPrincipal = Depends(_prin
     context = {"project_ref": body.project_ref, "sbom_sha256": sbom_sha}
     context_sha = context_hash(context)
     device = await supabase.select_one(
-        "global_device_attestations", "id,hardware_public_key,attestation_state,last_attested_at,valid_until",
-        tenant_id=p.tenant_id, principal_id=principal_id, device_fingerprint=device_fp,
+        "global_device_attestations", "id,platform_device_id,hardware_public_key,attestation_state,last_attested_at,valid_until",
+        tenant_id=p.tenant_id, principal_id=principal_id, platform_device_id=platform_device_id, device_fingerprint=device_fp,
     )
     if not device or device.get("attestation_state") != "VERIFIED":
         raise HTTPException(403, "verified_hardware_attestation_required")
