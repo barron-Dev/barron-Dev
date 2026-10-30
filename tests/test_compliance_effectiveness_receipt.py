@@ -7,6 +7,8 @@ from datetime import UTC, datetime, timedelta
 from dataclasses import replace
 from unittest.mock import AsyncMock, patch
 
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
 from cyclothone.compliance.signing import ComplianceSignature
 
 from cyclothone.compliance.effectiveness import (
@@ -119,3 +121,40 @@ async def test_receipt_signature_binds_issuance_timestamp_and_compliance_key_dom
         tampered = replace(receipt, issued_at=issued_at + timedelta(seconds=1))
         assert await verify_effectiveness_receipt(tampered) is False
         verify.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_receipt_uses_real_ed25519_signature_and_rejects_tampering():
+    from cryptography.hazmat.primitives import serialization
+
+    from cyclothone.compliance import signing
+
+    fields = _fields()
+    private_key = Ed25519PrivateKey.generate()
+    public_key = private_key.public_key()
+
+    with (
+        patch.object(signing.supabase, "select_one", new=AsyncMock(
+            return_value={"kid": "local-test-key", "active": True, "purpose": "COMPLIANCE"}
+        )),
+        patch.object(signing, "_load_private_key", new=AsyncMock(return_value=private_key)),
+        patch.object(signing, "_load_public_key", new=AsyncMock(return_value=public_key)),
+    ):
+        receipt = await create_effectiveness_receipt(
+            tenant_id=__import__("uuid").UUID(fields["tenant_id"]),
+            assessment_id=__import__("uuid").UUID(fields["assessment_id"]),
+            control_id=fields["control_id"],
+            probe_id=fields["probe_id"],
+            probe_version=fields["probe_version"],
+            scope_digest=fields["scope_digest"],
+            input_digest=fields["input_digest"],
+            observations=fields["observations"],
+            expected_outcome=fields["expected_outcome"],
+            observed_outcome=fields["observed_outcome"],
+            status=fields["status"],
+            coverage=fields["coverage"],
+            evidence_digest=fields["evidence_digest"],
+        )
+        assert await verify_effectiveness_receipt(receipt) is True
+        tampered = replace(receipt, observed_outcome="tampering_not_detected")
+        assert await verify_effectiveness_receipt(tampered) is False
