@@ -47,6 +47,11 @@ def classify_validation(state: str | None, results: Any, has_trust_anchors: bool
         return "INDETERMINATE"
     normalized = state.strip().lower()
     if normalized == "trusted":
+        tsa_failures = ("timestamp.untrusted", "timestamp.mismatch", "timestamp.malformed",
+                        "timestamp.outsidevalidity", "timestamp.credentialinvalid")
+        result_strings = [str(value).lower() for _, value in _walk_strings(results or {})]
+        if any(marker in value for marker in tsa_failures for value in result_strings):
+            return "UNTRUSTED"
         return "VALID" if has_trust_anchors else "UNTRUSTED"
     if normalized == "valid":
         return "UNTRUSTED"
@@ -59,7 +64,8 @@ def classify_validation(state: str | None, results: Any, has_trust_anchors: bool
         trust_markers = (
             "signingcredential.untrusted", "signingcredential.expired",
             "signingcredential.revoked", "ocsp.revoked", "timestamp.untrusted",
-            "timestamp.mismatch", "timestamp.malformed",
+            "timestamp.mismatch", "timestamp.malformed", "timestamp.outsidevalidity",
+            "timestamp.credentialinvalid",
         )
         if any(marker in code for marker in trust_markers for code in codes):
             return "UNTRUSTED"
@@ -100,22 +106,44 @@ def validate_trust_policy(anchor_pems: list[str], expected_sha256: list[str]) ->
     return "\n".join(anchor_pems)
 
 
-def verify_c2pa_file(file_path: str | Path, trust_anchors_pem: str) -> ProvenanceResult:
+def verify_c2pa_file(
+    file_path: str | Path, manifest_trust_anchors_pem: str, tsa_trust_anchors_pem: str,
+    manifest_trust_uri: str | None = None, tsa_trust_uri: str | None = None,
+) -> ProvenanceResult:
     path = Path(file_path)
     digest = hashlib.sha256()
     with path.open("rb") as media:
         for chunk in iter(lambda: media.read(1024 * 1024), b""):
             digest.update(chunk)
     media_sha256 = digest.hexdigest()
-    if not trust_anchors_pem.strip():
+    if not manifest_trust_anchors_pem.strip() or not tsa_trust_anchors_pem.strip():
         return ProvenanceResult("INDETERMINATE", media_sha256, None, None,
-                                {"error": "No versioned C2PA trust anchors configured."}, "unavailable")
+                                {"error": "Separate manifest and TSA trust anchors are required."}, "unavailable")
     try:
         import c2pa
         from c2pa import Context, Reader
         sdk_version = getattr(c2pa, "__version__", "unknown")
         context = Context.from_dict({
-            "trust": {"trust_anchors": trust_anchors_pem},
+            "trust": {
+                "anchors": [
+                    {
+                        "trust_uri": manifest_trust_uri,
+                        "trust_kind": "manifest",
+                        "trust_anchors": manifest_trust_anchors_pem,
+                        "trust_config": "1.3.6.1.4.1.62558.2.1",
+                        "allowed_list": None,
+                        "trusted_ica_issuers": None,
+                    },
+                    {
+                        "trust_uri": tsa_trust_uri,
+                        "trust_kind": "tsa",
+                        "trust_anchors": tsa_trust_anchors_pem,
+                        "trust_config": "1.3.6.1.5.5.7.3.8",
+                        "allowed_list": None,
+                        "trusted_ica_issuers": None,
+                    },
+                ]
+            },
             "verify": {
                 "verify_after_reading": True, "verify_trust": True,
                 "verify_timestamp_trust": True,
