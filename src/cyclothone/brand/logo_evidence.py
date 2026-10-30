@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""Evidence-grade logo matching for suspicious public web pages."""
+"""Evidence-grade visual similarity for suspicious public web pages."""
 
 from dataclasses import dataclass
 from typing import Iterable
@@ -18,6 +18,8 @@ class LogoMatch:
     image_sha256: str
     ahash_similarity: float
     dhash_similarity: float
+    phash_similarity: float
+    phash_distance: int
     similarity: float
 
 
@@ -29,10 +31,10 @@ class LogoEvidence:
 
 
 class LogoEvidenceScanner:
-    """Fetch a public page, inspect declared image assets, and compare them to a trusted logo.
+    """Inspect public page image assets against a tenant-controlled reference logo.
 
-    Matching is deliberately multi-hash: dHash is useful for structural similarity while
-    aHash provides a second independent signal. A match is evidence, not proof of ownership.
+    All scores are reproducible fingerprints. A visual match remains a candidate
+    signal and never establishes ownership, malicious intent, or impersonation alone.
     """
 
     def __init__(self, *, matcher: LogoMatcher | None = None, threshold: float = 0.80) -> None:
@@ -46,7 +48,8 @@ class LogoEvidenceScanner:
             raise ValueError("trusted_logo must not be empty")
         trusted_a = self._matcher.ahash(trusted_logo)
         trusted_d = self._matcher.dhash(trusted_logo)
-        if not trusted_a or not trusted_d:
+        trusted_p = self._matcher.phash(trusted_logo)
+        if not trusted_a or not trusted_d or not trusted_p:
             raise ValueError("trusted_logo is not a supported raster image")
 
         page = await fetch_page(page_url)
@@ -54,7 +57,10 @@ class LogoEvidenceScanner:
         for candidate in page.images:
             try:
                 artifact = await fetch_image(candidate.url, page.final_url)
-                match = self._score(trusted_a, trusted_d, trusted_p, artifact, candidate.relation, candidate.alt)
+                match = self._score(
+                    trusted_a, trusted_d, trusted_p, artifact,
+                    candidate.relation, candidate.alt,
+                )
             except (OSError, ValueError):
                 continue
             if match.similarity >= self._threshold:
@@ -64,13 +70,23 @@ class LogoEvidenceScanner:
         strongest = matches[0].similarity if matches else 0.0
         return LogoEvidence(page=page, matches=tuple(matches), strongest_similarity=strongest)
 
-    def _score(self, trusted_a: str, trusted_d: str, artifact: ImageArtifact, relation: str, alt: str | None) -> LogoMatch:
+    def _score(
+        self,
+        trusted_a: str,
+        trusted_d: str,
+        trusted_p: str,
+        artifact: ImageArtifact,
+        relation: str,
+        alt: str | None,
+    ) -> LogoMatch:
         candidate_a = self._matcher.ahash(artifact.body)
         candidate_d = self._matcher.dhash(artifact.body)
+        candidate_p = self._matcher.phash(artifact.body)
         a_score = self._matcher.similarity(trusted_a, candidate_a)
         d_score = self._matcher.similarity(trusted_d, candidate_d)
-        # Equal weighting avoids over-trusting either luminance or edge structure alone.
-        combined = (a_score + d_score) / 2.0
+        p_distance = self._matcher.phash_distance(trusted_p, candidate_p)
+        p_score = self._matcher.similarity(trusted_p, candidate_p)
+        combined = (a_score + d_score + p_score) / 3.0
         return LogoMatch(
             source_url=artifact.url,
             source_page=artifact.source_page,
@@ -79,6 +95,8 @@ class LogoEvidenceScanner:
             image_sha256=artifact.sha256,
             ahash_similarity=a_score,
             dhash_similarity=d_score,
+            phash_similarity=p_score,
+            phash_distance=p_distance,
             similarity=combined,
         )
 
