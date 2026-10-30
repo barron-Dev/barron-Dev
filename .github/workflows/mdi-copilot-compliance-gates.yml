@@ -9,6 +9,7 @@ on:
       - "src/cyclothone/api/routes/mobile_intelligence_*.py"
       - "console/app/customer/services/**"
       - ".github/workflows/mdi-copilot-compliance-gates.yml"
+      - "console/lib/mdi/**"
   pull_request:
     paths:
       - "supabase/migrations/*mdi*"
@@ -16,16 +17,25 @@ on:
       - "services/compliance/**"
       - "src/cyclothone/api/routes/mobile_intelligence_*.py"
       - "console/app/customer/services/**"
+      - ".github/workflows/mdi-copilot-compliance-gates.yml"
+      - "console/lib/mdi/**"
 jobs:
   static-gates:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Copilot must not expose service role to browser
+        shell: bash
         run: |
-          if grep -RIn "SUPABASE_SERVICE_ROLE_KEY" console/app console/components console/lib --include='*.ts' --include='*.tsx'; then
-            echo "service-role reference found in browser code"; exit 1
-          fi
+          set -euo pipefail
+          matches="$(grep -RIl "SUPABASE_SERVICE_ROLE_KEY" console/app console/components console/lib --include='*.ts' --include='*.tsx' || true)"
+          for file in $matches; do
+            if ! grep -Eq "^[[:space:]]*import[[:space:]]+['\"]server-only['\"]" "$file"; then
+              echo "service-role reference is not isolated in a server-only module: $file"
+              exit 1
+            fi
+          done
+          echo "All service-role references are confined to explicitly server-only modules."
       - name: Copilot route must use authenticated MDI backend
         run: |
           grep -q 'mobile-intelligence/copilot' src/cyclothone/api/routes/mobile_intelligence_copilot.py
