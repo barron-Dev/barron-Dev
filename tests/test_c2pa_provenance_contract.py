@@ -98,3 +98,19 @@ def test_async_worker_queue_is_private_leased_and_tenant_scoped():
     assert 'tenant_id=tenant_id' in route
     assert 'client.storage.from_(BUCKET).download(object_path)' in worker
     assert "verify_and_persist_media" in worker
+
+
+
+def test_sdk_pin_and_separate_official_manifest_tsa_trust_sources():
+    root = Path(__file__).resolve().parents[1]
+    pyproject = (root / "pyproject.toml").read_text()
+    requirements = (root / "requirements-server.txt").read_text()
+    importer = (root / "scripts/activate_c2pa_trust_policy.py").read_text()
+    verifier = (root / "src/cyclothone/provenance/c2pa_verify.py").read_text()
+    assert "c2pa-python==0.38.3" in pyproject
+    assert "c2pa-python==0.38.3" in requirements
+    assert "C2PA-TSA-TRUST-LIST.json" in importer
+    assert '"trust_kind": "manifest"' in verifier
+    assert '"trust_kind": "tsa"' in verifier
+    assert '"1.3.6.1.4.1.62558.2.1"' in verifier
+    assert '"1.3.6.1.5.5.7.3.8"' in verifier
