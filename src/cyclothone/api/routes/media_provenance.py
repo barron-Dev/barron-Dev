@@ -25,7 +25,7 @@ def _require_access(principal: DeveloperPrincipal) -> None:
     if principal.auth_type == "customer":
         principal.require(("console:read",))
     else:
-        _require_access(principal)
+        principal.require(("media:provenance:verify",))
 MAX_UPLOAD_BYTES = int(os.getenv("CYCLOTHONE_PROVENANCE_MAX_UPLOAD_BYTES", str(250 * 1024 * 1024)))
 
 
@@ -34,7 +34,7 @@ async def verify_provenance(
     file: UploadFile = File(...),
     principal: DeveloperPrincipal = Depends(customer_or_developer_principal),
 ):
-    principal.require(("media:provenance:verify",))
+    _require_access(principal)
     tenant_id = str(UUID(principal.tenant_id))
     policy = await supabase.select_one(
         "c2pa_trust_policies",
@@ -115,7 +115,7 @@ async def verify_provenance(
 
 @router.get("/receipts")
 async def list_provenance_receipts(principal: DeveloperPrincipal = Depends(authenticate_request)):
-    principal.require(("media:provenance:verify",))
+    _require_access(principal)
     tenant_id = str(UUID(principal.tenant_id))
     client = await supabase._ensure()
     response = await client.table("media_provenance_receipts").select(
@@ -126,7 +126,7 @@ async def list_provenance_receipts(principal: DeveloperPrincipal = Depends(authe
 
 @router.get("/receipts/{receipt_id}/bundle")
 async def download_provenance_bundle(receipt_id: UUID, principal: DeveloperPrincipal = Depends(authenticate_request)):
-    principal.require(("media:provenance:verify",))
+    _require_access(principal)
     tenant_id = str(UUID(principal.tenant_id))
     client = await supabase._ensure()
     response = await client.table("media_provenance_receipts").select("*").eq(
