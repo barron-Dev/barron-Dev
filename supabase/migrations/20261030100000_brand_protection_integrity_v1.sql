@@ -268,3 +268,31 @@ grant execute on function public.record_brand_threat(uuid,uuid,text,text,text,te
 
 -- Defense in depth: service collectors cannot rewrite/delete immutable evidence.
 revoke update,delete on public.brand_evidence from service_role;
+
+-- Takedown preparation is auditable but never dispatched automatically.
+create table if not exists public.brand_takedown_requests (
+  id uuid primary key default gen_random_uuid(),
+  tenant_id uuid not null references public.tenants(id) on delete cascade,
+  brand_id uuid not null,
+  threat_id uuid not null,
+  provider text not null,
+  subject text not null,
+  report_body text not null,
+  status text not null default 'prepared'
+    check (status in ('prepared','authorized','dispatched','acknowledged','rejected','failed')),
+  dispatch_requested boolean not null default false,
+  created_by uuid,
+  created_at timestamptz not null default now(),
+  authorized_by uuid,
+  authorized_at timestamptz,
+  dispatched_at timestamptz,
+  provider_reference text,
+  error_code text,
+  foreign key (tenant_id,brand_id) references public.brands(tenant_id,id) on delete cascade,
+  foreign key (tenant_id,threat_id) references public.brand_threats(tenant_id,id) on delete cascade
+);
+create index if not exists brand_takedown_tenant_threat_idx
+  on public.brand_takedown_requests(tenant_id,threat_id,created_at desc);
+alter table public.brand_takedown_requests enable row level security;
+revoke all on public.brand_takedown_requests from anon,authenticated;
+grant select,insert,update on public.brand_takedown_requests to service_role;
