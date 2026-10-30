@@ -91,3 +91,16 @@ def test_sensitive_execution_gate_rechecks_and_receipts_atomically():
     assert "GRANT EXECUTE ON FUNCTION public.global_authorize_execution_atomic" in atomic
     assert '"global_authorize_execution_atomic"' in ROUTE
     assert "atomic_execution_gate_unavailable" in ROUTE
+
+def test_device_revocation_is_irreversible_and_invalidates_challenges():
+    lifecycle = (ROOT / "supabase/migrations/20261030210000_global_device_revocation_lifecycle.sql").read_text()
+    assert "global_device_trust_events" in lifecycle
+    assert "REVOKE UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER" in lifecycle
+    assert "prevent_global_device_unrevoke" in lifecycle
+    assert "OLD.revoked_at IS NOT NULL AND NEW.revoked_at IS NULL" in lifecycle
+    assert "attestation_state='REVOKED'" in lifecycle
+    assert "assurance_level='none'" in lifecycle
+    assert "SET consumed_at=COALESCE(consumed_at,clock_timestamp())" in lifecycle
+    assert "global_revoke_device" in ROUTE
+    assert 'p.require(("global:device:revoke",))' in ROUTE
+    assert '"/devices/revoke"' in ROUTE
