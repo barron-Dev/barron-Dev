@@ -7,7 +7,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from cryptography.hazmat.primitives import serialization
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 STATES = {"VALID", "INVALID", "UNTRUSTED", "MISSING_PROVENANCE", "INDETERMINATE"}
@@ -57,6 +58,20 @@ def classify_validation(state: str | None, results: Any, has_trust_anchors: bool
             return "INVALID"
         return "INDETERMINATE"
     return "INDETERMINATE"
+
+
+def validate_trust_policy(root_pems: list[str], expected_sha256: list[str]) -> str:
+    if not root_pems or not expected_sha256 or len(root_pems) != len(expected_sha256):
+        raise ValueError("Trust policy must contain matching root certificates and SHA-256 fingerprints.")
+    actual = []
+    for pem in root_pems:
+        certificates = x509.load_pem_x509_certificates(pem.encode("utf-8"))
+        if not certificates:
+            raise ValueError("Trust policy contains an empty certificate bundle.")
+        actual.extend(cert.fingerprint(hashes.SHA256()).hex() for cert in certificates)
+    if sorted(actual) != sorted(item.lower() for item in expected_sha256):
+        raise ValueError("Trust policy certificate fingerprints do not match the configured roots.")
+    return "\\n".join(root_pems)
 
 
 def verify_c2pa_file(file_path: str | Path, trust_anchors_pem: str) -> ProvenanceResult:
