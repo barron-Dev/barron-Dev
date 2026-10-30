@@ -57,7 +57,15 @@ export default function ProvenancePage() {
   async function downloadBundle() {
     if (!result) return;
     try {
-      await apiDownload(`/api/v1/media/receipts/${encodeURIComponent(result.receipt_id)}/bundle`, `cyclothone-${result.receipt_id}.ctprove`);
+      const blob = await apiDownload(`/api/v1/media/receipts/${encodeURIComponent(result.receipt_id)}/bundle`);
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `cyclothone-${result.receipt_id}.ctprove`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Evidence bundle download failed.");
     }
