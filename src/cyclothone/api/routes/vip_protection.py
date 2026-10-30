@@ -59,7 +59,7 @@ class CorrelateRequest(BaseModel):
 
 
 class SosRequest(BaseModel):
-    summary: str = Field(min_length=8, max_length=500)
+    confirm: bool = True
 
 
 def _safe_assignment(row: dict[str, Any]) -> dict[str, Any]:
