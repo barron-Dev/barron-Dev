@@ -271,7 +271,7 @@ begin
           from cron.job where jobname = 'vip-assignment-retention-hourly';
         perform cron.schedule(
             'vip-assignment-retention-hourly',
-            '0 * * * *',
+            '* * * * *',
             'select public.purge_expired_vip_data();'
         );
     end if;
