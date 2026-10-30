@@ -50,4 +50,6 @@ jobs:
           done
       - name: No production database dependency
         run: |
-          ! grep -RIn "DATABASE_URL" .github/workflows/mdi-copilot-compliance-gates.yml
+          forbidden="DATABASE_"
+          forbidden="${forbidden}URL"
+          ! grep -RIn "$forbidden" .github/workflows/mdi-copilot-compliance-gates.yml
