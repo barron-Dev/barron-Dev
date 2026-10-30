@@ -186,6 +186,7 @@ async def download_provenance_bundle(
     with zipfile.ZipFile(bundle, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         archive.writestr("receipt.json", json.dumps({
             "receipt_id": row["id"],
+            "source_job_id": row["source_job_id"],
             "tenant_id": row["tenant_id"],
             "tenant_sequence": row["tenant_sequence"],
             "media_sha256": row["media_sha256"],
