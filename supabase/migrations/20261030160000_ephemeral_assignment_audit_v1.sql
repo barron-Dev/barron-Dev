@@ -121,7 +121,7 @@ create or replace function public.vip_create_assignment(
     p_authorization_ref text, p_consent_evidence_sha256 text
 ) returns public.vip_assignments
 language plpgsql security invoker set search_path = pg_catalog, public as $$
-declare v_row public.vip_assignments;
+declare v_row public.vip_assignments; v_assignment_id uuid := gen_random_uuid();
 begin
     if p_actor is null or length(trim(p_actor)) = 0
        or p_subject_ref is null or length(trim(p_subject_ref)) < 8
@@ -140,16 +140,17 @@ begin
         raise exception 'assignment start time outside permitted window';
     end if;
     insert into public.vip_assignments(
-        tenant_id, assignment_name, purpose, region_code, subject_ref_sha256,
+        id, tenant_id, assignment_name, purpose, region_code, subject_ref_sha256,
         authorization_ref_sha256, consent_evidence_sha256, start_time, end_time, created_by
     ) values (
-        p_tenant_id, trim(p_assignment_name), trim(p_purpose), p_region_code,
+        v_assignment_id, p_tenant_id, trim(p_assignment_name), trim(p_purpose), p_region_code,
         encode(digest(trim(p_subject_ref), 'sha256'), 'hex'),
         encode(digest(trim(p_authorization_ref), 'sha256'), 'hex'),
-        lower(p_consent_evidence_sha256), p_start_time, p_end_time, encode(digest(trim(p_actor), 'sha256'), 'hex')
+        lower(p_consent_evidence_sha256), p_start_time, p_end_time,
+        encode(digest(trim(p_actor) || v_assignment_id::text, 'sha256'), 'hex')
     ) returning * into v_row;
     insert into public.vip_assignment_events(tenant_id, assignment_id, event_type, actor, metadata)
-    values (p_tenant_id, v_row.id, 'created', encode(digest(trim(p_actor), 'sha256'), 'hex'),
+    values (p_tenant_id, v_row.id, 'created', encode(digest(trim(p_actor) || p_assignment_id::text, 'sha256'), 'hex'),
         jsonb_build_object('approval_required', true, 'maximum_duration_days', 14,
                            'location_collection', false));
     return v_row;
@@ -163,16 +164,16 @@ language plpgsql security invoker set search_path = pg_catalog, public as $$
 declare v_row public.vip_assignments;
 begin
     update public.vip_assignments
-       set status = 'active', approved_by = encode(digest(trim(p_actor), 'sha256'), 'hex'), approved_at = now()
+       set status = 'active', approved_by = encode(digest(trim(p_actor) || p_assignment_id::text, 'sha256'), 'hex'), approved_at = now()
      where id = p_assignment_id and tenant_id = p_tenant_id
-       and status = 'pending_approval' and created_by <> encode(digest(trim(p_actor), 'sha256'), 'hex')
+       and status = 'pending_approval' and created_by <> encode(digest(trim(p_actor) || p_assignment_id::text, 'sha256'), 'hex')
        and end_time > now()
     returning * into v_row;
     if v_row.id is null then
         raise exception 'assignment not found, expired, already approved, or dual-control failed';
     end if;
     insert into public.vip_assignment_events(tenant_id, assignment_id, event_type, actor, metadata)
-    values (p_tenant_id, v_row.id, 'approved', encode(digest(trim(p_actor), 'sha256'), 'hex'),
+    values (p_tenant_id, v_row.id, 'approved', encode(digest(trim(p_actor) || p_assignment_id::text, 'sha256'), 'hex'),
         jsonb_build_object('separation_of_duties', true));
     return v_row;
 end;
@@ -197,7 +198,7 @@ begin
            consent_evidence_sha256 = repeat('0',64)
      where id = p_assignment_id;
     insert into public.vip_assignment_events(tenant_id, assignment_id, event_type, actor, metadata)
-    values (p_tenant_id, p_assignment_id, 'closed', encode(digest(trim(p_actor), 'sha256'), 'hex'),
+    values (p_tenant_id, p_assignment_id, 'closed', encode(digest(trim(p_actor) || p_assignment_id::text, 'sha256'), 'hex'),
         jsonb_build_object('region_matches_deleted', true, 'personal_fields_redacted', true));
     return v_row;
 end;
@@ -223,7 +224,7 @@ begin
                consent_evidence_sha256 = repeat('0',64)
          where id = v_assignment.id;
         insert into public.vip_assignment_events(tenant_id, assignment_id, event_type, actor, metadata)
-        values (v_assignment.tenant_id, v_assignment.id, 'expired_purged', encode(digest('system:pg_cron', 'sha256'), 'hex'),
+        values (v_assignment.tenant_id, v_assignment.id, 'expired_purged', encode(digest('system:pg_cron' || v_assignment.id::text, 'sha256'), 'hex'),
             jsonb_build_object('region_matches_deleted', v_deleted, 'personal_fields_redacted', true));
     end loop;
     return v_total;
@@ -243,10 +244,10 @@ begin
     ) then raise exception 'SOS requires an active assignment'; end if;
     insert into public.vip_protection_incidents(
         tenant_id, assignment_id, incident_type, priority, summary, raised_by
-    ) values (p_tenant_id, p_assignment_id, 'sos', 'P1', 'SOS activated by authorized agent', encode(digest(trim(p_actor), 'sha256'), 'hex'))
+    ) values (p_tenant_id, p_assignment_id, 'sos', 'P1', 'SOS activated by authorized agent', encode(digest(trim(p_actor) || p_assignment_id::text, 'sha256'), 'hex'))
     returning * into v_row;
     insert into public.vip_assignment_events(tenant_id, assignment_id, event_type, actor, metadata)
-    values (p_tenant_id, p_assignment_id, 'sos_raised', encode(digest(trim(p_actor), 'sha256'), 'hex'),
+    values (p_tenant_id, p_assignment_id, 'sos_raised', encode(digest(trim(p_actor) || p_assignment_id::text, 'sha256'), 'hex'),
         jsonb_build_object('incident_id', v_row.id, 'priority', 'P1',
                            'dispatch_status', 'not_dispatched', 'human_response_required', true));
     return v_row;
