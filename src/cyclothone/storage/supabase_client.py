@@ -56,6 +56,15 @@ class SupabaseServiceClient:
             return response.data or []
         return await self._retry(operation)
 
+    async def select_recent(self, table: str, columns: str, *, order_by: str, limit: int = 100, **filters: Any) -> list[dict[str, Any]]:
+        if not 1 <= limit <= 500:
+            raise ValueError("limit must be between 1 and 500")
+        async def operation() -> list[dict[str, Any]]:
+            query = (await self._ensure()).table(table).select(columns).match(filters)
+            response = await query.order(order_by, desc=True).limit(limit).execute()
+            return response.data or []
+        return await self._retry(operation)
+
     async def insert_one(self, table: str, values: dict[str, Any]) -> dict[str, Any]:
         async def operation() -> dict[str, Any]:
             response = await (await self._ensure()).table(table).insert(values).execute()

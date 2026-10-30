@@ -16,7 +16,7 @@ export default function CustomerOverview(){
  return <main className="cyclo-water min-h-screen overflow-hidden text-[#e8f1f3]">
   <header className="relative z-10 flex flex-wrap items-center justify-between gap-4 border-b border-white/10 bg-[#02090e]/70 px-5 py-4 backdrop-blur-2xl">
    <div className="flex items-center gap-3"><a href="/" className="cyclo-mark text-lg font-bold">◌</a><div><a href="/" className="font-semibold tracking-tight">CYCLOTHONE</a><span className="ml-3 text-[9px] uppercase tracking-[.18em] text-[#789aa4]">Customer</span></div></div>
-   <nav className="flex items-center gap-3 text-[10px]"><a href="/customer/overview" className="cyclo-pill px-3 py-2 text-[#c2f35a]">Home</a><AuthActions/></nav>
+   <nav className="flex items-center gap-3 text-[10px]"><a href="/customer/overview" className="cyclo-pill px-3 py-2 text-[#c2f35a]">Home</a><a href="/customer/mdi" className="px-3 py-2 text-[#9db2b8]">Device integrity</a><AuthActions/></nav>
   </header>
   <div className="relative z-10 mx-auto max-w-7xl px-5 py-9 md:px-8">
    <div className="flex flex-wrap items-end justify-between gap-6"><div><div className="text-[9px] uppercase tracking-[.22em] text-[#4f8494]">Security Command Center</div><h1 className="mt-3 text-3xl font-semibold tracking-tight md:text-5xl">{org?.legal_name||"Your security environment"}</h1><p className="mt-4 max-w-3xl text-sm leading-7 text-[#8ca6ad]">Explore, request and follow security work from one place. Your account is already authenticated. Organization controls appear when a protected workflow needs them.</p></div><div className="cyclo-orb hidden h-28 w-28 md:block"/></div>
