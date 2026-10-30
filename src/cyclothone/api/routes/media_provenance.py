@@ -50,7 +50,12 @@ async def verify_provenance(
     if not principal.tenant_id:
         raise HTTPException(403, {"error": "tenant_required"})
     try:
+        if not principal.tenant_id:
+        raise HTTPException(403, {"error": "tenant_required"})
+    try:
         tenant_id = str(UUID(principal.tenant_id))
+    except ValueError as exc:
+        raise HTTPException(403, {"error": "invalid_tenant_context"}) from exc
     except ValueError as exc:
         raise HTTPException(403, {"error": "invalid_tenant_context"}) from exc
     policy = await supabase.select_one(
@@ -134,7 +139,7 @@ async def verify_provenance(
 
 
 @router.get("/receipts")
-async def list_provenance_receipts(principal: DeveloperPrincipal = Depends(authenticate_request)):
+async def list_provenance_receipts(principal: DeveloperPrincipal = Depends(provenance_principal)):
     _require_access(principal)
     tenant_id = str(UUID(principal.tenant_id))
     client = await supabase._ensure()
@@ -145,7 +150,7 @@ async def list_provenance_receipts(principal: DeveloperPrincipal = Depends(authe
 
 
 @router.get("/receipts/{receipt_id}/bundle")
-async def download_provenance_bundle(receipt_id: UUID, principal: DeveloperPrincipal = Depends(authenticate_request)):
+async def download_provenance_bundle(receipt_id: UUID, principal: DeveloperPrincipal = Depends(provenance_principal)):
     _require_access(principal)
     tenant_id = str(UUID(principal.tenant_id))
     client = await supabase._ensure()
