@@ -110,7 +110,7 @@ export default function BrandPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ provider: provider.trim() }),
       });
-      setNotice("Takedown request submitted.");
+      setNotice("Evidence-backed takedown package prepared for customer review. Nothing has been sent to the provider.");
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Takedown request failed");
@@ -182,8 +182,9 @@ export default function BrandPage() {
                 { key: "kind", label: "Kind" },
                 { key: "severity", label: "Severity" },
                 { key: "status", label: "Status" },
-                { key: "first_seen", label: "First seen" },
-                { key: "last_seen", label: "Last seen" },
+                { key: "verification_state", label: "Evidence state" },
+                { key: "first_seen_at", label: "First seen" },
+                { key: "last_seen_at", label: "Last seen" },
               ]} empty={<ServiceEmpty title="No brand threats" detail="No detected brand threats are currently recorded for this tenant." />}
               />
               {threats.length > 0 && (

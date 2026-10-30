@@ -4,7 +4,7 @@ import asyncio
 import socket
 
 from cyclothone.brand.permutations import generate_permutations
-from cyclothone.brand.similarity import combined_similarity
+from cyclothone.brand.similarity import combined_similarity\nfrom cyclothone.brand.deterministic import compare_domains
 from cyclothone.storage.supabase_client import supabase
 
 
@@ -14,42 +14,68 @@ class TyposquatScanner:
     async def scan_brand(self, brand):
         perms = generate_permutations(brand["primary_domain"], 3000)
         sem = asyncio.Semaphore(self.CONCURRENCY)
-        stats = {"checked": 0, "resolved": 0, "threats": 0}
+        stats = {
+            "checked": 0,
+            "resolved": 0,
+            "threats": 0,\n            "candidate_matches": 0,
+            "recorded_candidates": 0,
+            "persistence_failures": 0,
+            "scan_errors": 0,
+            "verified_threats": 0,
+            "candidate_only": True,
+        }
 
         async def check(permutation, technique):
             async with sem:
                 stats["checked"] += 1
-                if not await _resolves(permutation):
-                    return
-                stats["resolved"] += 1
-                similarity = combined_similarity(
-                    permutation, brand["primary_domain"]
-                )
-                kind = self._classify(technique)
-                severity = (
-                    "critical"
-                    if similarity >= 0.92
-                    else "high"
-                    if similarity >= 0.82
-                    else "medium"
-                    if similarity >= 0.72
-                    else "low"
-                )
-                await self._record(
-                    brand["tenant_id"],
-                    brand["id"],
-                    kind,
-                    permutation,
-                    "https://" + permutation,
-                    similarity,
-                    severity,
-                    {"technique": technique, "source": "typosquat"},
-                )
-                stats["threats"] += 1
+                try:
+                    if not await _resolves(permutation):
+                        return
+                    stats["resolved"] += 1
+                    similarity = combined_similarity(
+                        permutation, brand["primary_domain"]
+                    )
+                    kind = self._classify(technique)
+                    severity = (
+                        "critical"
+                        if similarity >= 0.92
+                        else "high"
+                        if similarity >= 0.82
+                        else "medium"
+                        if similarity >= 0.72
+                        else "low"
+                    )
+                    persisted = await self._record(
+                        brand["tenant_id"],
+                        brand["id"],
+                        kind,
+                        permutation,
+                        "https://" + permutation,
+                        similarity,
+                        severity,
+                        {
+                            "technique": technique,
+                            "source": "typosquat_dns_discovery",
+                            "evidence_stage": "dns_resolution_only",
+                            "verification_status": "unverified_candidate",
+                            "dns_resolved": True,
+                            "http_content_inspected": False,
+                            "tls_identity_verified": False,
+                            "customer_impact_confirmed": False,\n                            "lexical_evidence": lexical,
+                        },
+                    )
+                    if persisted:
+                        stats["threats"] += 1
+                        stats["recorded_candidates"] += 1
+                    else:
+                        stats["persistence_failures"] += 1
+                except Exception:
+                    # One malformed permutation or resolver failure must not
+                    # abort the entire scan or be counted as a saved candidate.
+                    stats["scan_errors"] += 1
 
         await asyncio.gather(
-            *(check(permutation, technique) for permutation, technique in perms),
-            return_exceptions=True,
+            *(check(permutation, technique) for permutation, technique in perms)
         )
         return stats
 
@@ -83,8 +109,9 @@ class TyposquatScanner:
 
         try:
             await supabase._retry(query, attempts=2)
+            return True
         except Exception:
-            pass
+            return False
 
 
 async def _resolves(domain):

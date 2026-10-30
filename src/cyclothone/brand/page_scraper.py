@@ -20,7 +20,7 @@ from urllib.request import Request, urlopen
 _MAX_HTML_BYTES = 2_000_000
 _MAX_IMAGE_BYTES = 5_000_000
 _TIMEOUT_SECONDS = 12
-_USER_AGENT = "Sentinel-BrandProtection/1.0 (+public-threat-research)"
+_USER_AGENT = "Cyclothone-BrandProtection/1.0 (+public-threat-research)"
 
 
 @dataclass(frozen=True, slots=True)
