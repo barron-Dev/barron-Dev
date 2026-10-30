@@ -3,6 +3,8 @@
 ## Scope
 One tenant-scoped principal and device trust boundary for external clients, developers, employees, vendors and system workloads. Principal categories are derived from authenticated Cyclothone identity, not chosen by request bodies.
 
+The live production schema does not currently contain an `mdi_devices` table. It contains `mdi_device_intel`, which is device intelligence rather than an enrolled endpoint registry, and a separate `devices` table. This phase therefore establishes its own universal cryptographic endpoint registry; it does not falsely bind MDI intelligence records to endpoint identities. A later integration must use the authoritative Cyclothone device-enrollment identity and a tenant-bound foreign key.
+
 ## Cryptographic contract
 - Device private keys remain on the endpoint. Cyclothone stores a public key and tenant-scoped device fingerprint.
 - Challenges are random, single-use, three-minute nonces bound to principal, device, purpose and canonical context hash.
