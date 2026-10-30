@@ -643,7 +643,7 @@ async def verify_device_attestation(body: VerifierAssertionRequest, p: Developer
         device_key_fp = public_key_fingerprint(device["hardware_public_key"])
         if assertion.get("device_fingerprint") != device.get("device_fingerprint") or assertion.get("public_key_fingerprint") != device_key_fp:
             raise HTTPException(403, "attestation_device_key_binding_mismatch")
-        if assertion.get("platform") != device.get("platform") or assertion.get("attestation_format") != device.get("attestation_format"):
+        if assertion.get("platform") != device.get("platform") or (device.get("attestation_format") != "proof_of_possession" and assertion.get("attestation_format") != device.get("attestation_format")):
             raise HTTPException(403, "attestation_platform_format_mismatch")
         challenge = await supabase.select_one(
             "global_device_challenges", "id,nonce,expires_at,consumed_at,purpose,context_sha256",
