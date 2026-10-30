@@ -61,3 +61,11 @@ def test_global_attestation_is_bound_to_enrolled_tenant_device():
     assert "p_platform_device_id" in ROUTE
     assert "device_ref_must_be_an_enrolled_device_uuid" in ROUTE
     assert 'row.get("status") != "active"' in ROUTE
+
+
+def test_sbom_atomic_commit_rechecks_live_enrolled_device_state():
+    active_gate = (ROOT / "supabase/migrations/20261030174309_global_sbom_active_device_check.sql").read_text()
+    assert "JOIN public.devices pd" in active_gate
+    assert "pd.status='active'" in active_gate
+    assert "d.last_attested_at <= v_now" in active_gate
+    assert "verified_active_hardware_attestation_required" in active_gate
