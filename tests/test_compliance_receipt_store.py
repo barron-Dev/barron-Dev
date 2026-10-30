@@ -43,3 +43,24 @@ def test_receipt_persistence_mapping_preserves_nested_observations():
     row = receipt_to_row(_receipt())
     restored = receipt_from_row(row)
     assert restored.observations["nested"]["tamper_detected"] is True
+
+
+import pytest
+from unittest.mock import AsyncMock, patch
+
+from cyclothone.compliance.receipt_store import persist_effectiveness_receipt
+
+
+@pytest.mark.asyncio
+async def test_persistence_rejects_unverified_receipt_before_database_write():
+    receipt = _receipt()
+    with (
+        patch(
+            "cyclothone.compliance.receipt_store.verify_effectiveness_receipt",
+            new=AsyncMock(return_value=False),
+        ),
+        patch("cyclothone.compliance.receipt_store.supabase._ensure", new=AsyncMock()) as ensure,
+    ):
+        with pytest.raises(ValueError, match="effectiveness_receipt_signature_invalid"):
+            await persist_effectiveness_receipt(receipt)
+        ensure.assert_not_awaited()
