@@ -3,7 +3,7 @@
 ## Scope
 One tenant-scoped principal and device trust boundary for external clients, developers, employees, vendors and system workloads. Principal categories are derived from authenticated Cyclothone identity, not chosen by request bodies.
 
-The live production schema does not currently contain an `mdi_devices` table. It contains `mdi_device_intel`, which is device intelligence rather than an enrolled endpoint registry, and a separate `devices` table. This phase therefore establishes its own universal cryptographic endpoint registry; it does not falsely bind MDI intelligence records to endpoint identities. A later integration must use the authoritative Cyclothone device-enrollment identity and a tenant-bound foreign key.
+The live production schema does not currently contain an `mdi_devices` table. It contains `mdi_device_intel`, which is device intelligence rather than an enrolled endpoint registry, and the existing tenant-scoped `public.devices` endpoint-enrollment registry. Global cryptographic attestations are linked to `public.devices` with a composite tenant/device foreign key; MDI intelligence is not treated as endpoint enrollment evidence.
 
 ## Cryptographic contract
 - Device private keys remain on the endpoint. Cyclothone stores a public key and tenant-scoped device fingerprint.
@@ -21,7 +21,7 @@ The live production schema does not currently contain an `mdi_devices` table. It
 - No automatic global kill switch is triggered. Containment must use existing response authority and human approval.
 
 ## Release boundaries
-This phase establishes schema, challenge/signature primitives and the gated API. It does not yet integrate browser WebAuthn assertions, Android/Apple/TPM certificate-chain verifiers, mTLS workload attestation, HSM-backed verifier keys, every download/payment/upload endpoint, or an authoritative package-intel feed. Do not market it as universal hardware verification until those adapters and authenticated end-to-end tests are complete.
+This phase establishes schema, challenge/signature primitives, enrolled-device binding and the gated API. It does not yet integrate browser WebAuthn assertions, Android/Apple/TPM certificate-chain verifiers, mTLS workload attestation, HSM-backed verifier keys, every download/payment/upload endpoint, or an authoritative package-intel feed. Do not market it as universal hardware verification until those adapters and authenticated end-to-end tests are complete.
 
 
 ## Enrolled device binding
