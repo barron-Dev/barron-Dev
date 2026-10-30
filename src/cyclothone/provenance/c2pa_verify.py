@@ -74,7 +74,9 @@ def classify_validation(state: str | None, results: Any, has_trust_anchors: bool
             "claimsignature.mismatch", "claimsignature.missing", "hasheduri.mismatch",
             "datahash.mismatch", "bmffhash.mismatch", "boxeshash.mismatch",
             "collectionhash.mismatch", "hardbindings.missing", "signingcredential.invalid",
-            "signingcredential.expired", "ocsp.revoked",
+            "signingcredential.expired", "ocsp.revoked", "assertion.hasheduri.mismatch",
+            "assertion.datahash.mismatch", "assertion.bmffhash.mismatch",
+            "assertion.boxeshash.mismatch", "assertion.collectionhash.mismatch",
         )
         if any(any(marker in code for marker in trust_markers) for code in codes):
             return "UNTRUSTED"
@@ -115,9 +117,9 @@ def verify_c2pa_file(file_path: str | Path, trust_anchors_pem: str) -> Provenanc
         context = Context.from_dict({
             "trust": {"trust_anchors": trust_anchors_pem},
             "verify": {
-                "verify_after_reading": True, "verify_trust": True,
-                "verify_timestamp_trust": True, "remote_manifest_fetch": False,
-                "ocsp_fetch": False, "strict_v1_validation": True,
+                "verify_trust": True, "verify_timestamp_trust": True,
+                "remote_manifest_fetch": False, "ocsp_fetch": False,
+                "strict_v1_validation": True,
             },
         })
         with context:
