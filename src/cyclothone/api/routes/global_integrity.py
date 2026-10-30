@@ -270,10 +270,13 @@ async def authorize_action(body: ActionAuthorizationRequest, p: DeveloperPrincip
         challenge_id=body.challenge_id, nonce=body.challenge_nonce, purpose="sensitive_action",
         context=context, context_sha=context_sha,
     )
-    signature_ok = bool(challenge and challenge.get("nonce") == body.challenge_nonce
-                        and challenge.get("purpose") == "sensitive_action"
-                        and challenge.get("context_sha256") == context_sha
-                        and verify_ed25519(device["hardware_public_key"], body.signature_b64, envelope))
+    try:
+        signature_ok = bool(challenge and challenge.get("nonce") == body.challenge_nonce
+                            and challenge.get("purpose") == "sensitive_action"
+                            and challenge.get("context_sha256") == context_sha
+                            and verify_ed25519(device["hardware_public_key"], body.signature_b64, envelope))
+    except GlobalIntegrityError as exc:
+        raise HTTPException(422, str(exc)) from exc
     consumed = await _consume(
         challenge_id=body.challenge_id, p=p, principal_id=principal_id, device_fp=device_fp,
         purpose="sensitive_action", context_sha=context_sha, nonce=body.challenge_nonce,
@@ -339,6 +342,15 @@ async def scan_sbom(body: SbomScanRequest, p: DeveloperPrincipal = Depends(_prin
     )
     if not device or device.get("attestation_state") != "VERIFIED":
         raise HTTPException(403, "verified_hardware_attestation_required")
+    try:
+        attested = datetime.fromisoformat(str(device.get("last_attested_at")).replace("Z", "+00:00"))
+        valid_until = device.get("valid_until")
+        if (datetime.now(UTC) - attested).total_seconds() > 300 or (valid_until and datetime.fromisoformat(str(valid_until).replace("Z", "+00:00")) <= datetime.now(UTC)):
+            raise HTTPException(403, "hardware_attestation_stale")
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(403, "hardware_attestation_stale") from exc
     challenge = await supabase.select_one(
         "global_device_challenges", "id,nonce,expires_at,consumed_at,purpose,context_sha256",
         id=body.challenge_id, tenant_id=p.tenant_id, principal_id=principal_id, device_fingerprint=device_fp,
@@ -396,8 +408,8 @@ async def scan_sbom(body: SbomScanRequest, p: DeveloperPrincipal = Depends(_prin
         "component_count": len(components), "gate_decision": decision, "scan_summary": summary,
     }
     try:
-        saved = await supabase.insert_one("global_sbom_artifacts", artifact)
-        artifact_id = str(saved["id"])
+        response = await (await supabase._ensure()).table("global_sbom_artifacts").insert(artifact).select("id").single().execute()
+        artifact_id = str(response.data["id"])
         if intel_rows:
             rows = [{"tenant_id": p.tenant_id, "artifact_id": artifact_id, **x} for x in intel_rows]
             await (await supabase._ensure()).table("global_sbom_components").insert(rows).execute()
