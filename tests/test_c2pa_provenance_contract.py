@@ -49,6 +49,9 @@ def test_trust_failure_and_unknown_failure_are_not_misclassified():
         "Invalid", {"validation_status": [{"code": "signingCredential.expired"}]}, True
     ) == "UNTRUSTED"
     assert classify_validation(
+        "Trusted", {"validation_status": [{"code": "timeStamp.untrusted"}]}, True
+    ) == "UNTRUSTED"
+    assert classify_validation(
         "Invalid", {"validation_status": [{"code": "unknown.validation.code"}]}, True
     ) == "INDETERMINATE"
 
@@ -57,6 +60,8 @@ def test_migration_enforces_canonical_signed_receipts_and_tenant_chain():
     root = Path(__file__).resolve().parents[1]
     sql = (root / "supabase/migrations/20261030130000_synthetic_media_provenance_v1.sql").read_text()
     assert "tenant_sequence bigint NOT NULL" in sql
+    assert "tsa_anchor_pems text[] NOT NULL" in sql
+    assert "p_tsa_anchor_sha256 text[]" in sql
     assert "UNIQUE (tenant_id, tenant_sequence)" in sql
     assert "extensions.digest(convert_to(p_signed_payload_canonical, 'UTF8'), 'sha256')" in sql
     assert "REVOKE ALL ON FUNCTION public.append_media_provenance_receipt" in sql
@@ -74,6 +79,8 @@ def test_api_router_and_tenant_scoped_receipt_reads_are_wired():
     assert 'eq("tenant_id", tenant_id)' in route
     assert "Reader.try_create(str(path), context=context)" in verifier
     assert '"remote_manifest_fetch": False' in verifier
+    assert '"trust_kind": "manifest"' in verifier
+    assert '"trust_kind": "tsa"' in verifier
 
 
 
