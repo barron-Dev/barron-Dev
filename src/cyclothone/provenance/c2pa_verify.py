@@ -49,6 +49,8 @@ def classify_validation(state: str | None, results: Any, has_trust_anchors: bool
     if normalized in {"valid", "trusted", "success"}:
         if not has_trust_anchors or any("signingcredential.untrusted" in value for value in strings):
             return "UNTRUSTED"
+        if any(any(marker in value for marker in ("timestamp.untrusted", "timestamp.mismatch", "timestamp.malformed", "timestamp.outsidevalidity")) for value in strings):
+            return "INDETERMINATE"
         trusted = any("signingcredential.trusted" in value for value in strings)
         signature_valid = any("claimsignature.validated" in value for value in strings)
         hard_binding_valid = any(
@@ -135,9 +137,9 @@ def verify_c2pa_file(file_path: str | Path, trust_anchors_pem: str) -> Provenanc
                 signer = signature_info.get("issuer") or signature_info.get("common_name")
                 report = {
                     "validation_state": validation_state, "validation_results": validation_results,
-                    "active_manifest": active_id, "manifest": active,
+                    "active_manifest": active_id, "manifest": active, "manifest_store": manifest_store,
                     "reader_embedded": reader.is_embedded(), "remote_manifest_used": False,
-                    "policy_mode": "strict_v1_validation",
+                    "policy_mode": "strict_v1_validation", "revocation_check": "not_performed",
                 }
                 return ProvenanceResult(mapped, media_sha256, manifest_hash, signer, report, sdk_version)
     except Exception as exc:
