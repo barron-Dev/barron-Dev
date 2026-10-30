@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field, field_validator
 
 from cyclothone.developer.auth import DeveloperPrincipal, authenticate_request
+from cyclothone.protection.regional_correlation import regional_temporal_intersection
 from cyclothone.storage.supabase_client import supabase
 
 router = APIRouter(prefix="/vip-protection", tags=["controlled-protective-intelligence"])
@@ -190,9 +191,12 @@ async def correlate_public_threats(
         except ValueError:
             skipped += 1
             continue
-        if event_at < start - CORRELATION_WINDOW or event_at > end + CORRELATION_WINDOW:
+        intersects, delta = regional_temporal_intersection(
+            assignment["region_code"], start, end, region, event_at,
+            window=CORRELATION_WINDOW,
+        )
+        if not intersects or delta is None:
             continue
-        delta = 0 if start <= event_at <= end else int(min(abs((start - event_at).total_seconds()), abs((event_at - end).total_seconds())))
         record = {
             "tenant_id": principal.tenant_id,
             "assignment_id": str(assignment_id),
