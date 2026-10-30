@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+from datetime import datetime, timedelta, timezone
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -51,7 +52,7 @@ class MediaProvenanceWorker:
                     "result_json": result,
                     "failure_code": None,
                     "lease_expires_at": None,
-                    "completed_at": "now()",
+                    "completed_at": datetime.now(timezone.utc).isoformat(),
                 },
                 id=job_id,
                 attempts=attempt,
@@ -70,7 +71,10 @@ class MediaProvenanceWorker:
                 "status": "failed" if terminal else "queued",
                 "failure_code": str(exc)[:80] if isinstance(exc, PermanentProvenanceError) else type(exc).__name__,
                 "lease_expires_at": None,
-                "available_at": "now()" if terminal else "now() + interval '30 seconds'",
+                "available_at": (
+                    datetime.now(timezone.utc).isoformat()
+                    if terminal else (datetime.now(timezone.utc) + timedelta(seconds=30)).isoformat()
+                ),
             }
             failed = await supabase.update(
                 "media_provenance_jobs", update,
