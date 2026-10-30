@@ -259,7 +259,6 @@ async def raise_sos(
             "p_tenant_id": principal.tenant_id,
             "p_assignment_id": str(assignment_id),
             "p_actor": _actor(principal),
-            "p_summary": "SOS activated by authorized agent",
         })
     except Exception as exc:
         raise HTTPException(409, {"error": "sos_rejected", "detail": str(exc)[:200]}) from exc
