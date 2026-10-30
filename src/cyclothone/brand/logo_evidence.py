@@ -5,8 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Iterable
 
-from sentinel.brand.logo import LogoMatcher
-from sentinel.brand.page_scraper import ImageArtifact, PageArtifact, fetch_image, fetch_page
+from cyclothone.brand.logo import LogoMatcher
+from cyclothone.brand.page_scraper import ImageArtifact, PageArtifact, fetch_image, fetch_page
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,7 +54,7 @@ class LogoEvidenceScanner:
         for candidate in page.images:
             try:
                 artifact = await fetch_image(candidate.url, page.final_url)
-                match = self._score(trusted_a, trusted_d, artifact, candidate.relation, candidate.alt)
+                match = self._score(trusted_a, trusted_d, trusted_p, artifact, candidate.relation, candidate.alt)
             except (OSError, ValueError):
                 continue
             if match.similarity >= self._threshold:
