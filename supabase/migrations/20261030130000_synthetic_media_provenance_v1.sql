@@ -35,6 +35,8 @@ CREATE TABLE IF NOT EXISTS public.media_provenance_receipts (
     receipt_hash char(64) NOT NULL UNIQUE CHECK (receipt_hash ~ '^[0-9a-f]{64}$'),
     receipt_signature text NOT NULL,
     signing_key_id text NOT NULL,
+    signing_public_key text NOT NULL,
+    signed_payload jsonb NOT NULL,
     created_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS media_provenance_tenant_created ON public.media_provenance_receipts (tenant_id, created_at DESC);
@@ -63,7 +65,8 @@ CREATE OR REPLACE FUNCTION public.append_media_provenance_receipt(
     p_validation_state text, p_signer_identity text, p_trust_policy_id uuid,
     p_trust_policy_version text, p_sdk_version text, p_raw_c2pa_report jsonb,
     p_ml_assessment jsonb, p_previous_receipt_hash text, p_receipt_hash text,
-    p_receipt_signature text, p_signing_key_id text
+    p_receipt_signature text, p_signing_key_id text, p_signing_public_key text,
+    p_signed_payload jsonb
 )
 RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = pg_catalog, public AS $$
@@ -90,17 +93,17 @@ BEGIN
         tenant_id, media_sha256, manifest_store_sha256, validation_state,
         signer_identity, trust_policy_id, trust_policy_version, sdk_version,
         raw_c2pa_report, ml_assessment, previous_receipt_hash, receipt_hash,
-        receipt_signature, signing_key_id
+        receipt_signature, signing_key_id, signing_public_key, signed_payload
     ) VALUES (
         p_tenant_id, p_media_sha256, p_manifest_store_sha256, p_validation_state,
         p_signer_identity, p_trust_policy_id, p_trust_policy_version, p_sdk_version,
         p_raw_c2pa_report, p_ml_assessment, p_previous_receipt_hash, p_receipt_hash,
-        p_receipt_signature, p_signing_key_id
+        p_receipt_signature, p_signing_key_id, p_signing_public_key, p_signed_payload
     ) RETURNING id INTO v_id;
     RETURN v_id;
 END;
 $$;
-REVOKE ALL ON FUNCTION public.append_media_provenance_receipt(uuid,text,text,text,text,uuid,text,text,jsonb,jsonb,text,text,text,text) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.append_media_provenance_receipt(uuid,text,text,text,text,uuid,text,text,jsonb,jsonb,text,text,text,text,text,jsonb) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.append_media_provenance_receipt(uuid,text,text,text,text,uuid,text,text,jsonb,jsonb,text,text,text,text) TO service_role;
 
 CREATE TABLE IF NOT EXISTS public.provenance_i18n (
