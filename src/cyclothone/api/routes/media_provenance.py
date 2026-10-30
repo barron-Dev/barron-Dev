@@ -101,8 +101,8 @@ async def verify_provenance(
     receipt_hash = build_receipt_hash(receipt_payload)
     try:
         signature, signing_key_id, signing_public_key = sign_receipt(receipt_payload)
-    except RuntimeError as exc:
-        raise HTTPException(503, {"error": "receipt_signing_unavailable", "message": str(exc)}) from exc
+    except (RuntimeError, ValueError, TypeError) as exc:
+        raise HTTPException(503, {"error": "receipt_signing_unavailable", "message": "Configured Ed25519 receipt signer is unavailable or invalid."}) from exc
 
     rpc_args = {
         "p_tenant_id": tenant_id, "p_media_sha256": result.media_sha256,
