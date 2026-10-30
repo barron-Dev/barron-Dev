@@ -65,7 +65,7 @@ async def verify_provenance(
     tenant_id = _tenant_uuid(principal)
     policy = await supabase.select_one(
         "c2pa_trust_policies",
-        "id,policy_name,policy_version,trusted_anchor_pems,trusted_anchor_sha256,source_next_update",
+        "id,policy_name,policy_version,trusted_anchor_pems,trusted_anchor_sha256,tsa_anchor_pems,tsa_anchor_sha256,source_uri,source_next_update",
         is_active=True,
     )
     _assert_active_policy(policy)
