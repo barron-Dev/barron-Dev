@@ -137,6 +137,6 @@ REVOKE ALL ON FUNCTION public.global_register_device_key(uuid,uuid,text,text,tex
 GRANT EXECUTE ON FUNCTION public.global_resolve_principal(uuid,text,text) TO service_role;
 GRANT EXECUTE ON FUNCTION public.global_issue_device_challenge(uuid,uuid,text,text,text) TO service_role;
 GRANT EXECUTE ON FUNCTION public.global_consume_device_challenge(uuid,uuid,uuid,text,text,text,text) TO service_role;
-GRANT EXECUTE ON FUNCTION public.global_register_device_key(uuid,text,text,text,text,text,text) TO service_role;
+GRANT EXECUTE ON FUNCTION public.global_register_device_key(uuid,uuid,text,text,text,text,text) TO service_role;
 COMMENT ON TABLE public.global_device_attestations IS 'Universal device key registry. Registration only creates UNVERIFIED state; trusted platform verifier required for VERIFIED.';
 COMMENT ON TABLE public.global_package_intel IS 'Source-backed package intelligence. Missing indicators are unknown, never clean.';
