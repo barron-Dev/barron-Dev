@@ -47,7 +47,8 @@ ALTER TABLE public.c2pa_trust_policies ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.media_provenance_receipts ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.c2pa_trust_policies FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON public.media_provenance_receipts FROM PUBLIC, anon, authenticated;
-GRANT SELECT, INSERT, UPDATE ON public.c2pa_trust_policies TO service_role;
+GRANT SELECT, INSERT ON public.c2pa_trust_policies TO service_role;
+GRANT UPDATE (is_active) ON public.c2pa_trust_policies TO service_role;
 GRANT SELECT, INSERT ON public.media_provenance_receipts TO service_role;
 
 CREATE OR REPLACE FUNCTION public.reject_media_provenance_mutation()
@@ -235,7 +236,6 @@ BEGIN
 END;
 $$;
 REVOKE ALL ON FUNCTION public.append_media_provenance_receipt(uuid,text,text,text,text,uuid,text,text,jsonb,jsonb,text,text,text,text,text,jsonb) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.append_media_provenance_receipt(uuid,text,text,text,text,uuid,text,text,jsonb,jsonb,text,text,text,text,text,jsonb) TO service_role;
 
 CREATE TABLE IF NOT EXISTS public.provenance_i18n (
     locale text NOT NULL,
@@ -357,7 +357,6 @@ BEGIN
 END;
 $$;
 REVOKE ALL ON FUNCTION public.append_media_provenance_receipt(uuid,text,text,text,text,uuid,text,text,jsonb,jsonb,text,text,text,text,text,jsonb) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.append_media_provenance_receipt(uuid,text,text,text,text,uuid,text,text,jsonb,jsonb,text,text,text,text) TO service_role;
 
 CREATE TABLE IF NOT EXISTS public.provenance_i18n (
     locale text NOT NULL,
@@ -413,3 +412,29 @@ END;
 $$;
 REVOKE ALL ON FUNCTION public.activate_c2pa_trust_policy(text,text,text[],text[],text,text,text,timestamptz,timestamptz) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.activate_c2pa_trust_policy(text,text,text[],text[],text,text,text,timestamptz,timestamptz) TO service_role;
+
+
+CREATE OR REPLACE FUNCTION public.protect_c2pa_trust_policy()
+RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    IF TG_OP = 'DELETE' THEN
+        RAISE EXCEPTION 'C2PA trust policies are immutable; deactivate and supersede instead';
+    END IF;
+    IF ROW(
+        NEW.id, NEW.policy_name, NEW.policy_version, NEW.trusted_root_pems,
+        NEW.trusted_root_sha256, NEW.source_uri, NEW.source_commit, NEW.source_sha256,
+        NEW.source_issued_at, NEW.source_next_update, NEW.created_at, NEW.created_by
+    ) IS DISTINCT FROM ROW(
+        OLD.id, OLD.policy_name, OLD.policy_version, OLD.trusted_root_pems,
+        OLD.trusted_root_sha256, OLD.source_uri, OLD.source_commit, OLD.source_sha256,
+        OLD.source_issued_at, OLD.source_next_update, OLD.created_at, OLD.created_by
+    ) THEN
+        RAISE EXCEPTION 'C2PA trust policy content is immutable';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+DROP TRIGGER IF EXISTS c2pa_trust_policy_immutable ON public.c2pa_trust_policies;
+CREATE TRIGGER c2pa_trust_policy_immutable
+BEFORE UPDATE OR DELETE ON public.c2pa_trust_policies
+FOR EACH ROW EXECUTE FUNCTION public.protect_c2pa_trust_policy();
