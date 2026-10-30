@@ -74,3 +74,20 @@ def test_api_router_and_tenant_scoped_receipt_reads_are_wired():
     assert 'eq("tenant_id", tenant_id)' in route
     assert "Reader.try_create(str(path), context=context)" in verifier
     assert '"remote_manifest_fetch": False' in verifier
+
+
+
+def test_async_worker_queue_is_private_leased_and_tenant_scoped():
+    root = Path(__file__).resolve().parents[1]
+    sql = (root / "supabase/migrations/20261030130000_synthetic_media_provenance_v1.sql").read_text()
+    route = (root / "src/cyclothone/api/routes/media_provenance.py").read_text()
+    worker = (root / "src/cyclothone/provenance/worker.py").read_text()
+    assert "VALUES ('cyclothone-provenance-staging', 'cyclothone-provenance-staging', false" in sql
+    assert "FOR UPDATE SKIP LOCKED" in sql
+    assert "lease_expires_at = now() + interval '30 minutes'" in sql
+    assert "REVOKE ALL ON FUNCTION public.claim_media_provenance_job()" in sql
+    assert "GRANT EXECUTE ON FUNCTION public.claim_media_provenance_job() TO service_role" in sql
+    assert '@router.post("/verify-provenance", status_code=202)' in route
+    assert 'tenant_id=tenant_id' in route
+    assert 'client.storage.from_(BUCKET).download(object_path)' in worker
+    assert "verify_and_persist_media" in worker
