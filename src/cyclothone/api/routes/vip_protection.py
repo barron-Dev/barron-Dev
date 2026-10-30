@@ -17,7 +17,9 @@ CORRELATION_WINDOW = timedelta(hours=48)
 
 
 def _actor(principal: DeveloperPrincipal) -> str:
-    return f"user:{principal.user_id}" if principal.user_id else f"app:{principal.app_id}"
+    if not principal.user_id:
+        raise HTTPException(403, {"error": "human_operator_identity_required"})
+    return f"user:{principal.user_id}"
 
 
 def _require(principal: DeveloperPrincipal, scope: str) -> DeveloperPrincipal:
@@ -261,7 +263,7 @@ async def raise_sos(
             "p_tenant_id": principal.tenant_id,
             "p_assignment_id": str(assignment_id),
             "p_actor": _actor(principal),
-            "p_summary": body.summary.strip(),
+            "p_summary": "SOS activated by authorized agent",
         })
     except Exception as exc:
         raise HTTPException(409, {"error": "sos_rejected", "detail": str(exc)[:200]}) from exc
