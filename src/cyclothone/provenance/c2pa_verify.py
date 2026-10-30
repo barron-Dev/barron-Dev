@@ -45,42 +45,26 @@ def classify_validation(state: str | None, results: Any, has_trust_anchors: bool
     if not state:
         return "INDETERMINATE"
     normalized = state.strip().lower()
-    strings = [str(value).lower() for _, value in _walk_strings(results or {}) if isinstance(value, str)]
-    if normalized in {"valid", "trusted", "success"}:
-        if not has_trust_anchors or any("signingcredential.untrusted" in value for value in strings):
-            return "UNTRUSTED"
-        if any(any(marker in value for marker in ("timestamp.untrusted", "timestamp.mismatch", "timestamp.malformed", "timestamp.outsidevalidity")) for value in strings):
-            return "INDETERMINATE"
-        trusted = any("signingcredential.trusted" in value for value in strings)
-        signature_valid = any("claimsignature.validated" in value for value in strings)
-        hard_binding_valid = any(
-            code in value for value in strings
-            for code in (
-                "assertion.datahash.match", "assertion.bmffhash.match",
-                "assertion.boxeshash.match", "assertion.collectionhash.match",
-                "assertion.hasheduri.match",
-            )
-        )
-        if trusted and signature_valid and hard_binding_valid:
-            return "VALID"
-        return "INDETERMINATE"
+    if normalized == "trusted":
+        return "VALID" if has_trust_anchors else "UNTRUSTED"
+    if normalized == "valid":
+        return "UNTRUSTED"
     if normalized in {"invalid", "error", "failure"}:
-        codes = []
-        for key, value in _walk_strings(results or {}):
-            if key in {"code", "validation_status", "status", "name"} and isinstance(value, str):
-                codes.append(value.lower())
-        trust_markers = ("signingcredential.untrusted",)
-        integrity_markers = (
-            "claimsignature.mismatch", "claimsignature.missing", "hasheduri.mismatch",
-            "datahash.mismatch", "bmffhash.mismatch", "boxeshash.mismatch",
-            "collectionhash.mismatch", "hardbindings.missing", "signingcredential.invalid",
-            "signingcredential.expired", "ocsp.revoked", "assertion.hasheduri.mismatch",
-            "assertion.datahash.mismatch", "assertion.bmffhash.mismatch",
-            "assertion.boxeshash.mismatch", "assertion.collectionhash.mismatch",
-        )
-        if any(any(marker in code for marker in trust_markers) for code in codes):
+        codes = [
+            str(value).lower()
+            for key, value in _walk_strings(results or {})
+            if key == "code" and isinstance(value, str)
+        ]
+        if any("signingcredential.untrusted" in code for code in codes):
             return "UNTRUSTED"
-        if any(any(marker in code for marker in integrity_markers) for code in codes):
+        integrity_markers = (
+            "claimsignature.mismatch", "claimsignature.missing",
+            "assertion.hasheduri.mismatch", "assertion.datahash.mismatch",
+            "assertion.bmffhash.mismatch", "assertion.boxeshash.mismatch",
+            "assertion.collectionhash.mismatch", "hardbindings.missing",
+            "signingcredential.invalid", "signingcredential.expired", "ocsp.revoked",
+        )
+        if any(marker in code for marker in integrity_markers for code in codes):
             return "INVALID"
         return "INDETERMINATE"
     return "INDETERMINATE"
