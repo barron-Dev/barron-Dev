@@ -112,7 +112,7 @@ $$;
 revoke all on function public.vip_assignment_event_immutable() from public, anon, authenticated;
 drop trigger if exists vip_assignment_events_no_mutation on public.vip_assignment_events;
 create trigger vip_assignment_events_no_mutation
-before update or delete on public.vip_assignment_events
+before update on public.vip_assignment_events
 for each row execute function public.vip_assignment_event_immutable();
 
 create or replace function public.vip_create_assignment(
