@@ -26,7 +26,7 @@ async def test_dns_candidate_is_not_reported_as_verified_threat(monkeypatch):
     )
 
     assert result["recorded_candidates"] == 1
-    assert result["threats"] == 1
+    assert result["threats"] == 0
     assert result["verified_threats"] == 0
     assert result["candidate_only"] is True
     assert captured["evidence_stage"] == "dns_resolution_only"
