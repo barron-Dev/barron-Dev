@@ -36,6 +36,7 @@ async def _principal(
 async def _global_principal(p: DeveloperPrincipal) -> tuple[str, str, str]:
     if not p.tenant_id:
         raise HTTPException(403, "tenant_identity_required")
+    p.require(("console:read",))
     if p.auth_type == "customer":
         kind = "external_client"
         external = p.user_id
@@ -257,7 +258,7 @@ async def authorize_action(body: ActionAuthorizationRequest, p: DeveloperPrincip
         tenant_id=p.tenant_id, principal_id=principal_id, device_fingerprint=device_fp,
     )
     if not device:
-        await _receipt(p=p, principal_id=principal_id, device_id=None, challenge_id=body.challenge_id,
+        await _receipt(p=p, principal_id=principal_id, device_id=None, challenge_id=None,
                        action_type=body.action_type, payload_sha=payload_sha, signature_b64=body.signature_b64,
                        decision="BLOCKED", reason="device_not_registered")
         raise HTTPException(403, "device_not_registered")
