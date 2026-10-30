@@ -108,6 +108,19 @@ on conflict (framework_key) do update set
  authority_name=excluded.authority_name, source_url=excluded.source_url,
  source_version=excluded.source_version, caveats=excluded.caveats, updated_at=now();
 
+-- NIST CSF 2.0 function-level crosswalk candidates only. They are explicitly
+-- unreviewed and carry no legal-equivalence claim until control-level validation.
+insert into public.csa_sovereign_framework_mapping
+(framework_key,cyclothone_control_id,external_control_id,external_control_title,mapping_method,mapping_confidence,source_url,source_version,review_status)
+values
+('US_NIST_CSF_2_0','soc2.CC8.1','GV','Govern','candidate',null,'https://www.nist.gov/cyberframework','2.0','unreviewed'),
+('US_NIST_CSF_2_0','soc2.CC6.1','PR','Protect','candidate',null,'https://www.nist.gov/cyberframework','2.0','unreviewed'),
+('US_NIST_CSF_2_0','soc2.CC6.6','PR','Protect','candidate',null,'https://www.nist.gov/cyberframework','2.0','unreviewed'),
+('US_NIST_CSF_2_0','soc2.CC7.1','DE','Detect','candidate',null,'https://www.nist.gov/cyberframework','2.0','unreviewed'),
+('US_NIST_CSF_2_0','soc2.CC7.2','RS','Respond','candidate',null,'https://www.nist.gov/cyberframework','2.0','unreviewed'),
+('US_NIST_CSF_2_0','soc2.CC9.1','RC','Recover','candidate',null,'https://www.nist.gov/cyberframework','2.0','unreviewed')
+on conflict (framework_key,cyclothone_control_id,external_control_id) do nothing;
+
 -- A North Korea entry is intentionally not seeded: no public, officially
 -- recognized national cybersecurity certification framework was established
 -- by the reviewed public source set for this product release.
