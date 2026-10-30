@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from cyclothone.compliance.effectiveness import EffectivenessReceipt
+from cyclothone.compliance.effectiveness import EffectivenessReceipt, verify_effectiveness_receipt
 from cyclothone.storage.supabase_client import supabase
 
 
@@ -32,16 +32,33 @@ def receipt_to_row(receipt: EffectivenessReceipt) -> dict[str, Any]:
 
 
 async def persist_effectiveness_receipt(receipt: EffectivenessReceipt) -> dict[str, Any]:
-    """Persist a signed receipt. Call only from a trusted, authorized probe runner."""
-    async def _insert():
-        return await (
-            await supabase._ensure()
-        ).table("compliance_effectiveness_receipts").insert(receipt_to_row(receipt)).execute()
+    """Persist a verified receipt. Call only from a trusted, authorized probe runner."""
+    if not await verify_effectiveness_receipt(receipt):
+        raise ValueError("effectiveness_receipt_signature_invalid")
 
-    rows = (await supabase._retry(_insert, attempts=2)).data or []
-    if not rows:
-        raise RuntimeError("effectiveness_receipt_persistence_failed")
-    return rows[0]
+    payload = receipt_to_row(receipt)
+    try:
+        result = await (
+            await supabase._ensure()
+        ).table("compliance_effectiveness_receipts").insert(payload).execute()
+        rows = result.data or []
+        if rows:
+            return rows[0]
+    except Exception:
+        # A network retry after a successful insert must not create a second
+        # evidence event. Resolve the unique digest before surfacing failure.
+        async def _existing():
+            return await (
+                await supabase._ensure()
+            ).table("compliance_effectiveness_receipts").select("*").eq(
+                "receipt_digest", receipt.receipt_digest
+            ).eq("tenant_id", receipt.tenant_id).limit(1).execute()
+
+        rows = (await supabase._retry(_existing, attempts=2)).data or []
+        if rows:
+            return rows[0]
+        raise
+    raise RuntimeError("effectiveness_receipt_persistence_failed")
 
 
 def receipt_from_row(row: dict[str, Any]) -> EffectivenessReceipt:
