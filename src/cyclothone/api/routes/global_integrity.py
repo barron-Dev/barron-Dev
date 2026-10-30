@@ -1,0 +1,433 @@
+from __future__ import annotations
+
+import base64
+import hashlib
+import json
+from datetime import UTC, datetime
+from typing import Any
+
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from pydantic import BaseModel, Field
+
+from cyclothone.api.routes.customer_identity import principal as customer_principal
+from cyclothone.developer.auth import DeveloperPrincipal, authenticate_request
+from cyclothone.global_integrity.crypto import (
+    GlobalIntegrityError, canonical_json, context_hash, device_fingerprint,
+    principal_fingerprint, public_key_fingerprint, sha256_hex, verify_ed25519,
+)
+from cyclothone.storage.supabase_client import supabase
+
+router = APIRouter(prefix="/global-integrity", tags=["global-execution-integrity"])
+_SCHEMA = "cyclothone.global-execution.v1"
+
+
+async def _principal(
+    authorization: str | None = Header(None),
+    x_api_key: str | None = Header(None),
+) -> DeveloperPrincipal:
+    try:
+        return await authenticate_request(authorization=authorization, x_api_key=x_api_key)
+    except HTTPException as exc:
+        if exc.status_code != 401 or not authorization:
+            raise
+        return await customer_principal(authorization=authorization)
+
+
+async def _global_principal(p: DeveloperPrincipal) -> tuple[str, str, str]:
+    if not p.tenant_id:
+        raise HTTPException(403, "tenant_identity_required")
+    if p.auth_type == "customer":
+        kind = "external_client"
+        external = p.user_id
+    elif p.user_id:
+        kind = "developer"
+        external = p.user_id
+    else:
+        kind = "system"
+        external = p.app_id
+    if not external:
+        raise HTTPException(403, "canonical_principal_required")
+    fingerprint = principal_fingerprint(p.tenant_id, kind, str(external))
+    try:
+        principal_id = await supabase.rpc(
+            "global_resolve_principal",
+            {"p_tenant_id": p.tenant_id, "p_principal_kind": kind, "p_subject_fingerprint": fingerprint},
+        )
+    except Exception as exc:
+        raise HTTPException(503, "global_principal_resolution_unavailable") from exc
+    if isinstance(principal_id, list):
+        principal_id = principal_id[0] if principal_id else None
+    if isinstance(principal_id, dict):
+        principal_id = principal_id.get("global_resolve_principal") or principal_id.get("id")
+    if not principal_id:
+        raise HTTPException(503, "global_principal_resolution_failed")
+    return str(principal_id), kind, fingerprint
+
+
+def _challenge_payload(
+    *, tenant_id: str, principal_id: str, device_fp: str, challenge_id: str,
+    nonce: str, purpose: str, context: dict[str, Any], context_sha: str,
+) -> dict[str, Any]:
+    return {
+        "schema": _SCHEMA,
+        "tenant_id": tenant_id,
+        "principal_id": principal_id,
+        "device_fingerprint": device_fp,
+        "challenge_id": challenge_id,
+        "challenge_nonce": nonce,
+        "purpose": purpose,
+        "context_sha256": context_sha,
+        "context": context,
+    }
+
+
+class ChallengeRequest(BaseModel):
+    device_ref: str = Field(min_length=8, max_length=256)
+    purpose: str
+    context: dict[str, Any] = Field(default_factory=dict)
+
+
+class DeviceAttestationRequest(BaseModel):
+    device_ref: str = Field(min_length=8, max_length=256)
+    platform: str
+    attestation_format: str = "proof_of_possession"
+    public_key_pem: str = Field(min_length=80, max_length=4096)
+    signature_b64: str = Field(min_length=80, max_length=256)
+    challenge_id: str
+    challenge_nonce: str = Field(min_length=64, max_length=64)
+    context: dict[str, Any]
+    attestation_evidence_sha256: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
+
+
+class ActionAuthorizationRequest(BaseModel):
+    device_ref: str = Field(min_length=8, max_length=256)
+    action_type: str = Field(min_length=2, max_length=120)
+    action_payload: dict[str, Any]
+    challenge_id: str
+    challenge_nonce: str = Field(min_length=64, max_length=64)
+    signature_b64: str = Field(min_length=80, max_length=256)
+
+
+class SbomScanRequest(BaseModel):
+    device_ref: str = Field(min_length=8, max_length=256)
+    project_ref: str = Field(min_length=1, max_length=240)
+    sbom: dict[str, Any]
+    challenge_id: str
+    challenge_nonce: str = Field(min_length=64, max_length=64)
+    signature_b64: str = Field(min_length=80, max_length=256)
+
+
+async def _consume(
+    *, challenge_id: str, p: DeveloperPrincipal, principal_id: str, device_fp: str,
+    purpose: str, context_sha: str, nonce: str,
+) -> bool:
+    try:
+        result = await supabase.rpc(
+            "global_consume_device_challenge",
+            {
+                "p_challenge_id": challenge_id, "p_tenant_id": p.tenant_id,
+                "p_principal_id": principal_id, "p_device_fingerprint": device_fp,
+                "p_purpose": purpose, "p_context_sha256": context_sha, "p_nonce": nonce,
+            },
+        )
+        return result is True
+    except Exception:
+        return False
+
+
+async def _receipt(
+    *, p: DeveloperPrincipal, principal_id: str, device_id: str | None, challenge_id: str | None,
+    action_type: str, payload_sha: str, signature_b64: str | None, decision: str, reason: str,
+) -> None:
+    row = {
+        "tenant_id": p.tenant_id, "principal_id": principal_id, "device_id": device_id,
+        "challenge_id": challenge_id, "action_type": action_type, "action_payload_sha256": payload_sha,
+        "signature_sha256": sha256_hex(signature_b64.encode()) if signature_b64 else None,
+        "decision": decision, "reason_code": reason,
+    }
+    try:
+        await supabase.insert_one("global_execution_receipts", row)
+    except Exception as exc:
+        # A missing audit receipt is a hard failure, not a successful authorization.
+        raise HTTPException(503, "execution_receipt_persistence_failed") from exc
+
+
+@router.post("/challenges", status_code=201)
+async def issue_challenge(body: ChallengeRequest, p: DeveloperPrincipal = Depends(_principal)):
+    principal_id, _, _ = await _global_principal(p)
+    if body.purpose not in {"device_attestation", "sensitive_action", "sbom_submission"}:
+        raise HTTPException(422, "unsupported_challenge_purpose")
+    device_fp = device_fingerprint(p.tenant_id, body.device_ref)
+    context_sha = context_hash(body.context)
+    try:
+        result = await supabase.rpc(
+            "global_issue_device_challenge",
+            {
+                "p_tenant_id": p.tenant_id, "p_principal_id": principal_id,
+                "p_device_fingerprint": device_fp, "p_purpose": body.purpose,
+                "p_context_sha256": context_sha,
+            },
+        )
+    except Exception as exc:
+        raise HTTPException(503, "device_challenge_unavailable") from exc
+    row = result[0] if isinstance(result, list) and result else result
+    if not isinstance(row, dict):
+        raise HTTPException(503, "device_challenge_invalid_response")
+    challenge_id = str(row.get("challenge_id") or "")
+    nonce = str(row.get("challenge_nonce") or "")
+    if not challenge_id or len(nonce) != 64:
+        raise HTTPException(503, "device_challenge_invalid_response")
+    payload = _challenge_payload(
+        tenant_id=p.tenant_id, principal_id=principal_id, device_fp=device_fp,
+        challenge_id=challenge_id, nonce=nonce, purpose=body.purpose,
+        context=body.context, context_sha=context_sha,
+    )
+    return {"challenge_id": challenge_id, "nonce": nonce, "expires_at": row.get("expires_at"), "signing_payload": payload}
+
+
+@router.post("/devices/attest", status_code=201)
+async def attest_device(body: DeviceAttestationRequest, p: DeveloperPrincipal = Depends(_principal)):
+    principal_id, _, _ = await _global_principal(p)
+    device_fp = device_fingerprint(p.tenant_id, body.device_ref)
+    context_sha = context_hash(body.context)
+    try:
+        key_fp = public_key_fingerprint(body.public_key_pem)
+        if body.context.get("public_key_fingerprint") != key_fp:
+            raise GlobalIntegrityError("public key fingerprint does not match signed context")
+        if body.context.get("platform") != body.platform or body.context.get("attestation_format") != body.attestation_format:
+            raise GlobalIntegrityError("attestation context mismatch")
+        if body.context.get("attestation_evidence_sha256") != body.attestation_evidence_sha256:
+            raise GlobalIntegrityError("attestation evidence hash mismatch")
+        # The server signs/validates the exact challenge envelope; the client cannot
+        # promote its own device to VERIFIED by selecting an attestation_format.
+        challenge = await supabase.select_one(
+            "global_device_challenges", "id,nonce,expires_at,consumed_at,purpose,context_sha256",
+            id=body.challenge_id, tenant_id=p.tenant_id, principal_id=principal_id,
+            device_fingerprint=device_fp,
+        )
+        if not challenge or challenge.get("purpose") != "device_attestation" or challenge.get("context_sha256") != context_sha:
+            raise HTTPException(403, "device_challenge_mismatch")
+        if challenge.get("consumed_at") or datetime.fromisoformat(str(challenge["expires_at"]).replace("Z", "+00:00")) <= datetime.now(UTC):
+            raise HTTPException(403, "device_challenge_expired_or_replayed")
+        payload = _challenge_payload(
+            tenant_id=p.tenant_id, principal_id=principal_id, device_fp=device_fp,
+            challenge_id=body.challenge_id, nonce=body.challenge_nonce, purpose="device_attestation",
+            context=body.context, context_sha=context_sha,
+        )
+        if challenge.get("nonce") != body.challenge_nonce or not verify_ed25519(body.public_key_pem, body.signature_b64, payload):
+            raise HTTPException(403, "device_signature_invalid")
+        if not await _consume(
+            challenge_id=body.challenge_id, p=p, principal_id=principal_id, device_fp=device_fp,
+            purpose="device_attestation", context_sha=context_sha, nonce=body.challenge_nonce,
+        ):
+            raise HTTPException(403, "device_challenge_replayed_or_expired")
+        device_id = await supabase.rpc(
+            "global_register_device_key",
+            {
+                "p_tenant_id": p.tenant_id, "p_principal_id": principal_id,
+                "p_device_fingerprint": device_fp, "p_public_key": body.public_key_pem,
+                "p_platform": body.platform, "p_attestation_format": body.attestation_format,
+                "p_attestation_evidence_sha256": body.attestation_evidence_sha256,
+            },
+        )
+    except HTTPException:
+        raise
+    except GlobalIntegrityError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(503, "device_attestation_registration_unavailable") from exc
+    if isinstance(device_id, dict):
+        device_id = device_id.get("global_register_device_key") or device_id.get("id")
+    return {
+        "device_id": str(device_id), "attestation_state": "UNVERIFIED",
+        "assurance_level": "key_possession",
+        "reason": "signature proves key possession only; trusted platform attestation is not yet verified",
+    }
+
+
+@router.post("/authorize")
+async def authorize_action(body: ActionAuthorizationRequest, p: DeveloperPrincipal = Depends(_principal)):
+    principal_id, _, _ = await _global_principal(p)
+    device_fp = device_fingerprint(p.tenant_id, body.device_ref)
+    payload_sha = sha256_hex(canonical_json(body.action_payload))
+    context = {"action_type": body.action_type, "action_payload_sha256": payload_sha}
+    context_sha = context_hash(context)
+    device = await supabase.select_one(
+        "global_device_attestations", "id,hardware_public_key,attestation_state,last_attested_at,valid_until",
+        tenant_id=p.tenant_id, principal_id=principal_id, device_fingerprint=device_fp,
+    )
+    if not device:
+        await _receipt(p=p, principal_id=principal_id, device_id=None, challenge_id=body.challenge_id,
+                       action_type=body.action_type, payload_sha=payload_sha, signature_b64=body.signature_b64,
+                       decision="BLOCKED", reason="device_not_registered")
+        raise HTTPException(403, "device_not_registered")
+    challenge = await supabase.select_one(
+        "global_device_challenges", "id,nonce,expires_at,consumed_at,purpose,context_sha256",
+        id=body.challenge_id, tenant_id=p.tenant_id, principal_id=principal_id, device_fingerprint=device_fp,
+    )
+    envelope = _challenge_payload(
+        tenant_id=p.tenant_id, principal_id=principal_id, device_fp=device_fp,
+        challenge_id=body.challenge_id, nonce=body.challenge_nonce, purpose="sensitive_action",
+        context=context, context_sha=context_sha,
+    )
+    signature_ok = bool(challenge and challenge.get("nonce") == body.challenge_nonce
+                        and challenge.get("purpose") == "sensitive_action"
+                        and challenge.get("context_sha256") == context_sha
+                        and verify_ed25519(device["hardware_public_key"], body.signature_b64, envelope))
+    consumed = await _consume(
+        challenge_id=body.challenge_id, p=p, principal_id=principal_id, device_fp=device_fp,
+        purpose="sensitive_action", context_sha=context_sha, nonce=body.challenge_nonce,
+    ) if signature_ok else False
+    fresh = False
+    try:
+        attested = datetime.fromisoformat(str(device.get("last_attested_at")).replace("Z", "+00:00"))
+        valid_until = device.get("valid_until")
+        fresh = (datetime.now(UTC) - attested).total_seconds() <= 300 and (
+            not valid_until or datetime.fromisoformat(str(valid_until).replace("Z", "+00:00")) > datetime.now(UTC)
+        )
+    except Exception:
+        fresh = False
+    if not signature_ok or not consumed:
+        reason = "signature_invalid_or_challenge_replayed"
+    elif device.get("attestation_state") != "VERIFIED" or not fresh:
+        reason = "hardware_attestation_missing_or_stale"
+    else:
+        reason = "authorized"
+    decision = "AUTHORIZED" if reason == "authorized" else "BLOCKED"
+    await _receipt(p=p, principal_id=principal_id, device_id=str(device["id"]), challenge_id=body.challenge_id,
+                   action_type=body.action_type, payload_sha=payload_sha, signature_b64=body.signature_b64,
+                   decision=decision, reason=reason)
+    if decision != "AUTHORIZED":
+        raise HTTPException(403, {"status": "blocked", "reason": reason})
+    return {"status": "authorized", "receipt": "persisted", "action_payload_sha256": payload_sha}
+
+
+def _component(component: dict[str, Any]) -> dict[str, Any]:
+    purl = component.get("purl")
+    if not isinstance(purl, str) or not purl.startswith("pkg:") or "@" not in purl:
+        raise HTTPException(422, "every SBOM component must include a versioned package URL")
+    base, version = purl.rsplit("@", 1)
+    if not version or len(purl) > 2048:
+        raise HTTPException(422, "invalid package URL")
+    path = base[4:].split("/", 1)
+    ecosystem = path[0].lower()
+    name = path[-1].split("#", 1)[0]
+    if not ecosystem or not name:
+        raise HTTPException(422, "invalid package URL")
+    digest = None
+    for item in component.get("hashes") or []:
+        if isinstance(item, dict) and str(item.get("alg", "")).upper() in {"SHA-256", "SHA256"}:
+            value = str(item.get("content", "")).lower()
+            if len(value) == 64 and all(c in "0123456789abcdef" for c in value):
+                digest = value
+                break
+    return {"purl": purl, "version": version, "ecosystem": ecosystem, "name": name,
+            "package_sha256": digest}
+
+
+@router.post("/sbom/scan", status_code=201)
+async def scan_sbom(body: SbomScanRequest, p: DeveloperPrincipal = Depends(_principal)):
+    principal_id, _, _ = await _global_principal(p)
+    device_fp = device_fingerprint(p.tenant_id, body.device_ref)
+    canonical_sbom = canonical_json(body.sbom)
+    sbom_sha = sha256_hex(canonical_sbom)
+    context = {"project_ref": body.project_ref, "sbom_sha256": sbom_sha}
+    context_sha = context_hash(context)
+    device = await supabase.select_one(
+        "global_device_attestations", "id,hardware_public_key,attestation_state,last_attested_at,valid_until",
+        tenant_id=p.tenant_id, principal_id=principal_id, device_fingerprint=device_fp,
+    )
+    if not device or device.get("attestation_state") != "VERIFIED":
+        raise HTTPException(403, "verified_hardware_attestation_required")
+    challenge = await supabase.select_one(
+        "global_device_challenges", "id,nonce,expires_at,consumed_at,purpose,context_sha256",
+        id=body.challenge_id, tenant_id=p.tenant_id, principal_id=principal_id, device_fingerprint=device_fp,
+    )
+    envelope = _challenge_payload(
+        tenant_id=p.tenant_id, principal_id=principal_id, device_fp=device_fp,
+        challenge_id=body.challenge_id, nonce=body.challenge_nonce, purpose="sbom_submission",
+        context=context, context_sha=context_sha,
+    )
+    if not challenge or challenge.get("nonce") != body.challenge_nonce or challenge.get("purpose") != "sbom_submission" or challenge.get("context_sha256") != context_sha:
+        raise HTTPException(403, "sbom_challenge_mismatch")
+    if not verify_ed25519(device["hardware_public_key"], body.signature_b64, envelope):
+        raise HTTPException(403, "sbom_signature_invalid")
+    if not await _consume(challenge_id=body.challenge_id, p=p, principal_id=principal_id, device_fp=device_fp,
+                          purpose="sbom_submission", context_sha=context_sha, nonce=body.challenge_nonce):
+        raise HTTPException(403, "sbom_challenge_replayed_or_expired")
+    if body.sbom.get("bomFormat") != "CycloneDX" or not isinstance(body.sbom.get("specVersion"), str):
+        raise HTTPException(422, "cyclonedx_sbom_required")
+    components_raw = body.sbom.get("components") or []
+    if not isinstance(components_raw, list) or len(components_raw) > 50000:
+        raise HTTPException(422, "invalid_sbom_component_count")
+    components = [_component(item) for item in components_raw if isinstance(item, dict)]
+    if len(components) != len(components_raw):
+        raise HTTPException(422, "invalid_sbom_component")
+    intel_rows = []
+    for item in components:
+        try:
+            response = await (await supabase._ensure()).table("global_package_intel").select(
+                "status,evidence_sha256,valid_until"
+            ).eq("purl", item["purl"]).eq("version", item["version"]).execute()
+            rows = response.data or []
+        except Exception as exc:
+            raise HTTPException(503, "package_intelligence_unavailable") from exc
+        valid = []
+        for row in rows:
+            until = row.get("valid_until")
+            if not until or datetime.fromisoformat(str(until).replace("Z", "+00:00")) > datetime.now(UTC):
+                valid.append(row)
+        statuses = {r["status"] for r in valid}
+        status = "malicious" if "malicious" in statuses else "compromised" if "compromised" in statuses else "suspicious" if "suspicious" in statuses else "unknown"
+        evidence = next((r.get("evidence_sha256") for r in valid if r.get("status") in {"malicious","compromised","suspicious"}), None)
+        intel_rows.append({**item, "intel_status": status, "intel_evidence_sha256": evidence})
+    blocked = [x for x in intel_rows if x["intel_status"] in {"malicious","compromised"}]
+    summary = {
+        "malicious_or_compromised": len(blocked),
+        "suspicious": sum(x["intel_status"] == "suspicious" for x in intel_rows),
+        "unknown": sum(x["intel_status"] == "unknown" for x in intel_rows),
+        "sources_checked": "configured_package_intel_records",
+    }
+    decision = "BLOCKED" if blocked else "REVIEW_REQUIRED"
+    artifact = {
+        "tenant_id": p.tenant_id, "principal_id": principal_id, "device_id": device["id"],
+        "project_ref": body.project_ref, "format": "CycloneDX", "spec_version": body.sbom["specVersion"],
+        "sbom_sha256": sbom_sha, "signature_sha256": sha256_hex(body.signature_b64.encode()),
+        "component_count": len(components), "gate_decision": decision, "scan_summary": summary,
+    }
+    try:
+        saved = await supabase.insert_one("global_sbom_artifacts", artifact)
+        artifact_id = str(saved["id"])
+        if intel_rows:
+            rows = [{"tenant_id": p.tenant_id, "artifact_id": artifact_id, **x} for x in intel_rows]
+            await (await supabase._ensure()).table("global_sbom_components").insert(rows).execute()
+    except Exception as exc:
+        raise HTTPException(503, "sbom_evidence_persistence_failed") from exc
+    return {"status": "blocked" if blocked else "review_required", "gate_decision": decision,
+            "artifact_id": artifact_id, "sbom_sha256": sbom_sha, "summary": summary,
+            "affected_components": [{"purl": x["purl"], "version": x["version"], "status": x["intel_status"]} for x in intel_rows if x["intel_status"] != "unknown"]}
+
+
+@router.get("/supply-chain/blast-radius")
+async def tenant_blast_radius(
+    purl: str = Query(min_length=8, max_length=2048),
+    version: str = Query(min_length=1, max_length=256),
+    p: DeveloperPrincipal = Depends(_principal),
+):
+    try:
+        response = await (await supabase._ensure()).table("global_sbom_components").select(
+            "artifact_id,intel_status,purl,version"
+        ).eq("tenant_id", p.tenant_id).eq("purl", purl).eq("version", version).execute()
+        components = response.data or []
+        ids = list({str(x["artifact_id"]) for x in components})
+        artifacts = []
+        if ids:
+            result = await (await supabase._ensure()).table("global_sbom_artifacts").select(
+                "id,project_ref,principal_id,created_at,gate_decision"
+            ).eq("tenant_id", p.tenant_id).in_("id", ids).execute()
+            artifacts = result.data or []
+    except Exception as exc:
+        raise HTTPException(503, "blast_radius_query_unavailable") from exc
+    return {"purl": purl, "version": version, "tenant_scope": "current_tenant_only",
+            "affected_projects": len(artifacts), "artifacts": artifacts,
+            "evidence": components, "global_cross_tenant_graph": "not_exposed_to_tenant_api"}
