@@ -51,3 +51,13 @@ def test_sbom_evidence_and_gate_receipt_commit_atomically():
     assert "GRANT EXECUTE ON FUNCTION public.global_commit_sbom_scan" in atomic
     assert '"global_commit_sbom_scan"' in ROUTE
     assert "sbom_atomic_evidence_commit_failed" in ROUTE
+
+
+def test_global_attestation_is_bound_to_enrolled_tenant_device():
+    binding = (ROOT / "supabase/migrations/20261030174500_global_integrity_bind_platform_devices.sql").read_text()
+    assert "REFERENCES public.devices(tenant_id,id)" in binding
+    assert "d.status='active'" in binding
+    assert "DROP FUNCTION IF EXISTS public.global_register_device_key" in binding
+    assert "p_platform_device_id" in ROUTE
+    assert "device_ref_must_be_an_enrolled_device_uuid" in ROUTE
+    assert 'row.get("status") != "active"' in ROUTE
