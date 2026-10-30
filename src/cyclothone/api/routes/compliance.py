@@ -154,3 +154,51 @@ async def _owner_user_id(principal: DeveloperPrincipal) -> UUID | None:
         return UUID(str(value)) if value else None
     except (TypeError, ValueError):
         return None
+
+
+from cyclothone.compliance.effectiveness import verify_effectiveness_receipt
+from cyclothone.compliance.receipt_store import (
+    get_effectiveness_receipt,
+    list_effectiveness_receipts,
+    receipt_from_row,
+)
+
+
+@router.get("/effectiveness-receipts")
+async def effectiveness_receipts(
+    assessment_id: UUID | None = Query(default=None),
+    control_id: str | None = Query(default=None, min_length=2, max_length=128),
+    limit: int = Query(default=50, ge=1, le=200),
+    principal: DeveloperPrincipal = Depends(authenticate_request),
+) -> list[dict]:
+    principal.require(("compliance:read",))
+    return await list_effectiveness_receipts(
+        UUID(principal.tenant_id),
+        assessment_id=assessment_id,
+        control_id=control_id,
+        limit=limit,
+    )
+
+
+@router.get("/effectiveness-receipts/{receipt_id}/verify")
+async def verify_effectiveness_receipt_endpoint(
+    receipt_id: UUID,
+    principal: DeveloperPrincipal = Depends(authenticate_request),
+) -> dict:
+    principal.require(("compliance:read",))
+    row = await get_effectiveness_receipt(UUID(principal.tenant_id), receipt_id)
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "effectiveness receipt not found")
+    try:
+        receipt = receipt_from_row(row)
+        verified = await verify_effectiveness_receipt(receipt)
+    except (KeyError, TypeError, ValueError):
+        verified = False
+    return {
+        "receipt_id": str(receipt_id),
+        "verified": verified,
+        "receipt_digest": row.get("receipt_digest"),
+        "signer_key_id": row.get("signer_key_id"),
+        "status": row.get("status"),
+        "issued_at": row.get("issued_at"),
+    }
