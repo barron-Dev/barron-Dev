@@ -668,7 +668,7 @@ async def verify_device_attestation(body: VerifierAssertionRequest, p: Developer
         assertion_sha, valid_until = verify_verifier_assertion(
             assertion, body.signature_b64, verifier["public_key_pem"]
         )
-        verifier_fp = sha256_hex(verifier["public_key_pem"].encode())
+        verifier_fp = public_key_fingerprint(verifier["public_key_pem"])
         if verifier_fp != verifier.get("key_fingerprint_sha256"):
             raise HTTPException(503, "attestation_verifier_key_integrity_failure")
         result = await supabase.rpc(
