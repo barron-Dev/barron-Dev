@@ -232,7 +232,7 @@ end;
 $$;
 
 create or replace function public.vip_raise_sos(
-    p_tenant_id uuid, p_assignment_id uuid, p_actor text, p_summary text
+    p_tenant_id uuid, p_assignment_id uuid, p_actor text
 ) returns public.vip_protection_incidents
 language plpgsql security invoker set search_path = pg_catalog, public as $$
 declare v_row public.vip_protection_incidents;
@@ -258,12 +258,12 @@ revoke all on function public.vip_create_assignment(uuid,text,text,text,text,tex
 revoke all on function public.vip_approve_assignment(uuid,uuid,text) from public, anon, authenticated;
 revoke all on function public.vip_close_assignment(uuid,uuid,text) from public, anon, authenticated;
 revoke all on function public.purge_expired_vip_data() from public, anon, authenticated;
-revoke all on function public.vip_raise_sos(uuid,uuid,text,text) from public, anon, authenticated;
+revoke all on function public.vip_raise_sos(uuid,uuid,text) from public, anon, authenticated;
 grant execute on function public.vip_create_assignment(uuid,text,text,text,text,text,timestamptz,timestamptz,text,text) to service_role;
 grant execute on function public.vip_approve_assignment(uuid,uuid,text) to service_role;
 grant execute on function public.vip_close_assignment(uuid,uuid,text) to service_role;
 grant execute on function public.purge_expired_vip_data() to service_role;
-grant execute on function public.vip_raise_sos(uuid,uuid,text,text) to service_role;
+grant execute on function public.vip_raise_sos(uuid,uuid,text) to service_role;
 
 do $$
 begin
