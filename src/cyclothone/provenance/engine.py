@@ -28,7 +28,10 @@ async def verify_and_persist_media(tenant_id: str, file_path: str | Path) -> dic
     if policy_expiry <= datetime.now(timezone.utc):
         raise PermanentProvenanceError("trust_policy_expired")
 
-    anchors = validate_trust_policy(policy["trusted_anchor_pems"], policy["trusted_anchor_sha256"])
+    try:
+        anchors = validate_trust_policy(policy["trusted_anchor_pems"], policy["trusted_anchor_sha256"])
+    except (ValueError, TypeError) as exc:
+        raise PermanentProvenanceError("trust_policy_invalid") from exc
     result = await asyncio.to_thread(verify_c2pa_file, file_path, anchors)
     ml_assessment = {"status": "not_requested", "influences_cryptographic_state": False}
     client = await supabase._ensure()
