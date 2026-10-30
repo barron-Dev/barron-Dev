@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { apiDownload, apiFetch } from "../../../../lib/api";
+import { apiDownload, apiFetch } from "../../../lib/api";
 
 type Verification = {
   receipt_id: string;
@@ -67,7 +67,7 @@ export default function ProvenancePage() {
     <main className="min-h-screen bg-[#05070a] p-6 text-[#e8eef6]">
       <div className="mx-auto max-w-5xl space-y-6">
         <header>
-          <div className="text-[10px] uppercase tracking-[.16em] text-[#5a6675]">Executive Protection · Phase 1</div>
+          <div className="text-[10px] uppercase tracking-[.16em] text-[#5a6675]">Developer API · Synthetic-Media Provenance</div>
           <h1 className="mt-1 text-2xl font-semibold">Synthetic-Media Provenance</h1>
           <p className="mt-2 max-w-3xl text-sm text-[#8a97a8]">Verify C2PA manifests, hard bindings, signatures and configured certificate trust. Cryptographic provenance is separate from any probabilistic AI assessment.</p>
         </header>
