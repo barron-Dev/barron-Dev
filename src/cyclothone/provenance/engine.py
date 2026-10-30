@@ -16,7 +16,45 @@ class PermanentProvenanceError(RuntimeError):
     """A configuration or policy error that should not be retried by the worker."""
 
 
-async def verify_and_persist_media(tenant_id: str, file_path: str | Path) -> dict[str, Any]:
+async def _result_from_receipt(row: dict[str, Any]) -> dict[str, Any]:
+    policy = await supabase.select_one(
+        "c2pa_trust_policies", "policy_name", id=str(row["trust_policy_id"])
+    )
+    return {
+        "receipt_id": str(row["id"]),
+        "validation_state": row["validation_state"],
+        "media_sha256": row["media_sha256"],
+        "manifest_store_sha256": row["manifest_store_sha256"],
+        "signer": row["signer_identity"],
+        "trust_policy": policy.get("policy_name") if policy else None,
+        "trust_policy_version": row["trust_policy_version"],
+        "sdk_version": row["sdk_version"],
+        "receipt_hash": row["receipt_hash"],
+        "cryptographic_proof": {
+            "algorithm": "Ed25519",
+            "signature": row["receipt_signature"],
+            "key_id": row["signing_key_id"],
+            "public_key": row["signing_public_key"],
+        },
+        "ml_assessment": row["ml_assessment"],
+        "disposition": row["validation_state"],
+        "interpretation_limit": (
+            "C2PA provenance does not prove depicted identity, scene truth, or signer authorization "
+            "beyond the configured certificate trust policy. Revocation checking is not performed."
+        ),
+    }
+
+
+async def verify_and_persist_media(
+    tenant_id: str, file_path: str | Path, source_job_id: str
+) -> dict[str, Any]:
+    existing = await supabase.select_one(
+        "media_provenance_receipts", "*",
+        tenant_id=tenant_id, source_job_id=source_job_id,
+    )
+    if existing:
+        return await _result_from_receipt(existing)
+
     policy = await supabase.select_one(
         "c2pa_trust_policies",
         "id,policy_name,policy_version,trusted_anchor_pems,trusted_anchor_sha256,source_next_update",
@@ -37,12 +75,6 @@ async def verify_and_persist_media(tenant_id: str, file_path: str | Path) -> dic
     client = await supabase._ensure()
 
     receipt_id = None
-    receipt_hash = None
-    signature = None
-    signing_key_id = None
-    signing_public_key = None
-    receipt_payload = None
-
     for attempt in range(3):
         head_response = await client.table("media_provenance_receipts").select("receipt_hash").eq(
             "tenant_id", tenant_id
@@ -51,6 +83,7 @@ async def verify_and_persist_media(tenant_id: str, file_path: str | Path) -> dic
         previous_hash = head_rows[0]["receipt_hash"] if head_rows else ZERO_HASH
         created_at = datetime.now(timezone.utc).isoformat()
         receipt_payload = {
+            "source_job_id": source_job_id,
             "tenant_id": tenant_id,
             "media_sha256": result.media_sha256,
             "manifest_store_sha256": result.manifest_store_sha256,
@@ -70,6 +103,7 @@ async def verify_and_persist_media(tenant_id: str, file_path: str | Path) -> dic
             raise PermanentProvenanceError("receipt_signing_unavailable") from exc
 
         rpc_args = {
+            "p_source_job_id": source_job_id,
             "p_tenant_id": tenant_id,
             "p_media_sha256": result.media_sha256,
             "p_manifest_store_sha256": result.manifest_store_sha256,
@@ -99,29 +133,12 @@ async def verify_and_persist_media(tenant_id: str, file_path: str | Path) -> dic
                 raise RuntimeError("receipt_chain_busy") from exc
             raise
 
-    if receipt_id is None or receipt_payload is None or receipt_hash is None:
+    if receipt_id is None:
         raise RuntimeError("receipt_persistence_failed")
-
-    return {
-        "receipt_id": str(receipt_id),
-        "validation_state": result.validation_state,
-        "media_sha256": result.media_sha256,
-        "manifest_store_sha256": result.manifest_store_sha256,
-        "signer": result.signer_identity,
-        "trust_policy": policy["policy_name"],
-        "trust_policy_version": policy["policy_version"],
-        "sdk_version": result.sdk_version,
-        "receipt_hash": receipt_hash,
-        "cryptographic_proof": {
-            "algorithm": "Ed25519",
-            "signature": signature,
-            "key_id": signing_key_id,
-            "public_key": signing_public_key,
-        },
-        "ml_assessment": ml_assessment,
-        "disposition": result.validation_state,
-        "interpretation_limit": (
-            "C2PA provenance does not prove depicted identity, scene truth, or signer authorization "
-            "beyond the configured certificate trust policy. Revocation checking is not performed."
-        ),
-    }
+    persisted = await supabase.select_one(
+        "media_provenance_receipts", "*",
+        id=str(receipt_id), tenant_id=tenant_id,
+    )
+    if not persisted:
+        raise RuntimeError("receipt_persistence_unconfirmed")
+    return await _result_from_receipt(persisted)
