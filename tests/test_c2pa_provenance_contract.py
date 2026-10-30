@@ -12,14 +12,18 @@ def test_five_states_are_closed_set():
 
 
 def test_valid_requires_explicit_trusted_credential_result():
-    trusted = {"validation_status": [{"code": "signingCredential.trusted"}]}
+    trusted = {"validation_status": [
+        {"code": "signingCredential.trusted"},
+        {"code": "claimSignature.validated"},
+        {"code": "assertion.dataHash.match"},
+    ]}
     assert classify_validation("Valid", trusted, True) == "VALID"
     assert classify_validation("Valid", trusted, False) == "UNTRUSTED"
     assert classify_validation("Valid", {}, True) == "INDETERMINATE"
 
 
 def test_integrity_failure_is_invalid():
-    results = {"validation_status": [{"code": "c2pa.hash.mismatch"}]}
+    results = {"validation_status": [{"code": "assertion.dataHash.mismatch"}]}
     assert classify_validation("Invalid", results, True) == "INVALID"
 
 
