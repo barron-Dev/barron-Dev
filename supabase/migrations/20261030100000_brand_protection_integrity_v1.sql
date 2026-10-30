@@ -251,7 +251,7 @@ begin
           when brand_threats.severity='high' or excluded.severity='high' then 'high'
           when brand_threats.severity='medium' or excluded.severity='medium' then 'medium'
           else 'low' end,
-        metadata=brand_threats.metadata || excluded.metadata,
+        metadata=(brand_threats.metadata || excluded.metadata) ||\n          jsonb_build_object('verification_state',brand_threats.verification_state),
         last_seen_at=now(),
         evidence_sha256=coalesce(excluded.evidence_sha256,brand_threats.evidence_sha256),
         verification_state=brand_threats.verification_state
