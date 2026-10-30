@@ -34,6 +34,9 @@ create table if not exists public.vip_assignments (
 create index if not exists vip_assignments_tenant_active_idx
     on public.vip_assignments(tenant_id, status, start_time, end_time);
 
+create unique index if not exists dw_findings_tenant_id_unique
+    on public.dw_findings(tenant_id, id);
+
 create table if not exists public.vip_region_threat_matches (
     id uuid primary key default gen_random_uuid(),
     tenant_id uuid not null references public.tenants(id) on delete cascade,
@@ -45,7 +48,9 @@ create table if not exists public.vip_region_threat_matches (
     created_at timestamptz not null default now(),
     unique (assignment_id, threat_finding_id),
     foreign key (tenant_id, assignment_id)
-        references public.vip_assignments(tenant_id, id) on delete cascade
+        references public.vip_assignments(tenant_id, id) on delete cascade,
+    foreign key (tenant_id, threat_finding_id)
+        references public.dw_findings(tenant_id, id) on delete cascade
 );
 create index if not exists vip_region_matches_tenant_created_idx
     on public.vip_region_threat_matches(tenant_id, assignment_id, created_at desc);
