@@ -27,6 +27,8 @@ CONTROLS: Final[list[dict[str, object]]] = [
     {"id":"hipaa.164.308","framework":"hipaa","code":"164.308","title":"Administrative safeguards","category":"governance","evidence_sources":["audit_log","crime_cases"],"check_key":"ir_process"},
     {"id":"hipaa.164.312","framework":"hipaa","code":"164.312","title":"Technical safeguards","category":"security","evidence_sources":["devices","data_trust"],"check_key":"data_trust_active"},
     {"id":"hipaa.164.308.a.7","framework":"hipaa","code":"164.308(a)(7)","title":"Contingency plan","category":"availability","evidence_sources":["recovery_vault_policies","recovery_restore_jobs"],"check_key":"backup_tested"},
+    {"id":"hipaa.164.308.a.1","framework":"hipaa","code":"164.308(a)(1)","title":"Security management process","category":"governance","evidence_sources":["audit_log","crime_cases"],"check_key":"ir_process"},
+    {"id":"hipaa.164.312.b","framework":"hipaa","code":"164.312(b)","title":"Audit controls","category":"monitoring","evidence_sources":["audit_log","hunt_runs","investigation_events"],"check_key":"audit_activity"},
     {"id":"pci.1","framework":"pci_dss","code":"Req 1","title":"Network security controls","category":"network","evidence_sources":["detections","data_trust"],"check_key":"detection_active"},
     {"id":"pci.5","framework":"pci_dss","code":"Req 5","title":"Malware protection","category":"endpoint","evidence_sources":["devices","detections"],"check_key":"endpoint_coverage"},
     {"id":"pci.10","framework":"pci_dss","code":"Req 10","title":"Log and monitor all access","category":"monitoring","evidence_sources":["audit_log","hunt_runs"],"check_key":"audit_activity"},

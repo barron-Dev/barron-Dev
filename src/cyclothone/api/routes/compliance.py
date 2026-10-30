@@ -154,3 +154,200 @@ async def _owner_user_id(principal: DeveloperPrincipal) -> UUID | None:
         return UUID(str(value)) if value else None
     except (TypeError, ValueError):
         return None
+
+
+from cyclothone.compliance.effectiveness import verify_effectiveness_receipt
+from cyclothone.compliance.receipt_store import (
+    get_effectiveness_receipt,
+    list_effectiveness_receipts,
+    receipt_from_row,
+)
+
+
+@router.get("/effectiveness-receipts")
+async def effectiveness_receipts(
+    assessment_id: UUID | None = Query(default=None),
+    control_id: str | None = Query(default=None, min_length=2, max_length=128),
+    limit: int = Query(default=50, ge=1, le=200),
+    principal: DeveloperPrincipal = Depends(authenticate_request),
+) -> list[dict]:
+    principal.require(("compliance:read",))
+    return await list_effectiveness_receipts(
+        UUID(principal.tenant_id),
+        assessment_id=assessment_id,
+        control_id=control_id,
+        limit=limit,
+    )
+
+
+@router.get("/effectiveness-receipts/{receipt_id}/verify")
+async def verify_effectiveness_receipt_endpoint(
+    receipt_id: UUID,
+    principal: DeveloperPrincipal = Depends(authenticate_request),
+) -> dict:
+    principal.require(("compliance:read",))
+    row = await get_effectiveness_receipt(UUID(principal.tenant_id), receipt_id)
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "effectiveness receipt not found")
+    try:
+        receipt = receipt_from_row(row)
+        verified = await verify_effectiveness_receipt(receipt)
+    except (KeyError, TypeError, ValueError):
+        verified = False
+    return {
+        "receipt_id": str(receipt_id),
+        "verified": verified,
+        "receipt_digest": row.get("receipt_digest"),
+        "signer_key_id": row.get("signer_key_id"),
+        "status": row.get("status"),
+        "issued_at": row.get("issued_at"),
+    }
+
+
+from cyclothone.api.routes.customer_identity import principal as customer_principal
+
+
+@router.get("/customer/effectiveness")
+async def customer_effectiveness(
+    limit: int = Query(default=200, ge=1, le=500),
+    principal: DeveloperPrincipal = Depends(customer_principal),
+) -> dict:
+    if principal.auth_type != "customer":
+        principal.require(("compliance:read",))
+    if not principal.tenant_id:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "workspace_not_admitted")
+
+    async def _select():
+        return await (
+            await supabase._ensure()
+        ).table("compliance_control_status").select(
+            "control_id,status,score,last_evaluated,evidence,freshness_status,evidence_valid_until"
+        ).eq("tenant_id", principal.tenant_id).order(
+            "last_evaluated", desc=True
+        ).limit(limit).execute()
+
+    controls = list((await supabase._retry(_select, attempts=2)).data or [])
+    return {"tenant_id": principal.tenant_id, "controls": controls}
+
+
+@router.get("/customer/effectiveness-receipts")
+async def customer_effectiveness_receipts(
+    assessment_id: UUID | None = Query(default=None),
+    control_id: str | None = Query(default=None, min_length=2, max_length=128),
+    limit: int = Query(default=50, ge=1, le=200),
+    principal: DeveloperPrincipal = Depends(customer_principal),
+) -> list[dict]:
+    if principal.auth_type != "customer":
+        principal.require(("compliance:read",))
+    if not principal.tenant_id:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "workspace_not_admitted")
+    return await list_effectiveness_receipts(
+        UUID(principal.tenant_id),
+        assessment_id=assessment_id,
+        control_id=control_id,
+        limit=limit,
+    )
+
+
+@router.get("/customer/effectiveness-receipts/{receipt_id}/verify")
+async def customer_verify_effectiveness_receipt(
+    receipt_id: UUID,
+    principal: DeveloperPrincipal = Depends(customer_principal),
+) -> dict:
+    if principal.auth_type != "customer":
+        principal.require(("compliance:read",))
+    if not principal.tenant_id:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "workspace_not_admitted")
+    row = await get_effectiveness_receipt(UUID(principal.tenant_id), receipt_id)
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "effectiveness receipt not found")
+    try:
+        receipt = receipt_from_row(row)
+        verified = await verify_effectiveness_receipt(receipt)
+    except (KeyError, TypeError, ValueError):
+        verified = False
+    return {
+        "receipt_id": str(receipt_id),
+        "verified": verified,
+        "receipt_digest": row.get("receipt_digest"),
+        "signer_key_id": row.get("signer_key_id"),
+        "status": row.get("status"),
+        "issued_at": row.get("issued_at"),
+    }
+
+
+
+@router.get("/global-intelligence/status")
+async def global_intelligence_status(
+    principal: DeveloperPrincipal = Depends(authenticate_request),
+) -> dict:
+    principal.require(("compliance:read",))
+    async def _runs():
+        return await (
+            await supabase._ensure()
+        ).table("csa_global_intel_sync_runs").select(
+            "source,started_at,completed_at,status,records_seen,records_upserted,source_version,source_as_of,error_code"
+        ).order("started_at", desc=True).limit(20).execute()
+    rows = list((await supabase._retry(_runs, attempts=2)).data or [])
+    latest: dict[str, dict] = {}
+    for row in rows:
+        latest.setdefault(row["source"], row)
+    return {"sources": latest, "history": rows}
+
+
+@router.get("/sovereign-frameworks")
+async def sovereign_frameworks(
+    country_iso: str | None = Query(default=None, min_length=2, max_length=2),
+    principal: DeveloperPrincipal = Depends(authenticate_request),
+) -> list[dict]:
+    principal.require(("compliance:read",))
+    async def _frameworks():
+        query = (await supabase._ensure()).table("csa_sovereign_frameworks").select(
+            "framework_key,country_iso,framework_name,framework_version,authority_name,source_url,source_version,evaluation_frequency_days,jurisdiction_level,caveats,active"
+        ).eq("active", True).order("country_iso")
+        if country_iso:
+            query = query.eq("country_iso", country_iso.upper())
+        return await query.execute()
+    return list((await supabase._retry(_frameworks, attempts=2)).data or [])
+
+
+@router.get("/sovereign-framework-mappings")
+async def sovereign_framework_mappings(
+    framework_key: str | None = Query(default=None, min_length=3, max_length=64),
+    principal: DeveloperPrincipal = Depends(authenticate_request),
+) -> list[dict]:
+    principal.require(("compliance:read",))
+    async def _mappings():
+        query = (await supabase._ensure()).table("csa_sovereign_framework_mapping").select(
+            "framework_key,cyclothone_control_id,external_control_id,external_control_title,mapping_method,mapping_confidence,source_url,source_version,reviewed_at,review_status,evaluation_frequency_days"
+        ).order("framework_key").order("cyclothone_control_id").limit(1000)
+        if framework_key:
+            query = query.eq("framework_key", framework_key)
+        return await query.execute()
+    return list((await supabase._retry(_mappings, attempts=2)).data or [])
+
+
+@router.get("/global-risk")
+async def global_risk(
+    control_id: str = Query(min_length=2, max_length=128),
+    cve_id: str | None = Query(default=None, min_length=13, max_length=24),
+    asset_criticality: int = Query(default=3, ge=1, le=5),
+    control_exposure: int = Query(default=3, ge=1, le=5),
+    principal: DeveloperPrincipal = Depends(authenticate_request),
+) -> dict:
+    principal.require(("compliance:read",))
+    if not principal.tenant_id:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "workspace_not_admitted")
+    async def _calculate():
+        return await (await supabase._ensure()).rpc(
+            "calculate_csa_global_risk",
+            {
+                "p_tenant_id": principal.tenant_id,
+                "p_control_id": control_id,
+                "p_cve_id": cve_id,
+                "p_asset_criticality": asset_criticality,
+                "p_control_exposure": control_exposure,
+            },
+        ).execute()
+    response = await supabase._retry(_calculate, attempts=2)
+    return response.data if isinstance(response.data, dict) else (response.data[0] if response.data else {})

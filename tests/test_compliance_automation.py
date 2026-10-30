@@ -9,9 +9,9 @@ from cyclothone.compliance.evaluator import ComplianceEvaluator
 from cyclothone.compliance.service import ComplianceError, ComplianceService
 
 
-def test_catalog_contains_seven_frameworks_and_27_controls():
+def test_catalog_contains_seven_frameworks_and_30_controls():
     assert set(FRAMEWORKS) == {"soc2", "iso27001", "gdpr", "hipaa", "pci_dss", "uae_pdpl", "ndpa_ng"}
-    assert len(CONTROLS) == 28
+    assert len(CONTROLS) == 30
 
 
 def test_invalid_period_rejected():

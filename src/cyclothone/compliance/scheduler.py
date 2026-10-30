@@ -15,6 +15,7 @@ class ComplianceScheduler:
     EVAL_INTERVAL_SECONDS = 6 * 3600
     STALE_INTERVAL_SECONDS = 3600
     STARTUP_DELAY_SECONDS = 120
+    GLOBAL_INTEL_INTERVAL_SECONDS = 24 * 3600
 
     def __init__(self) -> None:
         self._tasks: list[asyncio.Task] = []
@@ -27,6 +28,7 @@ class ComplianceScheduler:
         self._tasks = [
             asyncio.create_task(self._eval_loop(), name="cyclothone-compliance-eval"),
             asyncio.create_task(self._stale_loop(), name="cyclothone-compliance-stale"),
+            asyncio.create_task(self._global_intel_loop(), name="cyclothone-csa-global-intel"),
         ]
 
     async def stop(self) -> None:
@@ -70,6 +72,27 @@ class ComplianceScheduler:
                 logger.debug("compliance stale sweep failed", exc_info=True)
             try:
                 await asyncio.wait_for(self._stop.wait(), timeout=self.STALE_INTERVAL_SECONDS)
+            except asyncio.TimeoutError:
+                pass
+
+    async def _global_intel_loop(self) -> None:
+        try:
+            await asyncio.wait_for(self._stop.wait(), timeout=self.STARTUP_DELAY_SECONDS + 60)
+            return
+        except asyncio.TimeoutError:
+            pass
+        while not self._stop.is_set():
+            try:
+                from cyclothone.compliance.global_intelligence import sync_global_intelligence
+                result = await sync_global_intelligence()
+                if not result.get("complete"):
+                    logger.warning("CSA global intelligence sync incomplete: %s", result.get("errors"))
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception("CSA global intelligence sync failed")
+            try:
+                await asyncio.wait_for(self._stop.wait(), timeout=self.GLOBAL_INTEL_INTERVAL_SECONDS)
             except asyncio.TimeoutError:
                 pass
 
