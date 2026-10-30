@@ -57,7 +57,7 @@ async def verify_and_persist_media(
 
     policy = await supabase.select_one(
         "c2pa_trust_policies",
-        "id,policy_name,policy_version,trusted_anchor_pems,trusted_anchor_sha256,source_next_update",
+        "id,policy_name,policy_version,trusted_anchor_pems,trusted_anchor_sha256,tsa_anchor_pems,tsa_anchor_sha256,source_uri,source_next_update",
         is_active=True,
     )
     if not policy or not policy.get("trusted_anchor_pems"):
@@ -67,10 +67,16 @@ async def verify_and_persist_media(
         raise PermanentProvenanceError("trust_policy_expired")
 
     try:
-        anchors = validate_trust_policy(policy["trusted_anchor_pems"], policy["trusted_anchor_sha256"])
+        manifest_anchors = validate_trust_policy(policy["trusted_anchor_pems"], policy["trusted_anchor_sha256"])
+        tsa_anchors = validate_trust_policy(policy["tsa_anchor_pems"], policy["tsa_anchor_sha256"])
     except (ValueError, TypeError) as exc:
         raise PermanentProvenanceError("trust_policy_invalid") from exc
-    result = await asyncio.to_thread(verify_c2pa_file, file_path, anchors)
+    source_uris = str(policy["source_uri"]).splitlines()
+    if len(source_uris) != 2:
+        raise PermanentProvenanceError("trust_policy_source_invalid")
+    result = await asyncio.to_thread(
+        verify_c2pa_file, file_path, manifest_anchors, tsa_anchors, source_uris[0], source_uris[1]
+    )
     ml_assessment = {"status": "not_requested", "influences_cryptographic_state": False}
     client = await supabase._ensure()
 
