@@ -111,6 +111,7 @@ export default function Developers() {
         <div className="mx-auto max-w-4xl">
           <span className="cyclo-mark font-semibold tracking-tight">◌ CYCLOTHONE</span>
           <span className="ml-3 text-[10px] uppercase tracking-[.16em] text-[#c2f35a]">Developer</span>
+          <a href="/developers/mdi" className="ml-5 text-xs text-[#c2f35a]">MDI integration →</a>
           <div className="ml-auto"><AuthActions /></div>
         </div>
       </header>
@@ -169,13 +170,19 @@ export default function Developers() {
         </section>
 
         <section className="cyclo-stage mt-4 p-6">
-          <h2 className="font-medium">3. Mobile & Digital Intelligence</h2>
+          <h2 className="font-medium">3. MDI device-integrity workspace</h2>
+          <p className="mt-2 text-sm leading-6 text-[#8a97a8]">Open the tenant-scoped Mobile & Digital Intelligence workspace to inspect persisted device posture, threat observations and signed evidence journal records.</p>
+          <a href="/developers/mdi" className="mt-3 inline-block text-xs text-[#c2f35a]">Open MDI integration →</a>
+        </section>
+
+        <section className="cyclo-stage mt-4 p-6">
+          <h2 className="font-medium">4. Mobile & Digital Intelligence API</h2>
           <p className="mt-2 text-sm leading-6 text-[#8a97a8]">Request the <code>mobile:intelligence</code> scope for an approved application. The API exposes authorized number, SIM/device, location, reachability and roaming intelligence. Every query requires an approved authority record; unavailable provider data is returned as an error, never fabricated.</p>
           <code className="mt-3 block text-xs text-[#c4cedb]">POST /api/v1/mobile-intelligence/query</code>
         </section>
 
         <section className="cyclo-stage mt-4 p-6">
-          <h2 className="font-medium">4. Integrate</h2>
+          <h2 className="font-medium">5. Integrate</h2>
           <p className="mt-2 text-sm leading-6 text-[#8a97a8]">
             Use your API key with the Cyclothone API. Documentation and language examples can be added after the underlying API workflow is commissioned; this page does not invent a test request.
           </p>
