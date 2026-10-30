@@ -29,7 +29,7 @@ This explains where the original seed content is represented in source, but it d
 ## Additional legacy SQL files and live-schema comparison
 
 - `sql/029_compliance_public_key_verification.sql` is a separate legacy script and must not be assumed to represent the live two-argument public-key RPC. The live function signature was inspected as `get_signing_public_key(p_kid text, p_purpose text)`; inspect all live overloads and key lifecycle checks before any replay or replacement.
-- `sql/029_compliance_signing_rpc_hardening.sql` revokes/grants the historical one-argument `get_signing_key(text)`. It is a candidate for the recorded historical hardening migration, not proof of current live function implementation.
+- `sql/029_compliance_signing_rpc_hardening.sql` revokes/grants the historical one-argument `get_signing_key(text)`. Live Supabase now exposes only the inspected two-argument overloads. Both live functions enforce the purpose allowlist and select only `active=true` keys with matching purpose; the private key is retrieved from Vault through `vault_secret_id`, and the public key is read from `public_pem`. The `signing_keys` table has `active` and `retired_at` but no explicit `not_before`/expiry columns. Both RPCs are SECURITY DEFINER and the inspected routine grants are limited to postgres/service_role; RLS denies client access. This confirms the current signing boundary but does not prove the full key-rotation lifecycle.
 - `sql/030_compliance_freshness.sql` aligns with observed live fields `compliance_control_status.freshness_status`, `compliance_control_status.evidence_valid_until`, and `compliance_collection_results.valid_until`.
 - `sql/030_compliance_evidence_freshness.sql` proposes additional `freshness_window_seconds` and `stale` fields that were not present in the inspected live columns. Do not treat both 030 files as one deployed migration.
 - `sql/031_compliance_full_platform.sql` is not represented by the seven CSA ledger rows. Its principal tables (`audit_engagements`, `auditor_access`, `evidence_items`, `control_owners`, `control_exceptions`, `remediation_tasks`, `vendors`, `trust_center`) were absent in the inspected live schema. Treat this file as unapplied/source-only until independently reconciled.
@@ -60,3 +60,14 @@ These are source-catalogue identifiers only. No production rows were changed and
 ## Release decision
 
 No production migration, deployment, merge, credential change, or external customer probe was performed. Migration-history reconciliation remains open.
+
+
+## Stable-ID backfill constraints and references
+
+Live schema inspection found:
+- `compliance_controls` has primary key `id` and unique `(framework, control_code)`.
+- `compliance_controls_stable_id_uidx` is a partial unique index on `stable_id` where non-NULL.
+- The two target HIPAA rows are the only NULL stable IDs in the inspected catalogue; no duplicate non-NULL stable IDs were returned.
+- Four live tables reference `compliance_controls(id)`: `compliance_attestations`, `compliance_collection_results`, `compliance_control_status`, and `compliance_evidence`.
+
+A future backfill can update only the two rows selected by the exact `framework='hipaa'` and `control_code` values, preserving primary keys and all existing foreign-key relationships. It must assert exactly two target rows and no stable-ID conflicts before updating, then assert zero remaining NULL stable IDs and verify the partial unique index. Do not recreate controls or rewrite foreign keys.
