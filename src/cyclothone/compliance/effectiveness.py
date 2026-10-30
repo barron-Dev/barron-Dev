@@ -81,7 +81,7 @@ class EffectivenessReceipt:
             "status": self.status,
             "coverage": self.coverage,
             "evidence_digest": _digest(self.evidence_digest, "evidence_digest"),
-            "verified_at": self.issued_at.astimezone(UTC).isoformat(),
+            "issued_at": self.issued_at.astimezone(UTC).isoformat(),
         }
 
 
