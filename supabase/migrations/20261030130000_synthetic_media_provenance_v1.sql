@@ -126,7 +126,17 @@ INSERT INTO public.provenance_i18n (locale, validation_state, display_text) VALU
 ('ar','INVALID','فشل التحقق من سلامة C2PA أو التوقيع.'),
 ('ar','UNTRUSTED','تم التحقق من التوقيع، لكن شهادة التوقيع غير موثوقة وفق هذه السياسة.'),
 ('ar','MISSING_PROVENANCE','لم يتم العثور على بيان مصدر C2PA. وهذا لا يعني أن الوسائط مزيفة.'),
-('ar','INDETERMINATE','تعذر تحليل مصدر C2PA أو التحقق منه بشكل قاطع.')
+('ar','INDETERMINATE','تعذر تحليل مصدر C2PA أو التحقق منه بشكل قاطع.'),
+('fr','VALID','Manifeste C2PA et chaîne de confiance vérifiés. Cela ne prouve ni l’identité des personnes représentées ni la véracité de la scène.'),
+('fr','INVALID','La vérification de l’intégrité ou de la signature C2PA a échoué.'),
+('fr','UNTRUSTED','La signature est valide, mais le certificat signataire n’est pas approuvé par cette politique.'),
+('fr','MISSING_PROVENANCE','Aucune provenance C2PA trouvée. Cela ne signifie pas que le média est faux.'),
+('fr','INDETERMINATE','La provenance C2PA n’a pas pu être analysée ou vérifiée de manière concluante.'),
+('ja','VALID','C2PAマニフェストと設定された信頼チェーンを検証しました。映像内の人物の身元や場面の事実性を証明するものではありません。'),
+('ja','INVALID','C2PAの完全性または署名の検証に失敗しました。'),
+('ja','UNTRUSTED','署名は有効ですが、このポリシーでは署名証明書が信頼されていません。'),
+('ja','MISSING_PROVENANCE','C2PAプロベナンスが見つかりません。メディアが偽物であることを意味しません。'),
+('ja','INDETERMINATE','C2PAプロベナンスを確定的に解析または検証できませんでした。')
 ON CONFLICT (locale, validation_state) DO NOTHING;
 ),
     source_sha256 char(64) NOT NULL CHECK (source_sha256 ~ '^[0-9a-f]{64}
@@ -225,7 +235,7 @@ BEGIN
 END;
 $$;
 REVOKE ALL ON FUNCTION public.append_media_provenance_receipt(uuid,text,text,text,text,uuid,text,text,jsonb,jsonb,text,text,text,text,text,jsonb) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.append_media_provenance_receipt(uuid,text,text,text,text,uuid,text,text,jsonb,jsonb,text,text,text,text) TO service_role;
+GRANT EXECUTE ON FUNCTION public.append_media_provenance_receipt(uuid,text,text,text,text,uuid,text,text,jsonb,jsonb,text,text,text,text,text,jsonb) TO service_role;
 
 CREATE TABLE IF NOT EXISTS public.provenance_i18n (
     locale text NOT NULL,
