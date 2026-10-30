@@ -6,8 +6,8 @@ CREATE TABLE IF NOT EXISTS public.c2pa_trust_policies (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     policy_name text NOT NULL,
     policy_version text NOT NULL,
-    trusted_root_pems text[] NOT NULL,
-    trusted_root_sha256 text[] NOT NULL,
+    trusted_anchor_pems text[] NOT NULL,
+    trusted_anchor_sha256 text[] NOT NULL,
     is_active boolean NOT NULL DEFAULT false,
     source_uri text NOT NULL,
     source_commit text NOT NULL CHECK (source_commit ~ '^[0-9a-f]{40}$'),
@@ -17,9 +17,9 @@ CREATE TABLE IF NOT EXISTS public.c2pa_trust_policies (
     created_at timestamptz NOT NULL DEFAULT now(),
     created_by uuid,
     CONSTRAINT c2pa_policy_roots_nonempty CHECK (
-        cardinality(trusted_root_pems) > 0
-        AND cardinality(trusted_root_sha256) > 0
-        AND cardinality(trusted_root_pems) = cardinality(trusted_root_sha256)
+        cardinality(trusted_anchor_pems) > 0
+        AND cardinality(trusted_anchor_sha256) > 0
+        AND cardinality(trusted_anchor_pems) = cardinality(trusted_anchor_sha256)
     ),
     CONSTRAINT c2pa_policy_unique_version UNIQUE (policy_name, policy_version)
 );
@@ -217,8 +217,8 @@ ON CONFLICT (locale, validation_state) DO NOTHING;
 CREATE OR REPLACE FUNCTION public.activate_c2pa_trust_policy(
     p_policy_name text,
     p_policy_version text,
-    p_trusted_root_pems text[],
-    p_trusted_root_sha256 text[],
+    p_trusted_anchor_pems text[],
+    p_trusted_anchor_sha256 text[],
     p_source_uri text,
     p_source_commit text,
     p_source_sha256 text,
@@ -236,8 +236,8 @@ BEGIN
     IF coalesce(current_setting('request.jwt.claim.role', true), '') <> 'service_role' THEN
         RAISE EXCEPTION 'service role required' USING ERRCODE = '42501';
     END IF;
-    IF cardinality(p_trusted_root_pems) < 1
-       OR cardinality(p_trusted_root_pems) <> cardinality(p_trusted_root_sha256) THEN
+    IF cardinality(p_trusted_anchor_pems) < 1
+       OR cardinality(p_trusted_anchor_pems) <> cardinality(p_trusted_anchor_sha256) THEN
         RAISE EXCEPTION 'invalid trust anchor set';
     END IF;
     IF p_source_commit !~ '^[0-9a-f]{40}$'
@@ -248,10 +248,10 @@ BEGIN
     END IF;
     UPDATE public.c2pa_trust_policies SET is_active = false WHERE is_active = true;
     INSERT INTO public.c2pa_trust_policies (
-        policy_name, policy_version, trusted_root_pems, trusted_root_sha256,
+        policy_name, policy_version, trusted_anchor_pems, trusted_anchor_sha256,
         is_active, source_uri, source_commit, source_sha256, source_issued_at, source_next_update
     ) VALUES (
-        p_policy_name, p_policy_version, p_trusted_root_pems, p_trusted_root_sha256,
+        p_policy_name, p_policy_version, p_trusted_anchor_pems, p_trusted_anchor_sha256,
         true, p_source_uri, p_source_commit, p_source_sha256, p_source_issued_at, p_source_next_update
     ) RETURNING id INTO v_id;
     RETURN v_id;
@@ -271,12 +271,12 @@ BEGIN
         RAISE EXCEPTION 'C2PA trust policies are immutable; deactivate and supersede instead';
     END IF;
     IF ROW(
-        NEW.id, NEW.policy_name, NEW.policy_version, NEW.trusted_root_pems,
-        NEW.trusted_root_sha256, NEW.source_uri, NEW.source_commit, NEW.source_sha256,
+        NEW.id, NEW.policy_name, NEW.policy_version, NEW.trusted_anchor_pems,
+        NEW.trusted_anchor_sha256, NEW.source_uri, NEW.source_commit, NEW.source_sha256,
         NEW.source_issued_at, NEW.source_next_update, NEW.created_at, NEW.created_by
     ) IS DISTINCT FROM ROW(
-        OLD.id, OLD.policy_name, OLD.policy_version, OLD.trusted_root_pems,
-        OLD.trusted_root_sha256, OLD.source_uri, OLD.source_commit, OLD.source_sha256,
+        OLD.id, OLD.policy_name, OLD.policy_version, OLD.trusted_anchor_pems,
+        OLD.trusted_anchor_sha256, OLD.source_uri, OLD.source_commit, OLD.source_sha256,
         OLD.source_issued_at, OLD.source_next_update, OLD.created_at, OLD.created_by
     ) THEN
         RAISE EXCEPTION 'C2PA trust policy content is immutable';
