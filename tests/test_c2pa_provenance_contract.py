@@ -113,8 +113,8 @@ def test_sdk_pin_and_separate_official_manifest_tsa_trust_sources():
     requirements = (root / "requirements-server.txt").read_text()
     importer = (root / "scripts/activate_c2pa_trust_policy.py").read_text()
     verifier = (root / "src/cyclothone/provenance/c2pa_verify.py").read_text()
-    assert "c2pa-python==0.38.3" in pyproject
-    assert "c2pa-python==0.38.3" in requirements
+    assert "c2pa-python==0.38.1" in pyproject
+    assert "c2pa-python==0.38.1" in requirements
     assert "C2PA-TSA-TRUST-LIST.json" in importer
     assert '"trust_kind": "manifest"' in verifier
     assert '"trust_kind": "tsa"' in verifier
