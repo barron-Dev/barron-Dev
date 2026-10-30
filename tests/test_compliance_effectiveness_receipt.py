@@ -156,3 +156,34 @@ async def test_receipt_uses_real_ed25519_signature_and_rejects_tampering():
         assert await verify_effectiveness_receipt(receipt) is True
         tampered = replace(receipt, observed_outcome="tampering_not_detected")
         assert await verify_effectiveness_receipt(tampered) is False
+
+
+@pytest.mark.asyncio
+async def test_receipt_observations_are_deeply_immutable_after_issuance():
+    fields = _fields()
+    observations = {"nested": {"events": [1, 2, 3]}}
+    with patch(
+        "cyclothone.compliance.effectiveness.sign_digest",
+        new=AsyncMock(return_value=ComplianceSignature("c2ln", "compliance-key-1")),
+    ):
+        receipt = await create_effectiveness_receipt(
+            tenant_id=__import__("uuid").UUID(fields["tenant_id"]),
+            assessment_id=__import__("uuid").UUID(fields["assessment_id"]),
+            control_id=fields["control_id"],
+            probe_id=fields["probe_id"],
+            probe_version=fields["probe_version"],
+            scope_digest=fields["scope_digest"],
+            input_digest=fields["input_digest"],
+            observations=observations,
+            expected_outcome=fields["expected_outcome"],
+            observed_outcome=fields["observed_outcome"],
+            status=fields["status"],
+            coverage=fields["coverage"],
+            evidence_digest=fields["evidence_digest"],
+        )
+    observations["nested"]["events"].append(4)
+    assert receipt.observations["nested"]["events"] == (1, 2, 3)
+    with pytest.raises(TypeError):
+        receipt.observations["new"] = "mutation"
+    with pytest.raises(TypeError):
+        receipt.observations["nested"]["new"] = "mutation"
