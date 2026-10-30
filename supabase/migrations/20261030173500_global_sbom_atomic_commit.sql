@@ -38,9 +38,12 @@ BEGIN
      OR p_gate_decision IS NULL
      OR p_gate_decision NOT IN ('BLOCKED','REVIEW_REQUIRED')
      OR jsonb_typeof(p_scan_summary) IS DISTINCT FROM 'object'
-     OR jsonb_typeof(p_components) IS DISTINCT FROM 'array'
-     OR jsonb_array_length(p_components) <> p_component_count THEN
+     OR jsonb_typeof(p_components) IS DISTINCT FROM 'array' THEN
     RAISE EXCEPTION 'invalid_sbom_commit_payload';
+  END IF;
+
+  IF jsonb_array_length(p_components) <> p_component_count THEN
+    RAISE EXCEPTION 'invalid_sbom_component_count';
   END IF;
 
   IF NOT EXISTS (
