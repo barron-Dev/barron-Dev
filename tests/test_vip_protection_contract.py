@@ -11,6 +11,7 @@ def test_vip_assignment_schema_is_purpose_bound_and_short_lived():
     assert "authorization_ref_sha256" in sql
     assert "extensions.digest(" in sql
     assert "from public, anon, authenticated, service_role" in sql
+    assert "grant select, insert, delete on public.vip_region_threat_matches to service_role" in sql
     assert "create table if not exists public.vip_assignment_events" in sql
     assert "vip_assignment_event_immutable" in sql
     assert "cron.schedule(" in sql
