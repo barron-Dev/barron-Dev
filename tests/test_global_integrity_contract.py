@@ -1,7 +1,7 @@
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-MIGRATION = (ROOT / "supabase/migrations/20261030180000_global_execution_integrity_v1.sql").read_text()
+MIGRATION = (ROOT / "supabase/migrations/20261030083703_global_execution_integrity_v1.sql").read_text()
 ROUTE = (ROOT / "src/cyclothone/api/routes/global_integrity.py").read_text()
 DOC = (ROOT / "docs/security/global-supply-chain-execution-integrity-v1.md").read_text()
 
