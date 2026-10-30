@@ -252,6 +252,8 @@ async def raise_sos(
     principal: DeveloperPrincipal = Depends(authenticate_request),
 ) -> dict[str, Any]:
     _require(principal, "vip:sos")
+    if not body.confirm:
+        raise HTTPException(422, {"error": "sos_confirmation_required"})
     try:
         incident = await supabase.rpc("vip_raise_sos", {
             "p_tenant_id": principal.tenant_id,
