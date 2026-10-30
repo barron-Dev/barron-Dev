@@ -60,7 +60,7 @@ async def verify_and_persist_media(
         "id,policy_name,policy_version,trusted_anchor_pems,trusted_anchor_sha256,tsa_anchor_pems,tsa_anchor_sha256,source_uri,source_next_update",
         is_active=True,
     )
-    if not policy or not policy.get("trusted_anchor_pems"):
+    if not policy or not policy.get("trusted_anchor_pems") or not policy.get("tsa_anchor_pems"):
         raise PermanentProvenanceError("trust_policy_unavailable")
     policy_expiry = datetime.fromisoformat(str(policy["source_next_update"]).replace("Z", "+00:00"))
     if policy_expiry <= datetime.now(timezone.utc):
