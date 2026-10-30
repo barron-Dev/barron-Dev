@@ -55,14 +55,19 @@ def classify_validation(state: str | None, results: Any, has_trust_anchors: bool
             for key, value in _walk_strings(results or {})
             if key == "code" and isinstance(value, str)
         ]
-        if any("signingcredential.untrusted" in code for code in codes):
+        trust_markers = (
+            "signingcredential.untrusted", "signingcredential.expired",
+            "signingcredential.revoked", "ocsp.revoked", "timestamp.untrusted",
+            "timestamp.mismatch", "timestamp.malformed",
+        )
+        if any(marker in code for marker in trust_markers for code in codes):
             return "UNTRUSTED"
         integrity_markers = (
             "claimsignature.mismatch", "claimsignature.missing",
             "assertion.hasheduri.mismatch", "assertion.datahash.mismatch",
             "assertion.bmffhash.mismatch", "assertion.boxeshash.mismatch",
             "assertion.collectionhash.mismatch", "hardbindings.missing",
-            "signingcredential.invalid", "signingcredential.expired", "ocsp.revoked",
+            "signingcredential.invalid",
         )
         if any(marker in code for marker in integrity_markers for code in codes):
             return "INVALID"
