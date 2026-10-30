@@ -22,3 +22,8 @@ The live production schema does not currently contain an `mdi_devices` table. It
 
 ## Release boundaries
 This phase establishes schema, challenge/signature primitives and the gated API. It does not yet integrate browser WebAuthn assertions, Android/Apple/TPM certificate-chain verifiers, mTLS workload attestation, HSM-backed verifier keys, every download/payment/upload endpoint, or an authoritative package-intel feed. Do not market it as universal hardware verification until those adapters and authenticated end-to-end tests are complete.
+
+
+## Enrolled device binding
+
+The global attestation record is now linked to the existing tenant-scoped `public.devices` registry using a composite tenant/device foreign key. Challenge, key-registration, action-authorization and SBOM routes require a canonical UUID for an active enrolled device; arbitrary client-chosen device labels are rejected. Registration remains `UNVERIFIED` proof-of-possession until a trusted hardware verifier is configured. This does not equate the MDI `mdi_device_intel` intelligence table with an enrolled device registry.
