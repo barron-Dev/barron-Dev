@@ -81,7 +81,7 @@ def test_api_router_and_tenant_scoped_receipt_reads_are_wired():
     route = (root / "src/cyclothone/api/routes/media_provenance.py").read_text()
     verifier = (root / "src/cyclothone/provenance/c2pa_verify.py").read_text()
     assert "application.include_router(media_provenance_router,prefix='/api/v1')" in app
-    assert route.count("Depends(provenance_principal)") == 3
+    assert route.count("Depends(provenance_principal)") == 4
     assert 'eq("tenant_id", tenant_id)' in route
     assert "Reader.try_create(str(path), context=context)" in verifier
     assert '"remote_manifest_fetch": False' in verifier
