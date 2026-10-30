@@ -32,3 +32,8 @@ The global attestation record is now linked to the existing tenant-scoped `publi
 ## Production migration verification
 
 The production schema includes the device-binding migration and the follow-up SBOM database guard. The global registration RPC now requires an active row in `public.devices`, and the SBOM commit transaction independently joins that registry and rejects devices that are inactive, stale, future-dated or revoked. Device identity is tenant-bound by a composite foreign key; the earlier unbound registration RPC signature was dropped.
+
+
+## Sensitive read enforcement
+
+The tenant blast-radius query is a signed POST operation, not an unauthenticated GET. It requires an active enrolled device, a one-time challenge bound to the exact package URL/version query, a valid Ed25519 signature, fresh VERIFIED device state, and a persisted execution receipt before returning tenant-scoped project evidence. Cross-tenant graph results remain unavailable through this endpoint.
