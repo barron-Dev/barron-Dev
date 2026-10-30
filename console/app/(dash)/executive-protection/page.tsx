@@ -95,7 +95,7 @@ export default function ExecutiveProtectionPage() {
       } else if (kind === "sos") {
         const result = await apiFetch<Row>(`/api/v1/vip-protection/assignments/${id}/sos`, {
           method:"POST", headers:{"Content-Type":"application/json"},
-          body:JSON.stringify({summary:"Priority 1 protective response requested by the assigned team."}),
+          body:JSON.stringify({confirm:true}),
         });
         setResults(prev => ({...prev, [id]:result}));
       } else {
