@@ -313,6 +313,22 @@ async def sovereign_frameworks(
     return list((await supabase._retry(_frameworks, attempts=2)).data or [])
 
 
+@router.get("/sovereign-framework-mappings")
+async def sovereign_framework_mappings(
+    framework_key: str | None = Query(default=None, min_length=3, max_length=64),
+    principal: DeveloperPrincipal = Depends(authenticate_request),
+) -> list[dict]:
+    principal.require(("compliance:read",))
+    async def _mappings():
+        query = (await supabase._ensure()).table("csa_sovereign_framework_mapping").select(
+            "framework_key,cyclothone_control_id,external_control_id,external_control_title,mapping_method,mapping_confidence,source_url,source_version,reviewed_at,review_status,evaluation_frequency_days"
+        ).order("framework_key").order("cyclothone_control_id").limit(1000)
+        if framework_key:
+            query = query.eq("framework_key", framework_key)
+        return await query.execute()
+    return list((await supabase._retry(_mappings, attempts=2)).data or [])
+
+
 @router.get("/global-risk")
 async def global_risk(
     control_id: str = Query(min_length=2, max_length=128),
