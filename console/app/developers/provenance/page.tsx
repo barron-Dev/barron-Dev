@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { apiDownload, apiFetch } from "../../../lib/api";
 
+type QueuedVerification = { job_id: string; status: "queued"; status_url: string; message: string };
+type JobStatus = { job_id: string; status: "queued" | "processing" | "succeeded" | "failed"; result: Verification | null; failure_code: string | null };
 type Verification = {
   receipt_id: string;
   validation_state: "VALID" | "INVALID" | "UNTRUSTED" | "MISSING_PROVENANCE" | "INDETERMINATE";
@@ -45,8 +47,21 @@ export default function ProvenancePage() {
     try {
       const body = new FormData();
       body.append("file", file);
-      const response = await apiFetch<Verification>("/api/v1/media/verify-provenance", { method: "POST", body });
-      setResult(response);
+      const queued = await apiFetch<QueuedVerification>("/api/v1/media/verify-provenance", { method: "POST", body });
+      let completed = false;
+      for (let attempt = 0; attempt < 180; attempt += 1) {
+        const status = await apiFetch<JobStatus>(`/api/v1/media/jobs/${encodeURIComponent(queued.job_id)}`);
+        if (status.status === "succeeded" && status.result) {
+          setResult(status.result);
+          completed = true;
+          break;
+        }
+        if (status.status === "failed") {
+          throw new Error(`Verification job failed (${status.failure_code ?? "unknown"}).`);
+        }
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+      if (!completed) throw new Error("Verification is still queued or processing. You can retry checking the job status.");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Verification could not be completed.");
     } finally {
