@@ -276,8 +276,6 @@ async def customer_verify_effectiveness_receipt(
     }
 
 
-from cyclothone.compliance.global_intelligence import sync_global_intelligence
-
 
 @router.get("/global-intelligence/status")
 async def global_intelligence_status(
