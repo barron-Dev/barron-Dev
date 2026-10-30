@@ -570,3 +570,42 @@ async def tenant_blast_radius(body: BlastRadiusRequest, p: DeveloperPrincipal = 
         "global_cross_tenant_graph": "not_exposed_to_tenant_api",
         "execution_receipt": "persisted",
     }
+
+class DeviceRevocationRequest(BaseModel):
+    device_id: UUID
+    reason_code: str = Field(pattern=r"^[a-z0-9_]{3,80}$")
+    evidence_sha256: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
+
+
+@router.post("/devices/revoke", status_code=202)
+async def revoke_global_device(body: DeviceRevocationRequest, p: DeveloperPrincipal = Depends(_principal)):
+    if not p.tenant_id:
+        raise HTTPException(403, "tenant_identity_required")
+    p.require(("global:device:revoke",))
+    principal_id, _, _ = await _global_principal(p)
+    actor_ref = p.user_id or p.app_id
+    if not actor_ref:
+        raise HTTPException(403, "canonical_revocation_actor_required")
+    actor_fp = sha256_hex(f"cyclothone:device-revocation-actor:v1:{p.tenant_id}:{actor_ref}".encode())
+    try:
+        result = await supabase.rpc(
+            "global_revoke_device",
+            {
+                "p_tenant_id": p.tenant_id,
+                "p_principal_id": principal_id,
+                "p_device_id": str(body.device_id),
+                "p_actor_fingerprint_sha256": actor_fp,
+                "p_reason_code": body.reason_code,
+                "p_evidence_sha256": body.evidence_sha256,
+            },
+        )
+    except Exception as exc:
+        raise HTTPException(503, "device_revocation_unavailable") from exc
+    event_id = result[0] if isinstance(result, list) and result else result
+    if isinstance(event_id, dict):
+        event_id = event_id.get("global_revoke_device") or event_id.get("id")
+    if not event_id:
+        raise HTTPException(503, "device_revocation_receipt_missing")
+    return {"status": "revoked", "device_id": str(body.device_id), "trust_event_id": str(event_id),
+            "effect": "all outstanding device challenges invalidated; future sensitive actions denied"}
+
