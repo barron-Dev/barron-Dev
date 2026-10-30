@@ -57,7 +57,7 @@ async def verify_and_persist_media(
 
     policy = await supabase.select_one(
         "c2pa_trust_policies",
-        "id,policy_name,policy_version,trusted_anchor_pems,trusted_anchor_sha256,tsa_anchor_pems,tsa_anchor_sha256,source_uri,source_next_update",
+        "id,policy_name,policy_version,trusted_anchor_pems,trusted_anchor_sha256,tsa_anchor_pems,tsa_anchor_sha256,source_uri,source_commit,source_sha256,source_issued_at,source_next_update",
         is_active=True,
     )
     if not policy or not policy.get("trusted_anchor_pems") or not policy.get("tsa_anchor_pems"):
@@ -97,6 +97,11 @@ async def verify_and_persist_media(
             "signer_identity": result.signer_identity,
             "trust_policy_id": policy["id"],
             "trust_policy_version": policy["policy_version"],
+            "trust_policy_source_uri": policy["source_uri"],
+            "trust_policy_source_commit": policy["source_commit"],
+            "trust_policy_source_sha256": str(policy["source_sha256"]).strip(),
+            "trust_policy_source_issued_at": datetime.fromisoformat(str(policy["source_issued_at"]).replace("Z", "+00:00")).isoformat(),
+            "trust_policy_source_next_update": datetime.fromisoformat(str(policy["source_next_update"]).replace("Z", "+00:00")).isoformat(),
             "sdk_version": result.sdk_version,
             "previous_receipt_hash": previous_hash,
             "created_at": created_at,
