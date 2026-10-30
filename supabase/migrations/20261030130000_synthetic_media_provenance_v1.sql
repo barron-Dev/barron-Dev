@@ -150,6 +150,19 @@ BEGIN
        OR p_signed_payload->>'created_at' IS NULL THEN
         RAISE EXCEPTION 'signed receipt payload does not match receipt fields';
     END IF;
+    IF NOT EXISTS (
+        SELECT 1
+          FROM public.c2pa_trust_policies AS policy
+         WHERE policy.id = p_trust_policy_id
+           AND policy.policy_version = p_trust_policy_version
+           AND policy.source_commit = p_signed_payload->>'trust_policy_source_commit'
+           AND rtrim(policy.source_sha256::text) = p_signed_payload->>'trust_policy_source_sha256'
+           AND policy.source_uri = p_signed_payload->>'trust_policy_source_uri'
+           AND policy.source_issued_at = (p_signed_payload->>'trust_policy_source_issued_at')::timestamptz
+           AND policy.source_next_update = (p_signed_payload->>'trust_policy_source_next_update')::timestamptz
+    ) THEN
+        RAISE EXCEPTION 'signed receipt does not bind the selected immutable trust policy snapshot';
+    END IF;
 
     PERFORM pg_advisory_xact_lock(hashtextextended(p_tenant_id::text, 0));
     SELECT id INTO v_id
