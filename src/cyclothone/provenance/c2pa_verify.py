@@ -123,12 +123,16 @@ def verify_c2pa_file(file_path: str | Path, trust_anchors_pem: str) -> Provenanc
             },
         })
         with context:
-            with Reader(str(path), context=context) as reader:
+            reader = Reader.try_create(str(path), context=context)
+            if reader is None:
+                return ProvenanceResult(
+                    "MISSING_PROVENANCE", media_sha256, None, None,
+                    {"reason": "The official C2PA Reader found no embedded manifest."}, sdk_version,
+                )
+            with reader:
                 manifest_store = json.loads(reader.json())
                 manifest_hash = hashlib.sha256(canonical_json(manifest_store)).hexdigest()
-                active_id = manifest_store.get("active_manifest")
-                manifests = manifest_store.get("manifests") or {}
-                active = manifests.get(active_id) if active_id else None
+                active = reader.get_active_manifest()
                 if not isinstance(active, dict):
                     return ProvenanceResult("INDETERMINATE", media_sha256, manifest_hash, None,
                                             {"error": "Active manifest missing."}, sdk_version)
@@ -136,19 +140,20 @@ def verify_c2pa_file(file_path: str | Path, trust_anchors_pem: str) -> Provenanc
                 validation_results = reader.get_validation_results()
                 mapped = classify_validation(validation_state, validation_results, True)
                 signature_info = active.get("signature_info") or {}
-                signer = signature_info.get("issuer") or signature_info.get("common_name")
+                signer = signature_info.get("common_name") or signature_info.get("issuer")
                 report = {
                     "validation_state": validation_state, "validation_results": validation_results,
-                    "active_manifest": active_id, "manifest": active, "manifest_store": manifest_store,
+                    "active_manifest": manifest_store.get("active_manifest"),
+                    "manifest": active, "manifest_store": manifest_store,
                     "reader_embedded": reader.is_embedded(), "remote_manifest_used": False,
-                    "policy_mode": "strict_v1_validation", "revocation_check": "not_performed",
+                    "policy_mode": "strict_v1_validation",
+                    "revocation_check": "not_performed",
+                    "signer_identity_interpretation": "certificate subject/issuer claim; not proof of depicted identity",
                 }
                 return ProvenanceResult(mapped, media_sha256, manifest_hash, signer, report, sdk_version)
     except Exception as exc:
         message = str(exc)
-        missing_markers = ("manifest not found", "no manifest", "manifestnotfound", "no c2pa")
-        mapped = "MISSING_PROVENANCE" if any(marker in message.lower() for marker in missing_markers) else "INDETERMINATE"
-        return ProvenanceResult(mapped, media_sha256, None, None,
+        return ProvenanceResult("INDETERMINATE", media_sha256, None, None,
                                 {"error_type": type(exc).__name__, "error": message[:1000]}, "unknown")
 
 
