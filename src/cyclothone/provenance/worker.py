@@ -42,7 +42,7 @@ class MediaProvenanceWorker:
                 temp_path = tmp.name
                 tmp.write(media)
 
-            result = await verify_and_persist_media(str(job["tenant_id"]), temp_path)
+            result = await verify_and_persist_media(str(job["tenant_id"]), temp_path, job_id)
             completed = await supabase.update(
                 "media_provenance_jobs",
                 {
