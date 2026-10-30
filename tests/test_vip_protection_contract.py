@@ -44,6 +44,8 @@ def test_sos_requires_active_assignment_and_never_dispatches_automatically():
     assert "vip:approve" in route
     assert "vip:correlate" in route
     assert "vip:sos" in route
+    assert "_actor_hash(principal, assignment_id)" in route
+    assert "sha256(f\"{_actor(principal)}{assignment_id}\"" in route
 
 
 def test_regional_threat_match_is_source_bound_and_intent_neutral():
