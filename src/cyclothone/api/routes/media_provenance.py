@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+import io
+import json
 import os
 import tempfile
+import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi.responses import StreamingResponse
 from fastapi.concurrency import run_in_threadpool
 
 from cyclothone.developer.auth import DeveloperPrincipal, authenticate_request
@@ -68,7 +72,7 @@ async def verify_provenance(
     }
     receipt_hash = build_receipt_hash(receipt_payload)
     try:
-        signature, signing_key_id = sign_receipt(receipt_payload)
+        signature, signing_key_id, signing_public_key = sign_receipt(receipt_payload)
     except RuntimeError as exc:
         raise HTTPException(503, {"error": "receipt_signing_unavailable", "message": str(exc)}) from exc
 
@@ -80,7 +84,8 @@ async def verify_provenance(
         "p_sdk_version": result.sdk_version, "p_raw_c2pa_report": result.report,
         "p_ml_assessment": ml_assessment, "p_previous_receipt_hash": previous_hash,
         "p_receipt_hash": receipt_hash, "p_receipt_signature": signature,
-        "p_signing_key_id": signing_key_id,
+        "p_signing_key_id": signing_key_id, "p_signing_public_key": signing_public_key,
+        "p_signed_payload": receipt_payload,
     }
     try:
         receipt_id = await supabase.rpc("append_media_provenance_receipt", rpc_args)
@@ -92,8 +97,59 @@ async def verify_provenance(
         "media_sha256": result.media_sha256, "manifest_store_sha256": result.manifest_store_sha256,
         "signer": result.signer_identity, "trust_policy": policy["policy_name"],
         "trust_policy_version": policy["policy_version"], "sdk_version": result.sdk_version,
-        "receipt_hash": receipt_hash, "cryptographic_proof": {"algorithm": "Ed25519", "signature": signature, "key_id": signing_key_id},
+        "receipt_hash": receipt_hash, "cryptographic_proof": {"algorithm": "Ed25519", "signature": signature, "key_id": signing_key_id, "public_key": signing_public_key},
         "ml_assessment": ml_assessment,
         "disposition": result.validation_state,
         "interpretation_limit": "C2PA provenance does not prove depicted identity, scene truth, or signer authorization beyond the configured certificate trust policy.",
     }
+
+
+
+@router.get("/receipts")
+async def list_provenance_receipts(principal: DeveloperPrincipal = Depends(authenticate_request)):
+    principal.require(("media:provenance:verify",))
+    tenant_id = str(UUID(principal.tenant_id))
+    client = await supabase._ensure()
+    response = await client.table("media_provenance_receipts").select(
+        "id,media_sha256,manifest_store_sha256,validation_state,signer_identity,trust_policy_version,receipt_hash,created_at"
+    ).eq("tenant_id", tenant_id).order("created_at", desc=True).limit(100).execute()
+    return response.data or []
+
+
+@router.get("/receipts/{receipt_id}/bundle")
+async def download_provenance_bundle(receipt_id: UUID, principal: DeveloperPrincipal = Depends(authenticate_request)):
+    principal.require(("media:provenance:verify",))
+    tenant_id = str(UUID(principal.tenant_id))
+    client = await supabase._ensure()
+    response = await client.table("media_provenance_receipts").select("*").eq(
+        "tenant_id", tenant_id
+    ).eq("id", str(receipt_id)).limit(1).execute()
+    rows = response.data or []
+    if not rows:
+        raise HTTPException(404, {"error": "receipt_not_found"})
+    row = rows[0]
+    bundle = io.BytesIO()
+    with zipfile.ZipFile(bundle, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("receipt.json", json.dumps({
+            "receipt_id": row["id"], "tenant_id": row["tenant_id"],
+            "media_sha256": row["media_sha256"],
+            "manifest_store_sha256": row["manifest_store_sha256"],
+            "validation_state": row["validation_state"],
+            "trust_policy_version": row["trust_policy_version"],
+            "previous_receipt_hash": row["previous_receipt_hash"],
+            "receipt_hash": row["receipt_hash"],
+            "signed_payload": row["signed_payload"],
+            "signature": row["receipt_signature"],
+            "signature_algorithm": "Ed25519",
+            "signing_key_id": row["signing_key_id"],
+            "signing_public_key": row["signing_public_key"],
+            "created_at": row["created_at"],
+        }, sort_keys=True, indent=2))
+        archive.writestr("c2pa-report.json", json.dumps(row["raw_c2pa_report"], sort_keys=True, indent=2))
+        if isinstance(row["raw_c2pa_report"], dict) and row["raw_c2pa_report"].get("manifest"):
+            archive.writestr("active-manifest.json", json.dumps(row["raw_c2pa_report"]["manifest"], sort_keys=True, indent=2))
+    bundle.seek(0)
+    return StreamingResponse(
+        bundle, media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="cyclothone-{receipt_id}.ctprove"'},
+    )
