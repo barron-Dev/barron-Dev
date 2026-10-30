@@ -370,7 +370,8 @@ async def scan_sbom(body: SbomScanRequest, p: DeveloperPrincipal = Depends(_prin
     try:
         attested = datetime.fromisoformat(str(device.get("last_attested_at")).replace("Z", "+00:00"))
         valid_until = device.get("valid_until")
-        if (datetime.now(UTC) - attested).total_seconds() > 300 or (valid_until and datetime.fromisoformat(str(valid_until).replace("Z", "+00:00")) <= datetime.now(UTC)):
+        age_seconds = (datetime.now(UTC) - attested).total_seconds()
+        if age_seconds < 0 or age_seconds > 300 or (valid_until and datetime.fromisoformat(str(valid_until).replace("Z", "+00:00")) <= datetime.now(UTC)):
             raise HTTPException(403, "hardware_attestation_stale")
     except HTTPException:
         raise
