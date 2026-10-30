@@ -224,13 +224,7 @@ async def correlate_public_threats(
             "assignment_id": str(assignment_id),
             "event_type": "region_match_recorded",
             "actor": _actor(principal),
-            "metadata": {
-                "finding_id": int(finding["id"]),
-                "evidence_sha256": evidence_hash,
-                "region_code": region,
-                "time_delta_seconds": delta,
-                "intent_inference": False,
-            },
+            "metadata": {"match_recorded": True, "intent_inference": False},
         }).execute()
         matches.append({
             "finding_id": int(finding["id"]),
