@@ -118,7 +118,7 @@ def validate_receipt_fields(
     ):
         if not isinstance(value, str) or not value.strip() or len(value) > 256:
             raise EffectivenessReceiptError(f"{name} must be a non-empty bounded string")
-    if status not in _ALLOWED_STATUSES:
+    if not isinstance(status, str) or status not in _ALLOWED_STATUSES:
         raise EffectivenessReceiptError("unsupported receipt status")
     if isinstance(coverage, bool) or not isinstance(coverage, (int, float)) or not 0 <= coverage <= 1:
         raise EffectivenessReceiptError("coverage must be a number between 0 and 1")
