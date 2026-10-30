@@ -150,7 +150,7 @@ begin
         encode(digest(trim(p_actor) || v_assignment_id::text, 'sha256'), 'hex')
     ) returning * into v_row;
     insert into public.vip_assignment_events(tenant_id, assignment_id, event_type, actor, metadata)
-    values (p_tenant_id, v_row.id, 'created', encode(digest(trim(p_actor) || p_assignment_id::text, 'sha256'), 'hex'),
+    values (p_tenant_id, v_row.id, 'created', encode(digest(trim(p_actor) || v_row.id::text, 'sha256'), 'hex'),
         jsonb_build_object('approval_required', true, 'maximum_duration_days', 14,
                            'location_collection', false));
     return v_row;
