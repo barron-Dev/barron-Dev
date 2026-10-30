@@ -63,7 +63,7 @@ class EffectivenessReceipt:
     signer_key_id: str
     signature_b64: str
     receipt_digest: str
-    verified_at: datetime
+    issued_at: datetime
 
     def signed_payload(self) -> dict[str, Any]:
         return {
@@ -81,7 +81,7 @@ class EffectivenessReceipt:
             "status": self.status,
             "coverage": self.coverage,
             "evidence_digest": _digest(self.evidence_digest, "evidence_digest"),
-            "verified_at": self.verified_at.astimezone(UTC).isoformat(),
+            "verified_at": self.issued_at.astimezone(UTC).isoformat(),
         }
 
 
@@ -146,7 +146,7 @@ async def create_effectiveness_receipt(
     status: ReceiptStatus,
     coverage: float,
     evidence_digest: str,
-    verified_at: datetime | None = None,
+    issued_at: datetime | None = None,
 ) -> EffectivenessReceipt:
     validate_receipt_fields(
         tenant_id=str(tenant_id),
@@ -163,9 +163,9 @@ async def create_effectiveness_receipt(
         coverage=coverage,
         evidence_digest=evidence_digest,
     )
-    timestamp = verified_at or datetime.now(UTC)
+    timestamp = issued_at or datetime.now(UTC)
     if timestamp.tzinfo is None or timestamp.utcoffset() is None:
-        raise EffectivenessReceiptError("verified_at must be timezone-aware")
+        raise EffectivenessReceiptError("issued_at must be timezone-aware")
     timestamp = timestamp.astimezone(UTC)
     payload = {
         "schema": "cyclothone.effectiveness-receipt.v1",
@@ -182,7 +182,7 @@ async def create_effectiveness_receipt(
         "status": status,
         "coverage": float(coverage),
         "evidence_digest": _digest(evidence_digest, "evidence_digest"),
-        "verified_at": timestamp.isoformat(),
+        "issued_at": timestamp.isoformat(),
     }
     digest = receipt_digest(payload)
     signature = await sign_digest(digest, purpose="COMPLIANCE")
@@ -203,7 +203,7 @@ async def create_effectiveness_receipt(
         signer_key_id=signature.kid,
         signature_b64=signature.signature_b64,
         receipt_digest=digest,
-        verified_at=timestamp.astimezone(UTC),
+        issued_at=timestamp.astimezone(UTC),
     )
 
 
