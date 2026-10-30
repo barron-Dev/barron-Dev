@@ -4,8 +4,7 @@ import type {FormEvent} from "react";
 
 import {getCustomerOrganizations,apiFetch,type CustomerOrganization} from "../../lib/api";
 
-const SERVICES=[["cybersecurity_assessment","Cybersecurity Assessment"],["dark_web_monitoring","Dark Web Monitoring"],["brand_protection","Brand Protection · In development"],["ai_security","AI Security · In development"]];
-const IN_DEVELOPMENT_SERVICES=new Set(["brand_protection","ai_security"]);
+const SERVICES=[["cybersecurity_assessment","Cybersecurity Assessment"],["dark_web_monitoring","Dark Web Monitoring"],["brand_protection","Brand Protection"],["ai_security","AI Security"]];
 const SERVICE_GUIDANCE:Record<string,{prompt:string;label:string;placeholder:string;help:string}>={
  cybersecurity_assessment:{prompt:"Identify the system, environment or business area you want assessed.",label:"System / environment",placeholder:"Website, application, cloud environment, network or business system",help:"Tell Cyclothone what is in scope and what you want the assessment to establish."},
  incident_response:{prompt:"Identify the incident or affected system and tell us what happened.",label:"Incident / affected system",placeholder:"Incident, domain, application, endpoint, account or affected system",help:"Add the known symptoms, timeframe and business impact below."},
@@ -55,8 +54,8 @@ export default function RequestService(){ const [orgs,setOrgs]=useState<Customer
   timer=setTimeout(poll,delay);
   return()=>{cancelled=true;if(timer)clearTimeout(timer)};
 },[result?.request_id,result?.processing_state,result?.service]);
- async function submit(e:FormEvent){e.preventDefault();setError(null);setResult(null);if(IN_DEVELOPMENT_SERVICES.has(service)){setError("This service is visible in the workflow for planning, but is still in development. Operational requests will open after its backend, authorization, evidence and end-to-end checks are verified.");return}try{const r=await apiFetch<any>("/api/v1/customer/service-requests",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({...(org?{organization_id:org}:{}),service_key:service,urgency,target:target.trim(),target_type:service==="dark_web_monitoring"?targetType:"url",description:[`Target: ${target.trim()}`,`Service objective: ${description.trim()}`].join("\n")})});setResult({...r,service});setTarget("");setDescription("")}catch(e){setError(e instanceof Error?e.message:"Service request failed")}}
- const current=orgs.find(x=>x.id===org); const guidance=SERVICE_GUIDANCE[service]||DEFAULT_GUIDANCE; const serviceName=SERVICES.find(x=>x[0]===service)?.[1]||service; const isDevelopmentService=IN_DEVELOPMENT_SERVICES.has(service);
+ async function submit(e:FormEvent){e.preventDefault();setError(null);setResult(null);try{const r=await apiFetch<any>("/api/v1/customer/service-requests",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({...(org?{organization_id:org}:{}),service_key:service,urgency,target:target.trim(),target_type:service==="dark_web_monitoring"?targetType:"url",description:[`Target: ${target.trim()}`,`Service objective: ${description.trim()}`].join("\n")})});setResult({...r,service});setTarget("");setDescription("")}catch(e){setError(e instanceof Error?e.message:"Service request failed")}}
+ const current=orgs.find(x=>x.id===org); const guidance=SERVICE_GUIDANCE[service]||DEFAULT_GUIDANCE; const serviceName=SERVICES.find(x=>x[0]===service)?.[1]||service; 
  const progress=typeof result?.progress_percent==="number"?result.progress_percent:typeof result?.progress==="number"?result.progress:null;
  const stage=typeof result?.stage==="string"?result.stage:null;
  const dwData=(result?.result&&typeof result.result==="object"&&Object.keys(result.result).length?result.result:result)||{};
@@ -92,7 +91,7 @@ export default function RequestService(){ const [orgs,setOrgs]=useState<Customer
         </select>
       </label>
       <p className="mt-2 text-[11px] leading-5 text-[#78939a]">{guidance.prompt} {guidance.help}</p>
-      {isDevelopmentService&&<div className="mt-4 rounded-xl border border-[#d7a94e]/25 bg-[#281e0c]/35 px-4 py-3 text-xs leading-5 text-[#e7c783]"><span className="font-semibold">{serviceName} · In development.</span> This service is visible so you can track the roadmap, but request execution is not enabled until its production workflow is completed and verified.</div>}
+      
     </section>
 
     <section className="border-b border-white/10 py-7">
@@ -115,8 +114,8 @@ export default function RequestService(){ const [orgs,setOrgs]=useState<Customer
           {["low","normal","high","critical"].map(x=><option key={x}>{x}</option>)}
         </select>
       </label>
-      <button disabled={loading||isDevelopmentService} className="rounded-full border border-[#c2f35a]/50 bg-[#5f8e1f]/30 px-7 py-3.5 text-sm text-[#ddff9a] shadow-[0_14px_45px_rgba(194,243,90,.08)] transition hover:bg-[#6e9e25]/35 disabled:cursor-not-allowed disabled:opacity-35">
-        {isDevelopmentService?"Request execution not yet available":"Begin controlled workflow →"}
+      <button disabled={loading} className="rounded-full border border-[#c2f35a]/50 bg-[#5f8e1f]/30 px-7 py-3.5 text-sm text-[#ddff9a] shadow-[0_14px_45px_rgba(194,243,90,.08)] transition hover:bg-[#6e9e25]/35 disabled:cursor-not-allowed disabled:opacity-35">
+        Begin controlled workflow →
       </button>
     </section>
 
