@@ -64,7 +64,7 @@ def test_global_attestation_is_bound_to_enrolled_tenant_device():
 
 
 def test_sbom_atomic_commit_rechecks_live_enrolled_device_state():
-    active_gate = (ROOT / "supabase/migrations/20261030174600_global_sbom_active_device_check.sql").read_text()
+    active_gate = (ROOT / "supabase/migrations/20261030174309_global_sbom_active_device_check.sql").read_text()
     assert "JOIN public.devices pd" in active_gate
     assert "pd.status='active'" in active_gate
     assert "d.last_attested_at <= v_now" in active_gate
