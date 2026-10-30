@@ -38,6 +38,17 @@ def _require_access(principal: DeveloperPrincipal) -> None:
         principal.require(("console:read",))
     else:
         principal.require(("media:provenance:verify",))
+
+
+def _tenant_uuid(principal: DeveloperPrincipal) -> str:
+    if not principal.tenant_id:
+        raise HTTPException(403, {"error": "tenant_required"})
+    try:
+        return str(UUID(principal.tenant_id))
+    except ValueError as exc:
+        raise HTTPException(403, {"error": "invalid_tenant_context"}) from exc
+
+
 MAX_UPLOAD_BYTES = int(os.getenv("CYCLOTHONE_PROVENANCE_MAX_UPLOAD_BYTES", str(250 * 1024 * 1024)))
 
 
@@ -50,12 +61,7 @@ async def verify_provenance(
     if not principal.tenant_id:
         raise HTTPException(403, {"error": "tenant_required"})
     try:
-        if not principal.tenant_id:
-        raise HTTPException(403, {"error": "tenant_required"})
-    try:
-        tenant_id = str(UUID(principal.tenant_id))
-    except ValueError as exc:
-        raise HTTPException(403, {"error": "invalid_tenant_context"}) from exc
+        tenant_id = _tenant_uuid(principal)
     except ValueError as exc:
         raise HTTPException(403, {"error": "invalid_tenant_context"}) from exc
     policy = await supabase.select_one(
@@ -159,7 +165,7 @@ async def verify_provenance(
 @router.get("/receipts")
 async def list_provenance_receipts(principal: DeveloperPrincipal = Depends(provenance_principal)):
     _require_access(principal)
-    tenant_id = str(UUID(principal.tenant_id))
+    tenant_id = _tenant_uuid(principal)
     client = await supabase._ensure()
     response = await client.table("media_provenance_receipts").select(
         "id,media_sha256,manifest_store_sha256,validation_state,signer_identity,trust_policy_version,receipt_hash,created_at"
@@ -170,7 +176,7 @@ async def list_provenance_receipts(principal: DeveloperPrincipal = Depends(prove
 @router.get("/receipts/{receipt_id}/bundle")
 async def download_provenance_bundle(receipt_id: UUID, principal: DeveloperPrincipal = Depends(provenance_principal)):
     _require_access(principal)
-    tenant_id = str(UUID(principal.tenant_id))
+    tenant_id = _tenant_uuid(principal)
     client = await supabase._ensure()
     response = await client.table("media_provenance_receipts").select("*").eq(
         "tenant_id", tenant_id
@@ -194,6 +200,7 @@ async def download_provenance_bundle(receipt_id: UUID, principal: DeveloperPrinc
             "signature_algorithm": "Ed25519",
             "signing_key_id": row["signing_key_id"],
             "signing_public_key": row["signing_public_key"],
+            "signed_payload_canonical": row["signed_payload_canonical"],
             "created_at": row["created_at"],
         }, sort_keys=True, indent=2))
         archive.writestr("c2pa-report.json", json.dumps(row["raw_c2pa_report"], sort_keys=True, indent=2))
