@@ -288,3 +288,91 @@ DROP TRIGGER IF EXISTS c2pa_trust_policy_immutable ON public.c2pa_trust_policies
 CREATE TRIGGER c2pa_trust_policy_immutable
 BEFORE UPDATE OR DELETE ON public.c2pa_trust_policies
 FOR EACH ROW EXECUTE FUNCTION public.protect_c2pa_trust_policy();
+
+
+-- Private staging storage and durable asynchronous verification jobs.
+INSERT INTO storage.buckets (id, name, public, file_size_limit)
+VALUES ('cyclothone-provenance-staging', 'cyclothone-provenance-staging', false, 262144000)
+ON CONFLICT (id) DO UPDATE
+SET public = false, file_size_limit = EXCLUDED.file_size_limit;
+
+CREATE TABLE IF NOT EXISTS public.media_provenance_jobs (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id uuid NOT NULL,
+    requested_by uuid,
+    object_path text NOT NULL UNIQUE,
+    original_filename text NOT NULL,
+    content_type text,
+    status text NOT NULL DEFAULT 'queued'
+        CHECK (status IN ('queued','processing','succeeded','failed')),
+    attempts integer NOT NULL DEFAULT 0 CHECK (attempts >= 0),
+    max_attempts integer NOT NULL DEFAULT 3 CHECK (max_attempts BETWEEN 1 AND 5),
+    available_at timestamptz NOT NULL DEFAULT now(),
+    lease_expires_at timestamptz,
+    receipt_id uuid REFERENCES public.media_provenance_receipts(id),
+    validation_state text CHECK (
+        validation_state IS NULL OR validation_state IN (
+            'VALID','INVALID','UNTRUSTED','MISSING_PROVENANCE','INDETERMINATE'
+        )
+    ),
+    result_json jsonb,
+    failure_code text,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    completed_at timestamptz
+);
+CREATE INDEX IF NOT EXISTS media_provenance_jobs_queue
+    ON public.media_provenance_jobs (status, available_at, created_at);
+CREATE INDEX IF NOT EXISTS media_provenance_jobs_tenant_created
+    ON public.media_provenance_jobs (tenant_id, created_at DESC);
+
+ALTER TABLE public.media_provenance_jobs ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.media_provenance_jobs FROM PUBLIC, anon, authenticated;
+GRANT SELECT, INSERT, UPDATE ON public.media_provenance_jobs TO service_role;
+
+CREATE OR REPLACE FUNCTION public.claim_media_provenance_job()
+RETURNS SETOF public.media_provenance_jobs
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, public
+AS $$
+BEGIN
+    IF coalesce(current_setting('request.jwt.claim.role', true), '') <> 'service_role' THEN
+        RAISE EXCEPTION 'service role required' USING ERRCODE = '42501';
+    END IF;
+
+    UPDATE public.media_provenance_jobs
+       SET status = 'failed',
+           failure_code = 'worker_attempts_exhausted',
+           lease_expires_at = NULL,
+           updated_at = now(),
+           completed_at = now()
+     WHERE status = 'processing'
+       AND lease_expires_at < now()
+       AND attempts >= max_attempts;
+
+    RETURN QUERY
+    WITH candidate AS (
+        SELECT id
+          FROM public.media_provenance_jobs
+         WHERE (
+             (status = 'queued' AND available_at <= now())
+             OR (status = 'processing' AND lease_expires_at < now() AND attempts < max_attempts)
+         )
+         ORDER BY created_at
+         FOR UPDATE SKIP LOCKED
+         LIMIT 1
+    )
+    UPDATE public.media_provenance_jobs AS job
+       SET status = 'processing',
+           attempts = job.attempts + 1,
+           lease_expires_at = now() + interval '30 minutes',
+           updated_at = now(),
+           failure_code = NULL
+      FROM candidate
+     WHERE job.id = candidate.id
+    RETURNING job.*;
+END;
+$$;
+REVOKE ALL ON FUNCTION public.claim_media_provenance_job() FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.claim_media_provenance_job() TO service_role;
