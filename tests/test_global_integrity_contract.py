@@ -77,3 +77,17 @@ def test_sensitive_blast_radius_reads_require_signed_device_challenge():
     assert "supply_chain_blast_radius_read" in ROUTE
     assert "global_cross_tenant_graph" in ROUTE
     assert "execution_receipt" in ROUTE
+
+def test_sensitive_execution_gate_rechecks_and_receipts_atomically():
+    atomic = (ROOT / "supabase/migrations/20261030200000_global_execution_atomic_authorization.sql").read_text()
+    assert "global_authorize_execution_atomic" in atomic
+    assert "FOR UPDATE OF d" in atomic
+    assert "pd.status='active'" in atomic
+    assert "v_device.assurance_level NOT IN ('hardware_attested','workload_attested')" in atomic
+    assert "v_device.last_attested_at < v_now - interval '5 minutes'" in atomic
+    assert "SET consumed_at=v_now" in atomic
+    assert "INSERT INTO public.global_execution_receipts" in atomic
+    assert "REVOKE ALL ON FUNCTION public.global_authorize_execution_atomic" in atomic
+    assert "GRANT EXECUTE ON FUNCTION public.global_authorize_execution_atomic" in atomic
+    assert '"global_authorize_execution_atomic"' in ROUTE
+    assert "atomic_execution_gate_unavailable" in ROUTE
