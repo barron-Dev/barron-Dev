@@ -52,6 +52,12 @@ def test_trust_failure_and_unknown_failure_are_not_misclassified():
         "Trusted", {"validation_status": [{"code": "timeStamp.untrusted"}]}, True
     ) == "UNTRUSTED"
     assert classify_validation(
+        "Trusted", {"validation_status": [{"code": "assertion.dataHash.mismatch"}]}, True
+    ) == "INVALID"
+    assert classify_validation(
+        "Trusted", {"validation_status": [{"code": "claimSignature.missing"}]}, True
+    ) == "INDETERMINATE"
+    assert classify_validation(
         "Invalid", {"validation_status": [{"code": "unknown.validation.code"}]}, True
     ) == "INDETERMINATE"
 
