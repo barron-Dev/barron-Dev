@@ -46,36 +46,36 @@ def classify_validation(state: str | None, results: Any, has_trust_anchors: bool
     if not state:
         return "INDETERMINATE"
     normalized = state.strip().lower()
+    codes = [
+        str(value).lower()
+        for key, value in _walk_strings(results or {})
+        if key == "code" and isinstance(value, str)
+    ]
+    integrity_markers = (
+        "claimsignature.mismatch", "assertion.hasheduri.mismatch",
+        "assertion.datahash.mismatch", "assertion.bmffhash.mismatch",
+        "assertion.boxeshash.mismatch", "assertion.collectionhash.mismatch",
+    )
+    trust_markers = (
+        "signingcredential.untrusted", "signingcredential.expired",
+        "signingcredential.revoked", "signingcredential.invalid", "ocsp.revoked",
+        "timestamp.untrusted", "timestamp.mismatch", "timestamp.malformed",
+        "timestamp.outsidevalidity", "timestamp.credentialinvalid",
+    )
+    indeterminate_markers = ("claimsignature.missing", "hardbindings.missing")
+
+    if any(marker in code for marker in indeterminate_markers for code in codes):
+        return "INDETERMINATE"
+    if any(marker in code for marker in integrity_markers for code in codes):
+        return "INVALID"
+    if any(marker in code for marker in trust_markers for code in codes):
+        return "UNTRUSTED"
+
     if normalized == "trusted":
-        tsa_failures = ("timestamp.untrusted", "timestamp.mismatch", "timestamp.malformed",
-                        "timestamp.outsidevalidity", "timestamp.credentialinvalid")
-        result_strings = [str(value).lower() for _, value in _walk_strings(results or {})]
-        if any(marker in value for marker in tsa_failures for value in result_strings):
-            return "UNTRUSTED"
         return "VALID" if has_trust_anchors else "UNTRUSTED"
     if normalized == "valid":
         return "UNTRUSTED"
     if normalized in {"invalid", "error", "failure"}:
-        codes = [
-            str(value).lower()
-            for key, value in _walk_strings(results or {})
-            if key == "code" and isinstance(value, str)
-        ]
-        trust_markers = (
-            "signingcredential.untrusted", "signingcredential.expired",
-            "signingcredential.revoked", "signingcredential.invalid", "ocsp.revoked",
-            "timestamp.untrusted", "timestamp.mismatch", "timestamp.malformed",
-            "timestamp.outsidevalidity", "timestamp.credentialinvalid",
-        )
-        if any(marker in code for marker in trust_markers for code in codes):
-            return "UNTRUSTED"
-        integrity_markers = (
-            "claimsignature.mismatch", "assertion.hasheduri.mismatch",
-            "assertion.datahash.mismatch", "assertion.bmffhash.mismatch",
-            "assertion.boxeshash.mismatch", "assertion.collectionhash.mismatch",
-        )
-        if any(marker in code for marker in integrity_markers for code in codes):
-            return "INVALID"
         return "INDETERMINATE"
     return "INDETERMINATE"
 
