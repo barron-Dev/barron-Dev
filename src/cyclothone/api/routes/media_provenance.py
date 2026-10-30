@@ -47,14 +47,22 @@ async def verify_provenance(
     principal: DeveloperPrincipal = Depends(provenance_principal),
 ):
     _require_access(principal)
-    tenant_id = str(UUID(principal.tenant_id))
+    if not principal.tenant_id:
+        raise HTTPException(403, {"error": "tenant_required"})
+    try:
+        tenant_id = str(UUID(principal.tenant_id))
+    except ValueError as exc:
+        raise HTTPException(403, {"error": "invalid_tenant_context"}) from exc
     policy = await supabase.select_one(
         "c2pa_trust_policies",
-        "id,policy_name,policy_version,trusted_root_pems,trusted_root_sha256",
+        "id,policy_name,policy_version,trusted_root_pems,trusted_root_sha256,source_next_update",
         is_active=True,
     )
     if not policy or not policy.get("trusted_root_pems"):
         raise HTTPException(503, {"error": "trust_policy_unavailable", "message": "No active versioned C2PA trust policy is configured."})
+    policy_expiry = datetime.fromisoformat(str(policy["source_next_update"]).replace("Z", "+00:00"))
+    if policy_expiry <= datetime.now(timezone.utc):
+        raise HTTPException(503, {"error": "trust_policy_expired", "message": "The active official C2PA trust-list snapshot has expired."})
 
     suffix = Path(file.filename or "").suffix[:16]
     size = 0
