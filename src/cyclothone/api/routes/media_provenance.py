@@ -174,6 +174,8 @@ async def download_provenance_bundle(receipt_id: UUID, principal: DeveloperPrinc
             "created_at": row["created_at"],
         }, sort_keys=True, indent=2))
         archive.writestr("c2pa-report.json", json.dumps(row["raw_c2pa_report"], sort_keys=True, indent=2))
+        if isinstance(row["raw_c2pa_report"], dict) and row["raw_c2pa_report"].get("manifest_store"):
+            archive.writestr("manifest-store.json", json.dumps(row["raw_c2pa_report"]["manifest_store"], sort_keys=True, indent=2))
         if isinstance(row["raw_c2pa_report"], dict) and row["raw_c2pa_report"].get("manifest"):
             archive.writestr("active-manifest.json", json.dumps(row["raw_c2pa_report"]["manifest"], sort_keys=True, indent=2))
     bundle.seek(0)
