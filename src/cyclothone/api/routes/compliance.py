@@ -247,3 +247,30 @@ async def customer_effectiveness_receipts(
         control_id=control_id,
         limit=limit,
     )
+
+
+@router.get("/customer/effectiveness-receipts/{receipt_id}/verify")
+async def customer_verify_effectiveness_receipt(
+    receipt_id: UUID,
+    principal: DeveloperPrincipal = Depends(customer_principal),
+) -> dict:
+    if principal.auth_type != "customer":
+        principal.require(("compliance:read",))
+    if not principal.tenant_id:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "workspace_not_admitted")
+    row = await get_effectiveness_receipt(UUID(principal.tenant_id), receipt_id)
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "effectiveness receipt not found")
+    try:
+        receipt = receipt_from_row(row)
+        verified = await verify_effectiveness_receipt(receipt)
+    except (KeyError, TypeError, ValueError):
+        verified = False
+    return {
+        "receipt_id": str(receipt_id),
+        "verified": verified,
+        "receipt_digest": row.get("receipt_digest"),
+        "signer_key_id": row.get("signer_key_id"),
+        "status": row.get("status"),
+        "issued_at": row.get("issued_at"),
+    }
