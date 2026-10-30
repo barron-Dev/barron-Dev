@@ -136,6 +136,15 @@ class SbomScanRequest(BaseModel):
     signature_b64: str = Field(min_length=80, max_length=256)
 
 
+class BlastRadiusRequest(BaseModel):
+    device_ref: str = Field(min_length=8, max_length=256)
+    purl: str = Field(min_length=8, max_length=2048)
+    version: str = Field(min_length=1, max_length=256)
+    challenge_id: str
+    challenge_nonce: str = Field(min_length=64, max_length=64)
+    signature_b64: str = Field(min_length=80, max_length=256)
+
+
 async def _consume(
     *, challenge_id: str, p: DeveloperPrincipal, principal_id: str, device_fp: str,
     purpose: str, context_sha: str, nonce: str,
@@ -467,16 +476,80 @@ async def scan_sbom(body: SbomScanRequest, p: DeveloperPrincipal = Depends(_prin
             "affected_components": [{"purl": x["purl"], "version": x["version"], "status": x["intel_status"]} for x in intel_rows if x["intel_status"] != "unknown"]}
 
 
-@router.get("/supply-chain/blast-radius")
-async def tenant_blast_radius(
-    purl: str = Query(min_length=8, max_length=2048),
-    version: str = Query(min_length=1, max_length=256),
-    p: DeveloperPrincipal = Depends(_principal),
-):
+@router.post("/supply-chain/blast-radius")
+async def tenant_blast_radius(body: BlastRadiusRequest, p: DeveloperPrincipal = Depends(_principal)):
+    principal_id, _, _ = await _global_principal(p)
+    platform_device_id = await _platform_device_id(p, body.device_ref)
+    device_fp = device_fingerprint(p.tenant_id, platform_device_id)
+    action_type = "supply_chain_blast_radius_read"
+    action_payload = {"purl": body.purl, "version": body.version}
+    payload_sha = sha256_hex(canonical_json(action_payload))
+    context = {"action_type": action_type, "action_payload_sha256": payload_sha}
+    context_sha = context_hash(context)
+    device = await supabase.select_one(
+        "global_device_attestations",
+        "id,platform_device_id,hardware_public_key,attestation_state,last_attested_at,valid_until",
+        tenant_id=p.tenant_id, principal_id=principal_id,
+        platform_device_id=platform_device_id, device_fingerprint=device_fp,
+    )
+    if not device:
+        await _receipt(p=p, principal_id=principal_id, device_id=None, challenge_id=None,
+                       action_type=action_type, payload_sha=payload_sha, signature_b64=body.signature_b64,
+                       decision="BLOCKED", reason="device_not_registered")
+        raise HTTPException(403, "device_not_registered")
+    challenge = await supabase.select_one(
+        "global_device_challenges", "id,nonce,expires_at,consumed_at,purpose,context_sha256",
+        id=body.challenge_id, tenant_id=p.tenant_id, principal_id=principal_id,
+        device_fingerprint=device_fp,
+    )
+    envelope = _challenge_payload(
+        tenant_id=p.tenant_id, principal_id=principal_id, device_fp=device_fp,
+        challenge_id=body.challenge_id, nonce=body.challenge_nonce, purpose="sensitive_action",
+        context=context, context_sha=context_sha,
+    )
+    try:
+        signature_ok = bool(
+            challenge
+            and challenge.get("nonce") == body.challenge_nonce
+            and challenge.get("purpose") == "sensitive_action"
+            and challenge.get("context_sha256") == context_sha
+            and verify_ed25519(device["hardware_public_key"], body.signature_b64, envelope)
+        )
+    except GlobalIntegrityError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    consumed = await _consume(
+        challenge_id=body.challenge_id, p=p, principal_id=principal_id, device_fp=device_fp,
+        purpose="sensitive_action", context_sha=context_sha, nonce=body.challenge_nonce,
+    ) if signature_ok else False
+    fresh = False
+    try:
+        attested = datetime.fromisoformat(str(device.get("last_attested_at")).replace("Z", "+00:00"))
+        age_seconds = (datetime.now(UTC) - attested).total_seconds()
+        valid_until = device.get("valid_until")
+        fresh = 0 <= age_seconds <= 300 and (
+            not valid_until or datetime.fromisoformat(str(valid_until).replace("Z", "+00:00")) > datetime.now(UTC)
+        )
+    except Exception:
+        fresh = False
+    reason = (
+        "signature_invalid_or_challenge_replayed" if not signature_ok or not consumed
+        else "hardware_attestation_missing_or_stale"
+        if device.get("attestation_state") != "VERIFIED" or not fresh
+        else "authorized"
+    )
+    decision = "AUTHORIZED" if reason == "authorized" else "BLOCKED"
+    await _receipt(
+        p=p, principal_id=principal_id, device_id=str(device["id"]),
+        challenge_id=(body.challenge_id if challenge else None), action_type=action_type,
+        payload_sha=payload_sha, signature_b64=body.signature_b64,
+        decision=decision, reason=reason,
+    )
+    if decision != "AUTHORIZED":
+        raise HTTPException(403, {"status": "blocked", "reason": reason})
     try:
         response = await (await supabase._ensure()).table("global_sbom_components").select(
             "artifact_id,intel_status,purl,version"
-        ).eq("tenant_id", p.tenant_id).eq("purl", purl).eq("version", version).execute()
+        ).eq("tenant_id", p.tenant_id).eq("purl", body.purl).eq("version", body.version).execute()
         components = response.data or []
         ids = list({str(x["artifact_id"]) for x in components})
         artifacts = []
@@ -487,6 +560,13 @@ async def tenant_blast_radius(
             artifacts = result.data or []
     except Exception as exc:
         raise HTTPException(503, "blast_radius_query_unavailable") from exc
-    return {"purl": purl, "version": version, "tenant_scope": "current_tenant_only",
-            "affected_projects": len(artifacts), "artifacts": artifacts,
-            "evidence": components, "global_cross_tenant_graph": "not_exposed_to_tenant_api"}
+    return {
+        "purl": body.purl,
+        "version": body.version,
+        "tenant_scope": "current_tenant_only",
+        "affected_projects": len(artifacts),
+        "artifacts": artifacts,
+        "evidence": components,
+        "global_cross_tenant_graph": "not_exposed_to_tenant_api",
+        "execution_receipt": "persisted",
+    }
