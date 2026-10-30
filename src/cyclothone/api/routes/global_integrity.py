@@ -577,7 +577,9 @@ async def tenant_blast_radius(body: BlastRadiusRequest, p: DeveloperPrincipal = 
 class VerifierAssertionRequest(BaseModel):
     assertion: dict[str, Any]
     signature_b64: str = Field(min_length=80, max_length=256)
-\n\nclass DeviceRevocationRequest(BaseModel):
+
+
+class DeviceRevocationRequest(BaseModel):
     device_id: UUID
     reason_code: str = Field(pattern=r"^[a-z0-9_]{3,80}$")
     evidence_sha256: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
@@ -703,4 +705,3 @@ async def verify_device_attestation(body: VerifierAssertionRequest, p: Developer
         "valid_until": valid_until, "decision_id": str(row.get("decision_id")),
         "evidence_sha256": assertion["evidence_sha256"],
     }
-\n
