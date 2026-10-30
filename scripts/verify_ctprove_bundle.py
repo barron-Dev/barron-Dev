@@ -23,6 +23,12 @@ def verify_bundle(path: str | Path, trusted_public_key_path: str | Path | None =
         report = json.loads(archive.read("c2pa-report.json"))
 
     payload = receipt["signed_payload"]
+    if len(str(payload.get("trust_policy_source_commit", ""))) != 40:
+        raise ValueError("Receipt is missing the pinned trust-list commit.")
+    if len(str(payload.get("trust_policy_source_sha256", ""))) != 64:
+        raise ValueError("Receipt is missing the combined trust-list source digest.")
+    if len(str(payload.get("trust_policy_source_uri", "")).splitlines()) != 2:
+        raise ValueError("Receipt must identify separate manifest and TSA trust-list sources.")
     canonical = receipt["signed_payload_canonical"].encode("utf-8")
     if canonical != canonical_json(payload):
         raise ValueError("Signed payload is not canonical JSON.")
