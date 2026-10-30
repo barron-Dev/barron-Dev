@@ -139,7 +139,8 @@ begin
     if p_tenant_id is null or p_control_id is null or length(trim(p_control_id)) = 0 then
         raise exception 'tenant_and_control_required';
     end if;
-    if p_asset_criticality not between 1 and 5 or p_control_exposure not between 1 and 5 then
+    if p_asset_criticality is null or p_control_exposure is null
+       or p_asset_criticality not between 1 and 5 or p_control_exposure not between 1 and 5 then
         raise exception 'criticality_and_exposure_must_be_1_to_5';
     end if;
     if coalesce(auth.jwt() ->> 'role','') <> 'service_role'
