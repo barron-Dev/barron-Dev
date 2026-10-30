@@ -36,7 +36,7 @@ def test_brand_routes_use_developer_auth_boundary():
 
 def test_brand_routes_filter_tenant_on_threat_reads():
     source = _read("src/cyclothone/api/routes/brand.py")
-    assert '.eq("tenant_id", str(principal.tenant_id))' in source
+    assert '.eq("tenant_id", tenant_id)' in source
 
 
 def test_brand_takedown_does_not_send_requests_automatically():
