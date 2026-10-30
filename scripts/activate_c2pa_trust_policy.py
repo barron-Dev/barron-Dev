@@ -110,8 +110,8 @@ def main() -> int:
     result = client.rpc("activate_c2pa_trust_policy", {
         "p_policy_name": "Cyclothone Official C2PA Trust List",
         "p_policy_version": version,
-        "p_trusted_root_pems": pems,
-        "p_trusted_root_sha256": fingerprints,
+        "p_trusted_anchor_pems": pems,
+        "p_trusted_anchor_sha256": fingerprints,
         "p_source_uri": source_uri,
         "p_source_commit": args.commit,
         "p_source_sha256": source_sha256,
