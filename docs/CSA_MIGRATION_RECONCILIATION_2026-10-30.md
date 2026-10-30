@@ -40,7 +40,7 @@ Both enforce the purpose allowlist `COMMAND`, `AI_ENVELOPE`, `FEDERATION`, `COMP
 
 ## Freshness and full-platform scripts
 
-- `sql/030_compliance_freshness.sql` aligns with observed live fields `compliance_control_status.freshness_status`, `compliance_control_status.evidence_valid_until`, and `compliance_collection_results.valid_until`; the exact live migration event introducing them still needs to be located in the full ledger.
+- `sql/030_compliance_freshness.sql` aligns with observed live fields `compliance_control_status.freshness_status`, `compliance_control_status.evidence_valid_until`, and `compliance_collection_results.valid_until`. A full-ledger search found **no stored migration statement** containing `freshness_status` or `evidence_valid_until`; these live columns therefore have untracked/unreconciled DDL provenance. Do not treat the 030 file as applied merely because its fields exist.
 - `sql/030_compliance_evidence_freshness.sql` proposes additional `freshness_window_seconds` and `stale` fields absent in the inspected live schema. Do not combine the competing 030 scripts.
 - `sql/031_compliance_full_platform.sql` is not represented by the seven CSA ledger rows. Its principal tables (`audit_engagements`, `auditor_access`, `evidence_items`, `control_owners`, `control_exceptions`, `remediation_tasks`, `vendors`, `trust_center`) were absent in the inspected live schema. Treat as source-only/unapplied pending complete DDL, grants, RLS, function ownership and dependency review.
 - `sql/060_zk_compliance.sql` is outside this seven-row reconciliation.
