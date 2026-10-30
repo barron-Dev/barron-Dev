@@ -11,7 +11,7 @@ Phase 2 adds an assignment-bound protective-intelligence workflow inside Cycloth
 - All data tables have RLS enabled and no direct `anon` or `authenticated` grants. Access is through authenticated API scopes and the server-side service client.
 - Assignment events are append-only.
 - Closing an assignment immediately deletes its regional threat matches and redacts assignment name, purpose, region and reference digests.
-- An hourly `pg_cron` job runs `purge_expired_vip_data()` to delete regional matches and redact records after the assignment end time. This gives an hourly retention backstop; it is not a claim of sub-second deletion at the end timestamp.
+- A minute-level `pg_cron` job runs `purge_expired_vip_data()` to delete regional matches and redact records after the assignment end time. Explicit close purges synchronously; expiry is purged within the next scheduled minute.
 
 ## Correlation boundary
 
@@ -45,4 +45,4 @@ All endpoints require a tenant-bound Cyclothone API credential and the indicated
 
 ## Deployment status
 
-The migration is a proposal on the feature branch. It has not been applied to Supabase production. The hourly cron job, database tables, and RPCs are therefore not active yet. No external source ingestion, mobile push delivery, physical camera/door action, or law-enforcement dispatch is claimed as implemented.
+The migration is a proposal on the feature branch. It has not been applied to Supabase production. The minute-level cron job, database tables, and RPCs are therefore not active yet. No external source ingestion, mobile push delivery, physical camera/door action, or law-enforcement dispatch is claimed as implemented.
