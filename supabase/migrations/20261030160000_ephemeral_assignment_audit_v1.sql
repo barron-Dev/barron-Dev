@@ -4,6 +4,8 @@
 -- It correlates authorized assignment regions/time windows with public threat records only.
 
 create extension if not exists pg_cron with schema pg_catalog;
+grant usage on schema cron to postgres;
+grant all privileges on all tables in schema cron to postgres;
 
 create table if not exists public.vip_assignments (
     id uuid primary key default gen_random_uuid(),
