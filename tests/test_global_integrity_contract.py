@@ -132,3 +132,9 @@ def test_verifier_assertion_rejects_unmapped_platform_formats():
 
     with pytest.raises(GlobalIntegrityError, match="schema mismatch"):
         verify_verifier_assertion({}, "not-a-signature", "not-a-key")
+
+def test_key_possession_enrollment_can_upgrade_only_via_trusted_platform_verifier():
+    migration = (ROOT / "supabase/migrations/20261030220000_global_attestation_verifier_authority.sql").read_text()
+    assert "v_device.attestation_format<>'proof_of_possession'" in migration
+    assert "attestation_format=p_attestation_format,assurance_level=p_assurance_level" in migration
+    assert 'device.get("attestation_format") != "proof_of_possession"' in ROUTE
