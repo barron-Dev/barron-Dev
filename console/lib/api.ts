@@ -406,3 +406,26 @@ export async function apiDownload(path: string): Promise<Blob> {
   }
   return response.blob();
 }
+
+
+export async function apiDownload(path: string, filename: string): Promise<void> {
+  await syncSupabaseSession();
+  let response = await fetchWithCurrentSession(path, { method: "GET" });
+  if (response.status === 401 && typeof window !== "undefined") {
+    const current = await syncSupabaseSession(true);
+    if (current) response = await fetchWithCurrentSession(path, { method: "GET" });
+  }
+  if (!response.ok) {
+    const raw = await response.text();
+    throw new Error(raw || `Download failed (HTTP ${response.status})`);
+  }
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+}
