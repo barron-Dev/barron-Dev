@@ -54,7 +54,7 @@ def test_sbom_evidence_and_gate_receipt_commit_atomically():
 
 
 def test_global_attestation_is_bound_to_enrolled_tenant_device():
-    binding = (ROOT / "supabase/migrations/20261030174500_global_integrity_bind_platform_devices.sql").read_text()
+    binding = (ROOT / "supabase/migrations/20261030174140_global_integrity_bind_platform_devices.sql").read_text()
     assert "REFERENCES public.devices(tenant_id,id)" in binding
     assert "d.status='active'" in binding
     assert "DROP FUNCTION IF EXISTS public.global_register_device_key" in binding
