@@ -105,7 +105,7 @@ BEGIN
 END;
 $$;
 REVOKE ALL ON FUNCTION public.append_media_provenance_receipt(uuid,text,text,text,text,uuid,text,text,jsonb,jsonb,text,text,text,text,text,jsonb) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.append_media_provenance_receipt(uuid,text,text,text,text,uuid,text,text,jsonb,jsonb,text,text,text,text) TO service_role;
+GRANT EXECUTE ON FUNCTION public.append_media_provenance_receipt(uuid,text,text,text,text,uuid,text,text,jsonb,jsonb,text,text,text,text,text,jsonb) TO service_role;
 
 CREATE TABLE IF NOT EXISTS public.provenance_i18n (
     locale text NOT NULL,
