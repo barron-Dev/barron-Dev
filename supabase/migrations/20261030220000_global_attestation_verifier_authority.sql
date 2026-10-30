@@ -65,7 +65,8 @@ BEGIN
  FOR UPDATE OF d;
  SELECT * INTO v_key FROM public.global_attestation_verifier_keys
  WHERE id=p_verifier_key_id AND status='ACTIVE' AND platform=p_platform
- AND policy_version=p_policy_version AND not_before<=v_now AND not_after>v_now;
+ AND policy_version=p_policy_version AND not_before<=v_now AND not_after>v_now
+ FOR SHARE;
  IF v_device.id IS NOT NULL AND v_key.id IS NOT NULL THEN
   UPDATE public.global_device_challenges SET consumed_at=v_now
   WHERE id=p_challenge_id AND tenant_id=p_tenant_id AND principal_id=p_principal_id
@@ -81,7 +82,12 @@ BEGIN
  ELSIF p_valid_until<=v_now OR p_valid_until>v_now+interval '24 hours' THEN v_reason:='attestation_validity_out_of_policy';
  ELSIF p_evidence_sha256 !~ '^[a-f0-9]{64}$' OR p_assertion_sha256 !~ '^[a-f0-9]{64}$' THEN v_reason:='attestation_evidence_invalid';
  ELSIF p_platform<>v_device.platform OR (v_device.attestation_format<>'proof_of_possession' AND p_attestation_format<>v_device.attestation_format) THEN v_reason:='attestation_platform_mismatch';
- ELSIF p_assurance_level NOT IN ('hardware_attested','workload_attested') THEN v_reason:='attestation_assurance_invalid';
+ ELSIF NOT (
+   (p_platform='android' AND p_attestation_format IN ('android_key','play_integrity') AND p_assurance_level='hardware_attested')
+   OR (p_platform='ios' AND p_attestation_format='apple_app_attest' AND p_assurance_level='hardware_attested')
+   OR (p_platform IN ('windows','macos','linux') AND p_attestation_format='tpm2' AND p_assurance_level='hardware_attested')
+   OR (p_platform IN ('linux','server') AND p_attestation_format='workload' AND p_assurance_level='workload_attested')
+ ) THEN v_reason:='attestation_platform_assurance_policy_mismatch';
  ELSIF v_device.revoked_at IS NOT NULL OR v_device.attestation_state='REVOKED' THEN v_reason:='device_revoked_requires_new_enrollment';
  ELSE v_reason:='verified'; END IF;
  IF v_reason='verified' THEN
