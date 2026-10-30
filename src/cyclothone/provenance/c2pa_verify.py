@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import os
@@ -10,6 +11,7 @@ from typing import Any
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
 STATES = {"VALID", "INVALID", "UNTRUSTED", "MISSING_PROVENANCE", "INDETERMINATE"}
 ZERO_HASH = "0" * 64
@@ -126,7 +128,7 @@ def verify_c2pa_file(file_path: str | Path, trust_anchors_pem: str) -> Provenanc
                                 {"error_type": type(exc).__name__, "error": message[:1000]}, "unknown")
 
 
-def sign_receipt(payload: dict[str, Any]) -> tuple[str, str]:
+def sign_receipt(payload: dict[str, Any]) -> tuple[str, str, str]:
     pem = os.environ.get("CYCLOTHONE_PROVENANCE_ED25519_PRIVATE_KEY", "")
     key_id = os.environ.get("CYCLOTHONE_PROVENANCE_SIGNING_KEY_ID", "")
     if not pem or not key_id:
@@ -134,7 +136,8 @@ def sign_receipt(payload: dict[str, Any]) -> tuple[str, str]:
     key = serialization.load_pem_private_key(pem.encode("utf-8"), password=None)
     if not isinstance(key, Ed25519PrivateKey):
         raise RuntimeError("Configured provenance signing key must be Ed25519.")
-    return key.sign(canonical_json(payload)).hex(), key_id
+    public_key = key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
+    return key.sign(canonical_json(payload)).hex(), key_id, base64.b64encode(public_key).decode("ascii")
 
 
 def build_receipt_hash(payload: dict[str, Any]) -> str:
