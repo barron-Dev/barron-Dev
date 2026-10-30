@@ -202,3 +202,48 @@ async def verify_effectiveness_receipt_endpoint(
         "status": row.get("status"),
         "issued_at": row.get("issued_at"),
     }
+
+
+from cyclothone.api.routes.customer_identity import principal as customer_principal
+
+
+@router.get("/customer/effectiveness")
+async def customer_effectiveness(
+    limit: int = Query(default=200, ge=1, le=500),
+    principal: DeveloperPrincipal = Depends(customer_principal),
+) -> dict:
+    if principal.auth_type != "customer":
+        principal.require(("compliance:read",))
+    if not principal.tenant_id:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "workspace_not_admitted")
+
+    async def _select():
+        return await (
+            await supabase._ensure()
+        ).table("compliance_control_status").select(
+            "control_id,status,score,last_evaluated,evidence,freshness_status,evidence_valid_until"
+        ).eq("tenant_id", principal.tenant_id).order(
+            "last_evaluated", desc=True
+        ).limit(limit).execute()
+
+    controls = list((await supabase._retry(_select, attempts=2)).data or [])
+    return {"tenant_id": principal.tenant_id, "controls": controls}
+
+
+@router.get("/customer/effectiveness-receipts")
+async def customer_effectiveness_receipts(
+    assessment_id: UUID | None = Query(default=None),
+    control_id: str | None = Query(default=None, min_length=2, max_length=128),
+    limit: int = Query(default=50, ge=1, le=200),
+    principal: DeveloperPrincipal = Depends(customer_principal),
+) -> list[dict]:
+    if principal.auth_type != "customer":
+        principal.require(("compliance:read",))
+    if not principal.tenant_id:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "workspace_not_admitted")
+    return await list_effectiveness_receipts(
+        UUID(principal.tenant_id),
+        assessment_id=assessment_id,
+        control_id=control_id,
+        limit=limit,
+    )
