@@ -8,6 +8,8 @@ CREATE TABLE IF NOT EXISTS public.c2pa_trust_policies (
     policy_version text NOT NULL,
     trusted_anchor_pems text[] NOT NULL,
     trusted_anchor_sha256 text[] NOT NULL,
+    tsa_anchor_pems text[] NOT NULL,
+    tsa_anchor_sha256 text[] NOT NULL,
     is_active boolean NOT NULL DEFAULT false,
     source_uri text NOT NULL,
     source_commit text NOT NULL CHECK (source_commit ~ '^[0-9a-f]{40}$'),
@@ -20,6 +22,9 @@ CREATE TABLE IF NOT EXISTS public.c2pa_trust_policies (
         cardinality(trusted_anchor_pems) > 0
         AND cardinality(trusted_anchor_sha256) > 0
         AND cardinality(trusted_anchor_pems) = cardinality(trusted_anchor_sha256)
+        AND cardinality(tsa_anchor_pems) > 0
+        AND cardinality(tsa_anchor_sha256) > 0
+        AND cardinality(tsa_anchor_pems) = cardinality(tsa_anchor_sha256)
     ),
     CONSTRAINT c2pa_policy_unique_version UNIQUE (policy_name, policy_version)
 );
@@ -237,6 +242,8 @@ CREATE OR REPLACE FUNCTION public.activate_c2pa_trust_policy(
     p_policy_version text,
     p_trusted_anchor_pems text[],
     p_trusted_anchor_sha256 text[],
+    p_tsa_anchor_pems text[],
+    p_tsa_anchor_sha256 text[],
     p_source_uri text,
     p_source_commit text,
     p_source_sha256 text,
@@ -255,8 +262,10 @@ BEGIN
         RAISE EXCEPTION 'service role required' USING ERRCODE = '42501';
     END IF;
     IF cardinality(p_trusted_anchor_pems) < 1
-       OR cardinality(p_trusted_anchor_pems) <> cardinality(p_trusted_anchor_sha256) THEN
-        RAISE EXCEPTION 'invalid trust anchor set';
+       OR cardinality(p_trusted_anchor_pems) <> cardinality(p_trusted_anchor_sha256)
+       OR cardinality(p_tsa_anchor_pems) < 1
+       OR cardinality(p_tsa_anchor_pems) <> cardinality(p_tsa_anchor_sha256) THEN
+        RAISE EXCEPTION 'invalid manifest or TSA trust anchor set';
     END IF;
     IF p_source_commit !~ '^[0-9a-f]{40}$'
        OR p_source_sha256 !~ '^[0-9a-f]{64}$'
@@ -267,19 +276,21 @@ BEGIN
     UPDATE public.c2pa_trust_policies SET is_active = false WHERE is_active = true;
     INSERT INTO public.c2pa_trust_policies (
         policy_name, policy_version, trusted_anchor_pems, trusted_anchor_sha256,
-        is_active, source_uri, source_commit, source_sha256, source_issued_at, source_next_update
+        tsa_anchor_pems, tsa_anchor_sha256, is_active, source_uri, source_commit,
+        source_sha256, source_issued_at, source_next_update
     ) VALUES (
         p_policy_name, p_policy_version, p_trusted_anchor_pems, p_trusted_anchor_sha256,
-        true, p_source_uri, p_source_commit, p_source_sha256, p_source_issued_at, p_source_next_update
+        p_tsa_anchor_pems, p_tsa_anchor_sha256, true, p_source_uri, p_source_commit,
+        p_source_sha256, p_source_issued_at, p_source_next_update
     ) RETURNING id INTO v_id;
     RETURN v_id;
 END;
 $$;
 REVOKE ALL ON FUNCTION public.activate_c2pa_trust_policy(
-    text,text,text[],text[],text,text,text,timestamptz,timestamptz
+    text,text,text[],text[],text[],text[],text,text,text,timestamptz,timestamptz
 ) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.activate_c2pa_trust_policy(
-    text,text,text[],text[],text,text,text,timestamptz,timestamptz
+    text,text,text[],text[],text[],text[],text,text,text,timestamptz,timestamptz
 ) TO service_role;
 
 CREATE OR REPLACE FUNCTION public.protect_c2pa_trust_policy()
@@ -290,11 +301,13 @@ BEGIN
     END IF;
     IF ROW(
         NEW.id, NEW.policy_name, NEW.policy_version, NEW.trusted_anchor_pems,
-        NEW.trusted_anchor_sha256, NEW.source_uri, NEW.source_commit, NEW.source_sha256,
+        NEW.trusted_anchor_sha256, NEW.tsa_anchor_pems, NEW.tsa_anchor_sha256,
+        NEW.source_uri, NEW.source_commit, NEW.source_sha256,
         NEW.source_issued_at, NEW.source_next_update, NEW.created_at, NEW.created_by
     ) IS DISTINCT FROM ROW(
         OLD.id, OLD.policy_name, OLD.policy_version, OLD.trusted_anchor_pems,
-        OLD.trusted_anchor_sha256, OLD.source_uri, OLD.source_commit, OLD.source_sha256,
+        OLD.trusted_anchor_sha256, OLD.tsa_anchor_pems, OLD.tsa_anchor_sha256,
+        OLD.source_uri, OLD.source_commit, OLD.source_sha256,
         OLD.source_issued_at, OLD.source_next_update, OLD.created_at, OLD.created_by
     ) THEN
         RAISE EXCEPTION 'C2PA trust policy content is immutable';
