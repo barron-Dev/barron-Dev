@@ -45,8 +45,15 @@ def classify_validation(state: str | None, results: Any, has_trust_anchors: bool
     if not state:
         return "INDETERMINATE"
     normalized = state.strip().lower()
+    strings = [str(value).lower() for _, value in _walk_strings(results or {}) if isinstance(value, str)]
     if normalized in {"valid", "trusted", "success"}:
-        return "VALID" if has_trust_anchors else "UNTRUSTED"
+        if not has_trust_anchors:
+            return "UNTRUSTED"
+        if any("signingcredential.untrusted" in value or "certificate" in value and "untrusted" in value for value in strings):
+            return "UNTRUSTED"
+        if any("signingcredential.trusted" in value for value in strings):
+            return "VALID"
+        return "INDETERMINATE"
     if normalized in {"invalid", "error", "failure"}:
         codes = []
         for key, value in _walk_strings(results or {}):
