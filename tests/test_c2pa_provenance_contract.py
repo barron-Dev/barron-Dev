@@ -11,15 +11,14 @@ def test_five_states_are_closed_set():
     assert STATES == {"VALID", "INVALID", "UNTRUSTED", "MISSING_PROVENANCE", "INDETERMINATE"}
 
 
-def test_valid_requires_explicit_trusted_credential_result():
-    trusted = {"validation_status": [
-        {"code": "signingCredential.trusted"},
-        {"code": "claimSignature.validated"},
-        {"code": "assertion.dataHash.match"},
-    ]}
-    assert classify_validation("Valid", trusted, True) == "VALID"
-    assert classify_validation("Valid", trusted, False) == "UNTRUSTED"
-    assert classify_validation("Valid", {}, True) == "INDETERMINATE"
+def test_cai_trusted_state_is_valid_only_with_configured_anchors():
+    assert classify_validation("Trusted", {}, True) == "VALID"
+    assert classify_validation("Trusted", {}, False) == "UNTRUSTED"
+
+
+def test_cai_valid_state_is_valid_but_untrusted():
+    assert classify_validation("Valid", {}, True) == "UNTRUSTED"
+    assert classify_validation("Valid", {}, False) == "UNTRUSTED"
 
 
 def test_integrity_failure_is_invalid():
