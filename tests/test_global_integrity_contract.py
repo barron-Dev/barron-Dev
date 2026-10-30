@@ -104,3 +104,31 @@ def test_device_revocation_is_irreversible_and_invalidates_challenges():
     assert "global_revoke_device" in ROUTE
     assert 'p.require(("global:device:revoke",))' in ROUTE
     assert '"/devices/revoke"' in ROUTE
+
+def test_platform_attestation_requires_pinned_signed_verifier_assertion():
+    verifier = (ROOT / "src/cyclothone/global_integrity/attestation_verifier.py").read_text()
+    migration = (ROOT / "supabase/migrations/20261030220000_global_attestation_verifier_authority.sql").read_text()
+    assert "Ed25519PublicKey" in verifier
+    assert "key.verify(signature, canonical_json(assertion))" in verifier
+    assert "challenge_nonce" in verifier and "context_sha256" in verifier
+    assert '("ios", "apple_app_attest")' in verifier
+    assert '("windows", "tpm2")' in verifier
+    assert '("server", "workload")' in verifier
+    assert "global_attestation_verifier_keys" in migration
+    assert "status IN ('PENDING','ACTIVE','SUSPENDED','REVOKED')" in migration
+    assert "global_promote_attested_device_atomic" in migration
+    assert "FOR UPDATE OF d" in migration
+    assert "SET attestation_state='VERIFIED'" in migration
+    assert "GRANT EXECUTE ON FUNCTION public.global_promote_attested_device_atomic" in migration
+    assert '"/devices/verify-attestation"' in ROUTE
+    assert 'p.require(("global:attestation:verify",))' in ROUTE
+    assert "attestation_verifier_not_trusted" in ROUTE
+
+
+def test_verifier_assertion_rejects_unmapped_platform_formats():
+    from cyclothone.global_integrity.attestation_verifier import verify_verifier_assertion
+    from cyclothone.global_integrity.crypto import GlobalIntegrityError
+    import pytest
+
+    with pytest.raises(GlobalIntegrityError, match="schema mismatch"):
+        verify_verifier_assertion({}, "not-a-signature", "not-a-key")
