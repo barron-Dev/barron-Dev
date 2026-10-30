@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS public.c2pa_trust_policies (
     source_next_update timestamptz NOT NULL,
     created_at timestamptz NOT NULL DEFAULT now(),
     created_by uuid,
-    CONSTRAINT c2pa_policy_roots_nonempty CHECK (
+    CONSTRAINT c2pa_policy_anchors_nonempty CHECK (
         cardinality(trusted_anchor_pems) > 0
         AND cardinality(trusted_anchor_sha256) > 0
         AND cardinality(trusted_anchor_pems) = cardinality(trusted_anchor_sha256)
