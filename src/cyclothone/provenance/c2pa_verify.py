@@ -117,7 +117,8 @@ def verify_c2pa_file(file_path: str | Path, trust_anchors_pem: str) -> Provenanc
         context = Context.from_dict({
             "trust": {"trust_anchors": trust_anchors_pem},
             "verify": {
-                "verify_trust": True, "verify_timestamp_trust": True,
+                "verify_after_reading": True, "verify_trust": True,
+                "verify_timestamp_trust": True,
                 "remote_manifest_fetch": False, "ocsp_fetch": False,
                 "strict_v1_validation": True,
             },
