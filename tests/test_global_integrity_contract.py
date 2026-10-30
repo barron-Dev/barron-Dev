@@ -69,3 +69,11 @@ def test_sbom_atomic_commit_rechecks_live_enrolled_device_state():
     assert "pd.status='active'" in active_gate
     assert "d.last_attested_at <= v_now" in active_gate
     assert "verified_active_hardware_attestation_required" in active_gate
+
+
+def test_sensitive_blast_radius_reads_require_signed_device_challenge():
+    assert '@router.post("/supply-chain/blast-radius")' in ROUTE
+    assert "class BlastRadiusRequest(BaseModel)" in ROUTE
+    assert "supply_chain_blast_radius_read" in ROUTE
+    assert "global_cross_tenant_graph" in ROUTE
+    assert "execution_receipt" in ROUTE
