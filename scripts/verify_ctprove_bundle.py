@@ -58,6 +58,7 @@ def verify_bundle(path: str | Path, trusted_public_key_path: str | Path | None =
             raise ValueError("Original media SHA-256 does not match the receipt.")
 
     checks = {
+        "source_job_id": payload.get("source_job_id") == receipt.get("source_job_id"),
         "tenant_id": payload.get("tenant_id") == receipt.get("tenant_id"),
         "media_sha256": payload.get("media_sha256") == receipt.get("media_sha256"),
         "manifest_store_sha256": payload.get("manifest_store_sha256") == receipt.get("manifest_store_sha256"),
