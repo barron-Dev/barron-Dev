@@ -4,7 +4,10 @@ import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "@/lib/api";
 
 type Receipt = { id: string; assessment_id: string; control_id: string; probe_id: string; probe_version: string; status: string; coverage: number; receipt_digest: string; signer_key_id: string; issued_at: string; };
-type Control = { id: string; stable_id?: string | null; framework: string; control_code: string; title: string; };\ntype FeedRun = { source: string; status: string; completed_at?: string | null; records_upserted: number; source_version?: string | null; error_code?: string | null; };\ntype SovereignFramework = { framework_key: string; country_iso: string; framework_name: string; framework_version: string; authority_name: string; source_url: string; caveats?: string | null; };\ntype SovereignMapping = { framework_key: string; cyclothone_control_id: string; external_control_id: string; external_control_title: string; mapping_method: string; mapping_confidence: number | null; review_status: string; source_version: string; };
+type Control = { id: string; stable_id?: string | null; framework: string; control_code: string; title: string; };
+type FeedRun = { source: string; status: string; completed_at?: string | null; records_upserted: number; source_version?: string | null; error_code?: string | null; };
+type SovereignFramework = { framework_key: string; country_iso: string; framework_name: string; framework_version: string; authority_name: string; source_url: string; caveats?: string | null; };
+type SovereignMapping = { framework_key: string; cyclothone_control_id: string; external_control_id: string; external_control_title: string; mapping_method: string; mapping_confidence: number | null; review_status: string; source_version: string; };
 
 export default function DeveloperCompliancePage() {
   const [framework, setFramework] = useState("soc2");
@@ -14,7 +17,14 @@ export default function DeveloperCompliancePage() {
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState("");
-  const [message, setMessage] = useState("");\n  const [feeds, setFeeds] = useState<Record<string, FeedRun>>({});\n  const [sovereign, setSovereign] = useState<SovereignFramework[]>([]);\n  const [mappings, setMappings] = useState<SovereignMapping[]>([]);\n  const [country, setCountry] = useState("US");\n  const [riskCve, setRiskCve] = useState("");\n  const [riskControl, setRiskControl] = useState("");\n  const [riskResult, setRiskResult] = useState<Record<string, unknown> | null>(null);
+  const [message, setMessage] = useState("");
+  const [feeds, setFeeds] = useState<Record<string, FeedRun>>({});
+  const [sovereign, setSovereign] = useState<SovereignFramework[]>([]);
+  const [mappings, setMappings] = useState<SovereignMapping[]>([]);
+  const [country, setCountry] = useState("US");
+  const [riskCve, setRiskCve] = useState("");
+  const [riskControl, setRiskControl] = useState("");
+  const [riskResult, setRiskResult] = useState<Record<string, unknown> | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true); setError("");
@@ -23,7 +33,15 @@ export default function DeveloperCompliancePage() {
         apiFetch<Control[]>(`/api/v1/compliance/controls?framework=${encodeURIComponent(framework)}`),
         apiFetch<Receipt[]>("/api/v1/compliance/effectiveness-receipts?limit=100"),
       ]);
-      setControls(controlRows); setReceipts(receiptRows);\n      const [feedResult, frameworkResult, mappingResult] = await Promise.allSettled([\n        apiFetch<{ sources: Record<string, FeedRun> }>("/api/v1/compliance/global-intelligence/status"),\n        apiFetch<SovereignFramework[]>("/api/v1/compliance/sovereign-frameworks?country_iso=" + country),\n        apiFetch<SovereignMapping[]>("/api/v1/compliance/sovereign-framework-mappings"),\n      ]);\n      if (feedResult.status === "fulfilled") setFeeds(feedResult.value.sources ?? {});\n      if (frameworkResult.status === "fulfilled") setSovereign(frameworkResult.value ?? []);\n      if (mappingResult.status === "fulfilled") setMappings(mappingResult.value ?? []);
+      setControls(controlRows); setReceipts(receiptRows);
+      const [feedResult, frameworkResult, mappingResult] = await Promise.allSettled([
+        apiFetch<{ sources: Record<string, FeedRun> }>("/api/v1/compliance/global-intelligence/status"),
+        apiFetch<SovereignFramework[]>("/api/v1/compliance/sovereign-frameworks?country_iso=" + country),
+        apiFetch<SovereignMapping[]>("/api/v1/compliance/sovereign-framework-mappings"),
+      ]);
+      if (feedResult.status === "fulfilled") setFeeds(feedResult.value.sources ?? {});
+      if (frameworkResult.status === "fulfilled") setSovereign(frameworkResult.value ?? []);
+      if (mappingResult.status === "fulfilled") setMappings(mappingResult.value ?? []);
     } catch (e) { setError(e instanceof Error ? e.message : "Unable to load CSA records"); }
     finally { setLoading(false); }
   }, [framework, country]);
@@ -40,7 +58,17 @@ export default function DeveloperCompliancePage() {
     finally { setRunning(false); }
   }
 
-  async function calculateRisk() {\n    setError(""); setRiskResult(null);\n    try {\n      const params = new URLSearchParams({ control_id: riskControl || controls[0]?.stable_id || controls[0]?.control_code || "CSA.CONTROL", asset_criticality: "3", control_exposure: "3" });\n      if (riskCve.trim()) params.set("cve_id", riskCve.trim());\n      const result = await apiFetch<Record<string, unknown>>("/api/v1/compliance/global-risk?" + params.toString());\n      setRiskResult(result);\n    } catch (e) { setError(e instanceof Error ? e.message : "Global risk calculation unavailable"); }\n  }\n\n  async function verify(id: string) {
+  async function calculateRisk() {
+    setError(""); setRiskResult(null);
+    try {
+      const params = new URLSearchParams({ control_id: riskControl || controls[0]?.stable_id || controls[0]?.control_code || "CSA.CONTROL", asset_criticality: "3", control_exposure: "3" });
+      if (riskCve.trim()) params.set("cve_id", riskCve.trim());
+      const result = await apiFetch<Record<string, unknown>>("/api/v1/compliance/global-risk?" + params.toString());
+      setRiskResult(result);
+    } catch (e) { setError(e instanceof Error ? e.message : "Global risk calculation unavailable"); }
+  }
+
+  async function verify(id: string) {
     setError("");
     try {
       const result = await apiFetch<{ verified: boolean }>(`/api/v1/compliance/effectiveness-receipts/${encodeURIComponent(id)}/verify`);
