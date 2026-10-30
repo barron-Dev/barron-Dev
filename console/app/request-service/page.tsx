@@ -4,7 +4,7 @@ import type {FormEvent} from "react";
 
 import {getCustomerOrganizations,apiFetch,type CustomerOrganization} from "../../lib/api";
 
-const SERVICES=[["cybersecurity_assessment","Cybersecurity Assessment"],["dark_web_monitoring","Dark Web Monitoring"]];
+const SERVICES=[["cybersecurity_assessment","Cybersecurity Assessment"],["dark_web_monitoring","Dark Web Monitoring"],["brand_protection","Brand Protection"],["ai_security","AI Security"]];
 const SERVICE_GUIDANCE:Record<string,{prompt:string;label:string;placeholder:string;help:string}>={
  cybersecurity_assessment:{prompt:"Identify the system, environment or business area you want assessed.",label:"System / environment",placeholder:"Website, application, cloud environment, network or business system",help:"Tell Cyclothone what is in scope and what you want the assessment to establish."},
  incident_response:{prompt:"Identify the incident or affected system and tell us what happened.",label:"Incident / affected system",placeholder:"Incident, domain, application, endpoint, account or affected system",help:"Add the known symptoms, timeframe and business impact below."},
@@ -55,7 +55,7 @@ export default function RequestService(){ const [orgs,setOrgs]=useState<Customer
   return()=>{cancelled=true;if(timer)clearTimeout(timer)};
 },[result?.request_id,result?.processing_state,result?.service]);
  async function submit(e:FormEvent){e.preventDefault();setError(null);setResult(null);try{const r=await apiFetch<any>("/api/v1/customer/service-requests",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({...(org?{organization_id:org}:{}),service_key:service,urgency,target:target.trim(),target_type:service==="dark_web_monitoring"?targetType:"url",description:[`Target: ${target.trim()}`,`Service objective: ${description.trim()}`].join("\n")})});setResult({...r,service});setTarget("");setDescription("")}catch(e){setError(e instanceof Error?e.message:"Service request failed")}}
- const current=orgs.find(x=>x.id===org); const guidance=SERVICE_GUIDANCE[service]||DEFAULT_GUIDANCE; const serviceName=SERVICES.find(x=>x[0]===service)?.[1]||service;
+ const current=orgs.find(x=>x.id===org); const guidance=SERVICE_GUIDANCE[service]||DEFAULT_GUIDANCE; const serviceName=SERVICES.find(x=>x[0]===service)?.[1]||service; 
  const progress=typeof result?.progress_percent==="number"?result.progress_percent:typeof result?.progress==="number"?result.progress:null;
  const stage=typeof result?.stage==="string"?result.stage:null;
  const dwData=(result?.result&&typeof result.result==="object"&&Object.keys(result.result).length?result.result:result)||{};
@@ -91,6 +91,7 @@ export default function RequestService(){ const [orgs,setOrgs]=useState<Customer
         </select>
       </label>
       <p className="mt-2 text-[11px] leading-5 text-[#78939a]">{guidance.prompt} {guidance.help}</p>
+      
     </section>
 
     <section className="border-b border-white/10 py-7">
