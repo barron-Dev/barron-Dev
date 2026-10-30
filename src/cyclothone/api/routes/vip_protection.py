@@ -65,8 +65,8 @@ class SosRequest(BaseModel):
 def _safe_assignment(row: dict[str, Any]) -> dict[str, Any]:
     allowed = (
         "id", "tenant_id", "assignment_name", "purpose", "region_code",
-        "start_time", "end_time", "status", "created_by", "approved_by",
-        "approved_at", "closed_at", "expired_at", "created_at",
+        "start_time", "end_time", "status", "approved_at", "closed_at",
+        "expired_at", "created_at",
     )
     return {key: row.get(key) for key in allowed}
 
@@ -74,7 +74,7 @@ def _safe_assignment(row: dict[str, Any]) -> dict[str, Any]:
 async def _get_assignment(assignment_id: UUID, tenant_id: str) -> dict[str, Any]:
     row = await supabase.select_one(
         "vip_assignments",
-        "id,tenant_id,assignment_name,purpose,region_code,start_time,end_time,status,created_by,approved_by,approved_at,closed_at,expired_at,created_at",
+        "id,tenant_id,assignment_name,purpose,region_code,start_time,end_time,status,approved_at,closed_at,expired_at,created_at",
         id=str(assignment_id),
         tenant_id=tenant_id,
     )
