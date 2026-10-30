@@ -30,6 +30,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS c2pa_one_active_policy
 CREATE TABLE IF NOT EXISTS public.media_provenance_receipts (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id uuid NOT NULL,
+    tenant_sequence bigint NOT NULL,
     media_sha256 char(64) NOT NULL CHECK (media_sha256 ~ '^[0-9a-f]{64}$'),
     manifest_store_sha256 char(64) CHECK (
         manifest_store_sha256 IS NULL OR manifest_store_sha256 ~ '^[0-9a-f]{64}$'
@@ -50,7 +51,8 @@ CREATE TABLE IF NOT EXISTS public.media_provenance_receipts (
     signing_public_key text NOT NULL,
     signed_payload jsonb NOT NULL,
     signed_payload_canonical text NOT NULL,
-    created_at timestamptz NOT NULL
+    created_at timestamptz NOT NULL,
+    CONSTRAINT media_provenance_tenant_sequence_unique UNIQUE (tenant_id, tenant_sequence)
 );
 
 CREATE INDEX IF NOT EXISTS media_provenance_tenant_created
@@ -104,6 +106,7 @@ AS $$
 DECLARE
     v_previous_hash text;
     v_id uuid;
+    v_sequence bigint;
 BEGIN
     IF coalesce(current_setting('request.jwt.claim.role', true), '') <> 'service_role' THEN
         RAISE EXCEPTION 'service role required' USING ERRCODE = '42501';
@@ -132,15 +135,20 @@ BEGIN
        OR p_signed_payload->>'trust_policy_version' IS DISTINCT FROM p_trust_policy_version
        OR p_signed_payload->>'sdk_version' IS DISTINCT FROM p_sdk_version
        OR p_signed_payload->>'previous_receipt_hash' IS DISTINCT FROM p_previous_receipt_hash
+       OR p_signed_payload->'ml_assessment' IS DISTINCT FROM p_ml_assessment
        OR p_signed_payload->>'created_at' IS NULL THEN
         RAISE EXCEPTION 'signed receipt payload does not match receipt fields';
     END IF;
 
     PERFORM pg_advisory_xact_lock(hashtextextended(p_tenant_id::text, 0));
+    SELECT coalesce(max(tenant_sequence), 0) + 1
+      INTO v_sequence
+      FROM public.media_provenance_receipts
+     WHERE tenant_id = p_tenant_id;
     SELECT receipt_hash INTO v_previous_hash
       FROM public.media_provenance_receipts
      WHERE tenant_id = p_tenant_id
-     ORDER BY created_at DESC, id DESC
+     ORDER BY tenant_sequence DESC
      LIMIT 1;
     v_previous_hash := coalesce(v_previous_hash, repeat('0', 64));
     IF v_previous_hash <> p_previous_receipt_hash THEN
@@ -148,13 +156,13 @@ BEGIN
     END IF;
 
     INSERT INTO public.media_provenance_receipts (
-        tenant_id, media_sha256, manifest_store_sha256, validation_state,
+        tenant_id, tenant_sequence, media_sha256, manifest_store_sha256, validation_state,
         signer_identity, trust_policy_id, trust_policy_version, sdk_version,
         raw_c2pa_report, ml_assessment, previous_receipt_hash, receipt_hash,
         receipt_signature, signing_key_id, signing_public_key, signed_payload,
         signed_payload_canonical, created_at
     ) VALUES (
-        p_tenant_id, p_media_sha256, p_manifest_store_sha256, p_validation_state,
+        p_tenant_id, v_sequence, p_media_sha256, p_manifest_store_sha256, p_validation_state,
         p_signer_identity, p_trust_policy_id, p_trust_policy_version, p_sdk_version,
         p_raw_c2pa_report, p_ml_assessment, p_previous_receipt_hash, p_receipt_hash,
         p_receipt_signature, p_signing_key_id, p_signing_public_key, p_signed_payload,
