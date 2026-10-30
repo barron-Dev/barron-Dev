@@ -106,16 +106,16 @@ async def test_receipt_signature_binds_issuance_timestamp_and_compliance_key_dom
             status=fields["status"],
             coverage=fields["coverage"],
             evidence_digest=fields["evidence_digest"],
-            verified_at=issued_at,
+            issued_at=issued_at,
         )
     sign.assert_awaited_once()
     assert sign.await_args.kwargs["purpose"] == "COMPLIANCE"
-    assert receipt.verified_at == issued_at
+    assert receipt.issued_at == issued_at
     with patch(
         "cyclothone.compliance.effectiveness.verify_digest_signature",
         new=AsyncMock(return_value=True),
     ) as verify:
         assert await verify_effectiveness_receipt(receipt) is True
-        tampered = replace(receipt, verified_at=issued_at + timedelta(seconds=1))
+        tampered = replace(receipt, issued_at=issued_at + timedelta(seconds=1))
         assert await verify_effectiveness_receipt(tampered) is False
         verify.assert_awaited_once()
