@@ -37,3 +37,9 @@ The production schema includes the device-binding migration and the follow-up SB
 ## Sensitive read enforcement
 
 The tenant blast-radius query is a signed POST operation, not an unauthenticated GET. It requires an active enrolled device, a one-time challenge bound to the exact package URL/version query, a valid Ed25519 signature, fresh VERIFIED device state, and a persisted execution receipt before returning tenant-scoped project evidence. Cross-tenant graph results remain unavailable through this endpoint.
+
+## Atomic sensitive-action authorization
+
+The sensitive-action route now delegates its final decision to `global_authorize_execution_atomic`. The database transaction locks the tenant-bound device row, rechecks the linked enrolled device is active, verifies principal lifecycle state, atomically consumes the one-time challenge, rechecks VERIFIED hardware/workload assurance and the five-minute freshness window, and appends the immutable execution receipt in the same transaction. The API still performs Ed25519 signature verification over the canonical challenge envelope and passes only that result to the RPC. A successful key-possession signature alone cannot satisfy the hardware assurance requirement.
+
+This closes the API read/consume/receipt race for the sensitive-action endpoint. It does not yet establish hardware provenance: the trusted platform-specific verifier and its controlled promotion/revocation workflow remain outstanding. The RPC is service-role-only; no authenticated or anonymous caller can invoke it directly.
