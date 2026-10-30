@@ -99,8 +99,8 @@ revoke all on public.vip_assignments, public.vip_region_threat_matches,
     public.vip_protection_incidents, public.vip_assignment_events
     from public, anon, authenticated, service_role;
 grant select, insert, update on public.vip_assignments to service_role;
-grant select, insert on public.vip_region_threat_matches,
-    public.vip_protection_incidents, public.vip_assignment_events to service_role;
+grant select, insert, delete on public.vip_region_threat_matches to service_role;
+grant select, insert on public.vip_protection_incidents, public.vip_assignment_events to service_role;
 grant usage, select on sequence public.vip_assignment_events_id_seq to service_role;
 
 create or replace function public.vip_assignment_event_immutable()
