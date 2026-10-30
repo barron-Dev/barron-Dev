@@ -138,3 +138,13 @@ def test_key_possession_enrollment_can_upgrade_only_via_trusted_platform_verifie
     assert "v_device.attestation_format<>'proof_of_possession'" in migration
     assert "attestation_format=p_attestation_format,assurance_level=p_assurance_level" in migration
     assert 'device.get("attestation_format") != "proof_of_possession"' in ROUTE
+
+
+def test_attestation_promotion_locks_verifier_and_enforces_platform_policy_in_sql():
+    migration = (ROOT / "supabase/migrations/20261030220000_global_attestation_verifier_authority.sql").read_text()
+    assert "FOR SHARE;" in migration
+    assert "attestation_platform_assurance_policy_mismatch" in migration
+    assert "(p_platform='android' AND p_attestation_format IN ('android_key','play_integrity')" in migration
+    assert "(p_platform='ios' AND p_attestation_format='apple_app_attest'" in migration
+    assert "(p_platform IN ('windows','macos','linux') AND p_attestation_format='tpm2'" in migration
+    assert "(p_platform IN ('linux','server') AND p_attestation_format='workload'" in migration
