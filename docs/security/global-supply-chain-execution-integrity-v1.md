@@ -8,7 +8,7 @@ One tenant-scoped principal and device trust boundary for external clients, deve
 - Challenges are random, single-use, three-minute nonces bound to principal, device, purpose and canonical context hash.
 - Signatures use canonical JSON and Ed25519 in v1.
 - A valid signature proves key possession only. It does not prove TPM, Secure Enclave, Android Key Attestation, Apple App Attest, WebAuthn authenticator attestation or workload identity.
-- New registrations are always UNVERIFIED / key_possession. Sensitive actions require VERIFIED and fresh attestation; without a trusted platform verifier they fail closed.
+- New registrations are always UNVERIFIED / key_possession. Sensitive actions require VERIFIED and fresh attestation; only a trusted platform-specific verifier may promote a device to VERIFIED; without one, sensitive actions fail closed.
 - There is no assumed SQL Ed25519 verifier. Signature verification occurs in the API; database rows preserve the decision.
 
 ## SBOM and package intelligence
