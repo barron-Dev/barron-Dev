@@ -274,3 +274,66 @@ async def customer_verify_effectiveness_receipt(
         "status": row.get("status"),
         "issued_at": row.get("issued_at"),
     }
+
+
+from cyclothone.compliance.global_intelligence import sync_global_intelligence
+
+
+@router.get("/global-intelligence/status")
+async def global_intelligence_status(
+    principal: DeveloperPrincipal = Depends(authenticate_request),
+) -> dict:
+    principal.require(("compliance:read",))
+    async def _runs():
+        return await (
+            await supabase._ensure()
+        ).table("csa_global_intel_sync_runs").select(
+            "source,started_at,completed_at,status,records_seen,records_upserted,source_version,source_as_of,error_code"
+        ).order("started_at", desc=True).limit(20).execute()
+    rows = list((await supabase._retry(_runs, attempts=2)).data or [])
+    latest: dict[str, dict] = {}
+    for row in rows:
+        latest.setdefault(row["source"], row)
+    return {"sources": latest, "history": rows}
+
+
+@router.get("/sovereign-frameworks")
+async def sovereign_frameworks(
+    country_iso: str | None = Query(default=None, min_length=2, max_length=2),
+    principal: DeveloperPrincipal = Depends(authenticate_request),
+) -> list[dict]:
+    principal.require(("compliance:read",))
+    async def _frameworks():
+        query = (await supabase._ensure()).table("csa_sovereign_frameworks").select(
+            "framework_key,country_iso,framework_name,framework_version,authority_name,source_url,source_version,evaluation_frequency_days,jurisdiction_level,caveats,active"
+        ).eq("active", True).order("country_iso")
+        if country_iso:
+            query = query.eq("country_iso", country_iso.upper())
+        return await query.execute()
+    return list((await supabase._retry(_frameworks, attempts=2)).data or [])
+
+
+@router.get("/global-risk")
+async def global_risk(
+    control_id: str = Query(min_length=2, max_length=128),
+    cve_id: str | None = Query(default=None, min_length=13, max_length=24),
+    asset_criticality: int = Query(default=3, ge=1, le=5),
+    control_exposure: int = Query(default=3, ge=1, le=5),
+    principal: DeveloperPrincipal = Depends(authenticate_request),
+) -> dict:
+    principal.require(("compliance:read",))
+    if not principal.tenant_id:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "workspace_not_admitted")
+    async def _calculate():
+        return await (await supabase._ensure()).rpc(
+            "calculate_csa_global_risk",
+            {
+                "p_tenant_id": principal.tenant_id,
+                "p_control_id": control_id,
+                "p_cve_id": cve_id,
+                "p_asset_criticality": asset_criticality,
+                "p_control_exposure": control_exposure,
+            },
+        ).execute()
+    response = await supabase._retry(_calculate, attempts=2)
+    return response.data if isinstance(response.data, dict) else (response.data[0] if response.data else {})
