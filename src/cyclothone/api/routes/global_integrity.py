@@ -16,6 +16,7 @@ from cyclothone.global_integrity.crypto import (
     GlobalIntegrityError, canonical_json, context_hash, device_fingerprint,
     principal_fingerprint, public_key_fingerprint, sha256_hex, verify_ed25519,
 )
+from cyclothone.global_integrity.attestation_verifier import verify_verifier_assertion
 from cyclothone.storage.supabase_client import supabase
 
 router = APIRouter(prefix="/global-integrity", tags=["global-execution-integrity"])
