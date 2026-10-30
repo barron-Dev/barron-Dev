@@ -298,7 +298,7 @@ async def authorize_action(body: ActionAuthorizationRequest, p: DeveloperPrincip
     else:
         reason = "authorized"
     decision = "AUTHORIZED" if reason == "authorized" else "BLOCKED"
-    await _receipt(p=p, principal_id=principal_id, device_id=str(device["id"]), challenge_id=body.challenge_id,
+    await _receipt(p=p, principal_id=principal_id, device_id=str(device["id"]), challenge_id=(body.challenge_id if challenge else None),
                    action_type=body.action_type, payload_sha=payload_sha, signature_b64=body.signature_b64,
                    decision=decision, reason=reason)
     if decision != "AUTHORIZED":
