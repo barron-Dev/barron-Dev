@@ -34,6 +34,11 @@ class AssignmentCreate(BaseModel):
     assignment_name: str = Field(min_length=1, max_length=160)
     purpose: str = Field(min_length=8, max_length=500)
     region_code: str = Field(pattern=r"^[A-Z0-9][A-Z0-9_-]{1,31}$")
+
+    @field_validator("region_code", mode="before")
+    @classmethod
+    def normalize_region(cls, value: str) -> str:
+        return value.strip().upper() if isinstance(value, str) else value
     subject_ref: str = Field(min_length=8, max_length=256)
     authorization_ref: str = Field(min_length=8, max_length=256)
     consent_evidence_sha256: str = Field(pattern=r"^[0-9a-fA-F]{64}$")
@@ -90,7 +95,7 @@ async def create_assignment(
             "p_subject_ref": body.subject_ref,
             "p_assignment_name": body.assignment_name.strip(),
             "p_purpose": body.purpose.strip(),
-            "p_region_code": body.region_code,
+            "p_region_code": body.region_code.strip().upper(),
             "p_start_time": body.start_time.isoformat(),
             "p_end_time": body.end_time.isoformat(),
             "p_authorization_ref": body.authorization_ref,
@@ -208,6 +213,19 @@ async def correlate_public_threats(
             if not existing.data:
                 raise
             continue
+        await client.table("vip_assignment_events").insert({
+            "tenant_id": principal.tenant_id,
+            "assignment_id": str(assignment_id),
+            "event_type": "region_match_recorded",
+            "actor": _actor(principal),
+            "metadata": {
+                "finding_id": int(finding["id"]),
+                "evidence_sha256": evidence_hash,
+                "region_code": region,
+                "time_delta_seconds": delta,
+                "intent_inference": False,
+            },
+        }).execute()
         matches.append({
             "finding_id": int(finding["id"]),
             "region_code": region,
