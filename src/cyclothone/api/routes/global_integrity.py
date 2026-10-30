@@ -309,30 +309,30 @@ async def authorize_action(body: ActionAuthorizationRequest, p: DeveloperPrincip
                             and verify_ed25519(device["hardware_public_key"], body.signature_b64, envelope))
     except GlobalIntegrityError as exc:
         raise HTTPException(422, str(exc)) from exc
-    consumed = await _consume(
-        challenge_id=body.challenge_id, p=p, principal_id=principal_id, device_fp=device_fp,
-        purpose="sensitive_action", context_sha=context_sha, nonce=body.challenge_nonce,
-    ) if signature_ok else False
-    fresh = False
     try:
-        attested = datetime.fromisoformat(str(device.get("last_attested_at")).replace("Z", "+00:00"))
-        valid_until = device.get("valid_until")
-        age_seconds = (datetime.now(UTC) - attested).total_seconds()
-        fresh = 0 <= age_seconds <= 300 and (
-            not valid_until or datetime.fromisoformat(str(valid_until).replace("Z", "+00:00")) > datetime.now(UTC)
+        gate_result = await supabase.rpc(
+            "global_authorize_execution_atomic",
+            {
+                "p_tenant_id": p.tenant_id,
+                "p_principal_id": principal_id,
+                "p_device_id": str(device["id"]),
+                "p_challenge_id": body.challenge_id,
+                "p_device_fingerprint": device_fp,
+                "p_context_sha256": context_sha,
+                "p_nonce": body.challenge_nonce,
+                "p_action_type": body.action_type,
+                "p_payload_sha256": payload_sha,
+                "p_signature_sha256": sha256_hex(body.signature_b64.encode()),
+                "p_signature_valid": signature_ok,
+            },
         )
-    except Exception:
-        fresh = False
-    if not signature_ok or not consumed:
-        reason = "signature_invalid_or_challenge_replayed"
-    elif device.get("attestation_state") != "VERIFIED" or not fresh:
-        reason = "hardware_attestation_missing_or_stale"
-    else:
-        reason = "authorized"
-    decision = "AUTHORIZED" if reason == "authorized" else "BLOCKED"
-    await _receipt(p=p, principal_id=principal_id, device_id=str(device["id"]), challenge_id=(body.challenge_id if challenge else None),
-                   action_type=body.action_type, payload_sha=payload_sha, signature_b64=body.signature_b64,
-                   decision=decision, reason=reason)
+    except Exception as exc:
+        raise HTTPException(503, "atomic_execution_gate_unavailable") from exc
+    gate_row = gate_result[0] if isinstance(gate_result, list) and gate_result else gate_result
+    if not isinstance(gate_row, dict):
+        raise HTTPException(503, "atomic_execution_gate_invalid_response")
+    decision = str(gate_row.get("decision") or "")
+    reason = str(gate_row.get("reason_code") or "atomic_execution_gate_denied")
     if decision != "AUTHORIZED":
         raise HTTPException(403, {"status": "blocked", "reason": reason})
     return {"status": "authorized", "receipt": "persisted", "action_payload_sha256": payload_sha}
