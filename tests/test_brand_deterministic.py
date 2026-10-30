@@ -27,4 +27,4 @@ def test_domain_comparison_never_promotes_to_verified():
 
 
 def test_sha256_is_canonical():
-    assert sha256_hex(b"cyclothone") == "4e7d7a8e6e1d7a1d2b4b7d5b7f4f8a2c3b8b5a7e6d4c2b1a0f9e8d7c6b5a4938" or len(sha256_hex(b"cyclothone")) == 64
+    assert sha256_hex(b"cyclothone") == "0c488cf262c4d8f38130646384fb0a77e4710fd984cdd5268e19c91f28a116cd
