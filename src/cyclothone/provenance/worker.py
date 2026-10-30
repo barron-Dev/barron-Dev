@@ -75,6 +75,7 @@ class MediaProvenanceWorker:
                     datetime.now(timezone.utc).isoformat()
                     if terminal else (datetime.now(timezone.utc) + timedelta(seconds=30)).isoformat()
                 ),
+                "completed_at": datetime.now(timezone.utc).isoformat() if terminal else None,
             }
             failed = await supabase.update(
                 "media_provenance_jobs", update,
