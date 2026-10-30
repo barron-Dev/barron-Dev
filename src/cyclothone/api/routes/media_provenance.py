@@ -15,7 +15,7 @@ from fastapi.concurrency import run_in_threadpool
 
 from cyclothone.developer.auth import DeveloperPrincipal, authenticate_request
 from cyclothone.api.routes.customer_identity import principal as customer_or_developer_principal
-from cyclothone.provenance.c2pa_verify import ZERO_HASH, build_receipt_hash, sign_receipt, validate_trust_policy, verify_c2pa_file
+from cyclothone.provenance.c2pa_verify import ZERO_HASH, build_receipt_hash, canonical_json, sign_receipt, validate_trust_policy, verify_c2pa_file
 from cyclothone.storage.supabase_client import supabase
 
 router = APIRouter(prefix="/media", tags=["synthetic-media-provenance"])
@@ -128,6 +128,7 @@ async def verify_provenance(
             "p_receipt_hash": receipt_hash, "p_receipt_signature": signature,
             "p_signing_key_id": signing_key_id, "p_signing_public_key": signing_public_key,
             "p_signed_payload": receipt_payload,
+            "p_signed_payload_canonical": canonical_json(receipt_payload).decode("utf-8"),
         }
         try:
             receipt_id = await supabase.rpc("append_media_provenance_receipt", rpc_args)
