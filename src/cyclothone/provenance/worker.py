@@ -53,6 +53,7 @@ class MediaProvenanceWorker:
                     "failure_code": None,
                     "lease_expires_at": None,
                     "completed_at": datetime.now(timezone.utc).isoformat(),
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
                 },
                 id=job_id,
                 attempts=attempt,
@@ -76,6 +77,7 @@ class MediaProvenanceWorker:
                     if terminal else (datetime.now(timezone.utc) + timedelta(seconds=30)).isoformat()
                 ),
                 "completed_at": datetime.now(timezone.utc).isoformat() if terminal else None,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
             }
             failed = await supabase.update(
                 "media_provenance_jobs", update,
