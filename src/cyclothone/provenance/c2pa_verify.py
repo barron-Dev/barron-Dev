@@ -12,6 +12,7 @@ from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+from cryptography.x509.oid import ExtensionOID
 
 STATES = {"VALID", "INVALID", "UNTRUSTED", "MISSING_PROVENANCE", "INDETERMINATE"}
 ZERO_HASH = "0" * 64
@@ -75,18 +76,28 @@ def classify_validation(state: str | None, results: Any, has_trust_anchors: bool
     return "INDETERMINATE"
 
 
-def validate_trust_policy(root_pems: list[str], expected_sha256: list[str]) -> str:
-    if not root_pems or not expected_sha256 or len(root_pems) != len(expected_sha256):
-        raise ValueError("Trust policy must contain matching root certificates and SHA-256 fingerprints.")
+def validate_trust_policy(anchor_pems: list[str], expected_sha256: list[str]) -> str:
+    if not anchor_pems or not expected_sha256 or len(anchor_pems) != len(expected_sha256):
+        raise ValueError("Trust policy must contain matching CA anchor certificates and SHA-256 fingerprints.")
     actual = []
-    for pem in root_pems:
+    for pem in anchor_pems:
         certificates = x509.load_pem_x509_certificates(pem.encode("utf-8"))
         if not certificates:
             raise ValueError("Trust policy contains an empty certificate bundle.")
-        actual.extend(cert.fingerprint(hashes.SHA256()).hex() for cert in certificates)
+        for cert in certificates:
+            constraints = cert.extensions.get_extension_for_oid(ExtensionOID.BASIC_CONSTRAINTS).value
+            if not constraints.ca:
+                raise ValueError("Trust policy contains a certificate that is not a CA trust anchor.")
+            try:
+                usage = cert.extensions.get_extension_for_oid(ExtensionOID.KEY_USAGE).value
+                if not usage.key_cert_sign:
+                    raise ValueError("Trust anchor certificate lacks keyCertSign usage.")
+            except x509.ExtensionNotFound:
+                pass
+            actual.append(cert.fingerprint(hashes.SHA256()).hex())
     if sorted(actual) != sorted(item.lower() for item in expected_sha256):
-        raise ValueError("Trust policy certificate fingerprints do not match the configured roots.")
-    return "\n".join(root_pems)
+        raise ValueError("Trust policy certificate fingerprints do not match the configured trust anchors.")
+    return "\n".join(anchor_pems)
 
 
 def verify_c2pa_file(file_path: str | Path, trust_anchors_pem: str) -> ProvenanceResult:
