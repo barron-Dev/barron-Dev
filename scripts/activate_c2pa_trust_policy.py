@@ -93,10 +93,8 @@ def main() -> int:
 
     manifest_pems, manifest_fingerprints, manifest_issuers = extract_trust_anchors(manifest_document)
     tsa_pems, tsa_fingerprints, tsa_issuers = extract_trust_anchors(tsa_document)
-    anchors_by_fingerprint = dict(zip(manifest_fingerprints, manifest_pems))
-    anchors_by_fingerprint.update(dict(zip(tsa_fingerprints, tsa_pems)))
-    fingerprints = sorted(anchors_by_fingerprint)
-    pems = [anchors_by_fingerprint[fingerprint] for fingerprint in fingerprints]
+    pems = manifest_pems
+    fingerprints = manifest_fingerprints
     issuers = sorted(set(manifest_issuers) | set(tsa_issuers))
 
     source_uri = f"{manifest_uri}\\n{tsa_uri}"
@@ -118,7 +116,7 @@ def main() -> int:
         "next_update": next_update.isoformat(),
         "manifest_anchor_count": len(manifest_pems),
         "tsa_anchor_count": len(tsa_pems),
-        "combined_unique_anchor_count": len(pems),
+        "tsa_trust_anchor_count": len(tsa_pems),
         "trusted_entities": issuers,
         "apply": args.apply,
     })
@@ -136,6 +134,8 @@ def main() -> int:
         "p_policy_version": version,
         "p_trusted_anchor_pems": pems,
         "p_trusted_anchor_sha256": fingerprints,
+        "p_tsa_anchor_pems": tsa_pems,
+        "p_tsa_anchor_sha256": tsa_fingerprints,
         "p_source_uri": source_uri,
         "p_source_commit": args.commit,
         "p_source_sha256": source_sha256,
