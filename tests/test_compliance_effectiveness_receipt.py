@@ -132,6 +132,7 @@ async def test_receipt_uses_real_ed25519_signature_and_rejects_tampering():
     public_key = private_key.public_key()
 
     with (
+        patch.dict("os.environ", {"CYCLOTHONE_COMPLIANCE_SIGNING_KID": "local-test-key"}),
         patch.object(signing.supabase, "select_one", new=AsyncMock(
             return_value={"kid": "local-test-key", "active": True, "purpose": "COMPLIANCE"}
         )),
