@@ -38,8 +38,11 @@ jobs:
           echo "All service-role references are confined to explicitly server-only modules."
       - name: Copilot route must use authenticated MDI backend
         run: |
-          grep -q 'mobile-intelligence/copilot' src/cyclothone/api/routes/mobile_intelligence_copilot.py
-          grep -q 'authenticate_request' src/cyclothone/api/routes/mobile_intelligence_copilot.py
+          route=src/cyclothone/api/routes/mobile_intelligence_copilot.py
+          grep -Fq 'APIRouter(prefix="/mobile-intelligence"' "$route"
+          grep -Fq '@router.post("/copilot")' "$route"
+          grep -Fq 'Depends(authenticate_request)' "$route"
+          grep -Fq 'principal.require(("mobile_intelligence:read",))' "$route"
       - name: Compliance rule coverage
         run: |
           for j in GDPR UAE_PDPL SAUDI_PDPL POPIA DPDP_IN; do
