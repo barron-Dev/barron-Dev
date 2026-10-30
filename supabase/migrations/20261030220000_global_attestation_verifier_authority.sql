@@ -80,13 +80,13 @@ BEGIN
  ELSIF NOT v_consumed THEN v_reason:='attestation_challenge_invalid_or_replayed';
  ELSIF p_valid_until<=v_now OR p_valid_until>v_now+interval '24 hours' THEN v_reason:='attestation_validity_out_of_policy';
  ELSIF p_evidence_sha256 !~ '^[a-f0-9]{64}$' OR p_assertion_sha256 !~ '^[a-f0-9]{64}$' THEN v_reason:='attestation_evidence_invalid';
- ELSIF p_platform<>v_device.platform OR p_attestation_format<>v_device.attestation_format THEN v_reason:='attestation_platform_mismatch';
+ ELSIF p_platform<>v_device.platform OR (v_device.attestation_format<>'proof_of_possession' AND p_attestation_format<>v_device.attestation_format) THEN v_reason:='attestation_platform_mismatch';
  ELSIF p_assurance_level NOT IN ('hardware_attested','workload_attested') THEN v_reason:='attestation_assurance_invalid';
  ELSIF v_device.revoked_at IS NOT NULL OR v_device.attestation_state='REVOKED' THEN v_reason:='device_revoked_requires_new_enrollment';
  ELSE v_reason:='verified'; END IF;
  IF v_reason='verified' THEN
   UPDATE public.global_device_attestations SET attestation_state='VERIFIED',
-   assurance_level=p_assurance_level,attestation_evidence_sha256=p_evidence_sha256,
+   attestation_format=p_attestation_format,assurance_level=p_assurance_level,attestation_evidence_sha256=p_evidence_sha256,
    last_attested_at=v_now,valid_until=p_valid_until
   WHERE id=p_device_id AND tenant_id=p_tenant_id;
   INSERT INTO public.global_attestation_verifier_decisions(
