@@ -42,7 +42,7 @@ def test_api_uses_one_time_challenge_and_canonical_signature():
 
 
 def test_sbom_evidence_and_gate_receipt_commit_atomically():
-    atomic = (ROOT / "supabase/migrations/20261030173500_global_sbom_atomic_commit.sql").read_text()
+    atomic = (ROOT / "supabase/migrations/20261030173836_global_sbom_atomic_commit.sql").read_text()
     assert "global_commit_sbom_scan" in atomic
     assert "verified_hardware_attestation_required" in atomic
     assert "INSERT INTO public.global_sbom_artifacts" in atomic
