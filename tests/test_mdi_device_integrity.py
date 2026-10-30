@@ -25,3 +25,14 @@ def test_unknown_and_duplicate_signals_rejected():
             assert False
         except DeviceIntegrityError:
             pass
+
+def test_client_malware_claim_cannot_authorize_quarantine():
+    r = evaluate_device_integrity(
+        tenant_id=TENANT,
+        device_key=DEVICE,
+        observations=[{"signal":"known_malware_match","observed":True,"source":"attestation"}],
+        platform="android",
+        adapter_version="1",
+    )
+    assert r.disposition == "human_review_required"
+    assert r.recommended_action == "require_trusted_hash_verdict_before_quarantine"
