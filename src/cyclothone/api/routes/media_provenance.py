@@ -3,22 +3,20 @@ from __future__ import annotations
 import io
 import json
 import os
-import tempfile
 import zipfile
-from datetime import datetime, timezone
 from pathlib import Path
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, File, Header, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
-from fastapi.concurrency import run_in_threadpool
 
 from cyclothone.developer.auth import DeveloperPrincipal, authenticate_request
 from cyclothone.api.routes.customer_identity import principal as customer_or_developer_principal
-from cyclothone.provenance.c2pa_verify import ZERO_HASH, build_receipt_hash, canonical_json, sign_receipt, validate_trust_policy, verify_c2pa_file
 from cyclothone.storage.supabase_client import supabase
 
 router = APIRouter(prefix="/media", tags=["synthetic-media-provenance"])
+BUCKET = "cyclothone-provenance-staging"
+MAX_UPLOAD_BYTES = int(os.getenv("CYCLOTHONE_PROVENANCE_MAX_UPLOAD_BYTES", str(250 * 1024 * 1024)))
 
 
 async def provenance_principal(
@@ -49,117 +47,113 @@ def _tenant_uuid(principal: DeveloperPrincipal) -> str:
         raise HTTPException(403, {"error": "invalid_tenant_context"}) from exc
 
 
-MAX_UPLOAD_BYTES = int(os.getenv("CYCLOTHONE_PROVENANCE_MAX_UPLOAD_BYTES", str(250 * 1024 * 1024)))
+def _assert_active_policy(policy: dict | None) -> None:
+    if not policy or not policy.get("trusted_anchor_pems"):
+        raise HTTPException(503, {"error": "trust_policy_unavailable", "message": "No active versioned C2PA trust policy is configured."})
+    from datetime import datetime, timezone
+    expiry = datetime.fromisoformat(str(policy["source_next_update"]).replace("Z", "+00:00"))
+    if expiry <= datetime.now(timezone.utc):
+        raise HTTPException(503, {"error": "trust_policy_expired", "message": "The active official C2PA trust-list snapshot has expired."})
 
 
-@router.post("/verify-provenance")
+@router.post("/verify-provenance", status_code=202)
 async def verify_provenance(
     file: UploadFile = File(...),
     principal: DeveloperPrincipal = Depends(provenance_principal),
 ):
     _require_access(principal)
-    if not principal.tenant_id:
-        raise HTTPException(403, {"error": "tenant_required"})
-    try:
-        tenant_id = _tenant_uuid(principal)
-    except ValueError as exc:
-        raise HTTPException(403, {"error": "invalid_tenant_context"}) from exc
+    tenant_id = _tenant_uuid(principal)
     policy = await supabase.select_one(
         "c2pa_trust_policies",
         "id,policy_name,policy_version,trusted_anchor_pems,trusted_anchor_sha256,source_next_update",
         is_active=True,
     )
-    if not policy or not policy.get("trusted_anchor_pems"):
-        raise HTTPException(503, {"error": "trust_policy_unavailable", "message": "No active versioned C2PA trust policy is configured."})
-    policy_expiry = datetime.fromisoformat(str(policy["source_next_update"]).replace("Z", "+00:00"))
-    if policy_expiry <= datetime.now(timezone.utc):
-        raise HTTPException(503, {"error": "trust_policy_expired", "message": "The active official C2PA trust-list snapshot has expired."})
+    _assert_active_policy(policy)
 
-    suffix = Path(file.filename or "").suffix[:16]
+    filename = Path(file.filename or "media.bin").name[:255]
+    suffix = Path(filename).suffix[:16]
+    content_type = file.content_type or "application/octet-stream"
     size = 0
-    temp_path = None
     try:
-        with tempfile.NamedTemporaryFile(prefix="cyclothone-c2pa-", suffix=suffix, delete=False) as tmp:
-            temp_path = tmp.name
-            while chunk := await file.read(1024 * 1024):
-                size += len(chunk)
-                if size > MAX_UPLOAD_BYTES:
-                    raise HTTPException(413, {"error": "media_too_large", "max_bytes": MAX_UPLOAD_BYTES})
-                tmp.write(chunk)
+        while chunk := await file.read(1024 * 1024):
+            size += len(chunk)
+            if size > MAX_UPLOAD_BYTES:
+                raise HTTPException(413, {"error": "media_too_large", "max_bytes": MAX_UPLOAD_BYTES})
         if size == 0:
             raise HTTPException(400, {"error": "empty_media"})
-        anchors = "\n".join(policy["trusted_anchor_pems"])
-        result = await run_in_threadpool(verify_c2pa_file, temp_path, anchors)
+        await file.seek(0)
+
+        job_id = str(uuid4())
+        object_path = f"{tenant_id}/{job_id}{suffix}"
+        client = await supabase._ensure()
+        try:
+            await client.storage.from_(BUCKET).upload(
+                object_path,
+                file.file,
+                {"content-type": content_type, "upsert": "false"},
+            )
+        except Exception as exc:
+            raise HTTPException(503, {"error": "media_staging_failed", "message": "The private media staging upload did not complete."}) from exc
+
+        requested_by = None
+        if principal.user_id:
+            try:
+                requested_by = str(UUID(str(principal.user_id)))
+            except ValueError:
+                requested_by = None
+        try:
+            await supabase.insert_one("media_provenance_jobs", {
+                "id": job_id,
+                "tenant_id": tenant_id,
+                "requested_by": requested_by,
+                "object_path": object_path,
+                "original_filename": filename,
+                "content_type": content_type,
+                "status": "queued",
+            })
+        except Exception as exc:
+            try:
+                await client.storage.from_(BUCKET).remove([object_path])
+            except Exception:
+                pass
+            raise HTTPException(503, {"error": "verification_queue_unavailable"}) from exc
     finally:
         await file.close()
-        if temp_path:
-            Path(temp_path).unlink(missing_ok=True)
-
-    ml_assessment = {"status": "not_requested", "influences_cryptographic_state": False}
-    client = await supabase._ensure()
-    receipt_id = None
-    receipt_hash = None
-    signing_key_id = None
-    signing_public_key = None
-    signature = None
-    receipt_payload = None
-    for attempt in range(3):
-        head_response = await client.table("media_provenance_receipts").select("receipt_hash").eq(
-            "tenant_id", tenant_id
-        ).order("tenant_sequence", desc=True).limit(1).execute()
-        head_rows = head_response.data or []
-        previous_hash = head_rows[0]["receipt_hash"] if head_rows else ZERO_HASH
-        created_at = datetime.now(timezone.utc).isoformat()
-        receipt_payload = {
-            "tenant_id": tenant_id, "media_sha256": result.media_sha256,
-            "manifest_store_sha256": result.manifest_store_sha256,
-            "validation_state": result.validation_state, "signer_identity": result.signer_identity,
-            "trust_policy_id": policy["id"], "trust_policy_version": policy["policy_version"],
-            "sdk_version": result.sdk_version, "previous_receipt_hash": previous_hash,
-            "created_at": created_at, "ml_assessment": ml_assessment,
-        }
-        receipt_hash = build_receipt_hash(receipt_payload)
-        try:
-            signature, signing_key_id, signing_public_key = sign_receipt(receipt_payload)
-        except (RuntimeError, ValueError, TypeError) as exc:
-            raise HTTPException(503, {"error": "receipt_signing_unavailable", "message": "Configured Ed25519 receipt signer is unavailable or invalid."}) from exc
-
-        rpc_args = {
-            "p_tenant_id": tenant_id, "p_media_sha256": result.media_sha256,
-            "p_manifest_store_sha256": result.manifest_store_sha256,
-            "p_validation_state": result.validation_state, "p_signer_identity": result.signer_identity,
-            "p_trust_policy_id": policy["id"], "p_trust_policy_version": policy["policy_version"],
-            "p_sdk_version": result.sdk_version, "p_raw_c2pa_report": result.report,
-            "p_ml_assessment": ml_assessment, "p_previous_receipt_hash": previous_hash,
-            "p_receipt_hash": receipt_hash, "p_receipt_signature": signature,
-            "p_signing_key_id": signing_key_id, "p_signing_public_key": signing_public_key,
-            "p_signed_payload": receipt_payload,
-            "p_signed_payload_canonical": canonical_json(receipt_payload).decode("utf-8"),
-        }
-        try:
-            receipt_id = await supabase.rpc("append_media_provenance_receipt", rpc_args)
-            break
-        except Exception as exc:
-            conflict = "receipt chain head changed" in str(exc).lower() or "40001" in str(exc)
-            if conflict and attempt < 2:
-                continue
-            if conflict:
-                raise HTTPException(409, {"error": "receipt_chain_busy", "message": "Concurrent receipt writes prevented a stable append. Retry the verification."}) from exc
-            raise HTTPException(503, {"error": "receipt_persistence_failed", "message": "Verification completed but the signed receipt was not persisted."}) from exc
-    if receipt_id is None or receipt_payload is None or receipt_hash is None:
-        raise HTTPException(503, {"error": "receipt_persistence_failed"})
 
     return {
-        "receipt_id": str(receipt_id), "validation_state": result.validation_state,
-        "media_sha256": result.media_sha256, "manifest_store_sha256": result.manifest_store_sha256,
-        "signer": result.signer_identity, "trust_policy": policy["policy_name"],
-        "trust_policy_version": policy["policy_version"], "sdk_version": result.sdk_version,
-        "receipt_hash": receipt_hash, "cryptographic_proof": {"algorithm": "Ed25519", "signature": signature, "key_id": signing_key_id, "public_key": signing_public_key},
-        "ml_assessment": ml_assessment,
-        "disposition": result.validation_state,
-        "interpretation_limit": "C2PA provenance does not prove depicted identity, scene truth, or signer authorization beyond the configured certificate trust policy.",
+        "job_id": job_id,
+        "status": "queued",
+        "status_url": f"/api/v1/media/jobs/{job_id}",
+        "message": "Media securely staged for asynchronous C2PA verification.",
     }
 
+
+@router.get("/jobs/{job_id}")
+async def get_provenance_job(
+    job_id: UUID,
+    principal: DeveloperPrincipal = Depends(provenance_principal),
+):
+    _require_access(principal)
+    tenant_id = _tenant_uuid(principal)
+    job = await supabase.select_one(
+        "media_provenance_jobs",
+        "id,status,attempts,receipt_id,validation_state,result_json,failure_code,created_at,updated_at,completed_at",
+        id=str(job_id),
+        tenant_id=tenant_id,
+    )
+    if not job:
+        raise HTTPException(404, {"error": "job_not_found"})
+    return {
+        "job_id": job["id"],
+        "status": job["status"],
+        "attempts": job["attempts"],
+        "receipt_id": job.get("receipt_id"),
+        "validation_state": job.get("validation_state"),
+        "result": job.get("result_json"),
+        "failure_code": job.get("failure_code"),
+        "created_at": job.get("created_at"),
+        "completed_at": job.get("completed_at"),
+    }
 
 
 @router.get("/receipts")
@@ -174,7 +168,10 @@ async def list_provenance_receipts(principal: DeveloperPrincipal = Depends(prove
 
 
 @router.get("/receipts/{receipt_id}/bundle")
-async def download_provenance_bundle(receipt_id: UUID, principal: DeveloperPrincipal = Depends(provenance_principal)):
+async def download_provenance_bundle(
+    receipt_id: UUID,
+    principal: DeveloperPrincipal = Depends(provenance_principal),
+):
     _require_access(principal)
     tenant_id = _tenant_uuid(principal)
     client = await supabase._ensure()
@@ -188,7 +185,8 @@ async def download_provenance_bundle(receipt_id: UUID, principal: DeveloperPrinc
     bundle = io.BytesIO()
     with zipfile.ZipFile(bundle, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         archive.writestr("receipt.json", json.dumps({
-            "receipt_id": row["id"], "tenant_id": row["tenant_id"],
+            "receipt_id": row["id"],
+            "tenant_id": row["tenant_id"],
             "tenant_sequence": row["tenant_sequence"],
             "media_sha256": row["media_sha256"],
             "manifest_store_sha256": row["manifest_store_sha256"],
@@ -197,11 +195,11 @@ async def download_provenance_bundle(receipt_id: UUID, principal: DeveloperPrinc
             "previous_receipt_hash": row["previous_receipt_hash"],
             "receipt_hash": row["receipt_hash"],
             "signed_payload": row["signed_payload"],
+            "signed_payload_canonical": row["signed_payload_canonical"],
             "signature": row["receipt_signature"],
             "signature_algorithm": "Ed25519",
             "signing_key_id": row["signing_key_id"],
             "signing_public_key": row["signing_public_key"],
-            "signed_payload_canonical": row["signed_payload_canonical"],
             "created_at": row["created_at"],
         }, sort_keys=True, indent=2))
         archive.writestr("c2pa-report.json", json.dumps(row["raw_c2pa_report"], sort_keys=True, indent=2))
@@ -211,6 +209,7 @@ async def download_provenance_bundle(receipt_id: UUID, principal: DeveloperPrinc
             archive.writestr("active-manifest.json", json.dumps(row["raw_c2pa_report"]["manifest"], sort_keys=True, indent=2))
     bundle.seek(0)
     return StreamingResponse(
-        bundle, media_type="application/zip",
+        bundle,
+        media_type="application/zip",
         headers={"Content-Disposition": f'attachment; filename="cyclothone-{receipt_id}.ctprove"'},
     )
