@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from hashlib import sha256
 from typing import Any
 from uuid import UUID
 
@@ -20,6 +21,10 @@ def _actor(principal: DeveloperPrincipal) -> str:
     if not principal.user_id:
         raise HTTPException(403, {"error": "human_operator_identity_required"})
     return f"user:{principal.user_id}"
+
+
+def _actor_hash(principal: DeveloperPrincipal, assignment_id: UUID) -> str:
+    return sha256(f"{_actor(principal)}{assignment_id}".encode("utf-8")).hexdigest()
 
 
 def _require(principal: DeveloperPrincipal, scope: str) -> DeveloperPrincipal:
@@ -223,7 +228,7 @@ async def correlate_public_threats(
             "tenant_id": principal.tenant_id,
             "assignment_id": str(assignment_id),
             "event_type": "region_match_recorded",
-            "actor": _actor(principal),
+            "actor": _actor_hash(principal, assignment_id),
             "metadata": {"match_recorded": True, "intent_inference": False},
         }).execute()
         matches.append({
