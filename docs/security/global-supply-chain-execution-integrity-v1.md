@@ -27,3 +27,8 @@ This phase establishes schema, challenge/signature primitives and the gated API.
 ## Enrolled device binding
 
 The global attestation record is now linked to the existing tenant-scoped `public.devices` registry using a composite tenant/device foreign key. Challenge, key-registration, action-authorization and SBOM routes require a canonical UUID for an active enrolled device; arbitrary client-chosen device labels are rejected. Registration remains `UNVERIFIED` proof-of-possession until a trusted hardware verifier is configured. This does not equate the MDI `mdi_device_intel` intelligence table with an enrolled device registry.
+
+
+## Production migration verification
+
+The production schema includes the device-binding migration and the follow-up SBOM database guard. The global registration RPC now requires an active row in `public.devices`, and the SBOM commit transaction independently joins that registry and rejects devices that are inactive, stale, future-dated or revoked. Device identity is tenant-bound by a composite foreign key; the earlier unbound registration RPC signature was dropped.
