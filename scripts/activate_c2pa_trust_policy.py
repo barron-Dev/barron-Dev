@@ -101,11 +101,12 @@ def main() -> int:
     source_sha256 = hashlib.sha256(
         b"manifest\\x00" + manifest_raw + b"\\x00tsa\\x00" + tsa_raw
     ).hexdigest()
-    sequence = min(
-        manifest_info.get("LoTESequenceNumber", 0),
-        tsa_info.get("LoTESequenceNumber", 0),
+    manifest_sequence = manifest_info.get("LoTESequenceNumber", 0)
+    tsa_sequence = tsa_info.get("LoTESequenceNumber", 0)
+    version = (
+        f"manifest-lote-{manifest_sequence}_tsa-lote-{tsa_sequence}_"
+        f"{issued.date().isoformat()}"
     )
-    version = f"lote-{sequence}-{issued.date().isoformat()}"
     print({
         "policy_name": "Cyclothone Official C2PA + TSA Trust Lists",
         "policy_version": version,
