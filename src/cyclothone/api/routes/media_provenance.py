@@ -9,16 +9,28 @@ from datetime import datetime, timezone
 from pathlib import Path
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Header, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 from fastapi.concurrency import run_in_threadpool
 
-from cyclothone.developer.auth import DeveloperPrincipal
+from cyclothone.developer.auth import DeveloperPrincipal, authenticate_request
 from cyclothone.api.routes.customer_identity import principal as customer_or_developer_principal
 from cyclothone.provenance.c2pa_verify import ZERO_HASH, build_receipt_hash, sign_receipt, validate_trust_policy, verify_c2pa_file
 from cyclothone.storage.supabase_client import supabase
 
 router = APIRouter(prefix="/media", tags=["synthetic-media-provenance"])
+
+
+async def provenance_principal(
+    authorization: str | None = Header(None),
+    x_api_key: str | None = Header(None),
+) -> DeveloperPrincipal:
+    try:
+        return await authenticate_request(authorization=authorization, x_api_key=x_api_key)
+    except HTTPException as exc:
+        if exc.status_code != 401:
+            raise
+        return await customer_or_developer_principal(authorization=authorization)
 
 
 def _require_access(principal: DeveloperPrincipal) -> None:
@@ -32,7 +44,7 @@ MAX_UPLOAD_BYTES = int(os.getenv("CYCLOTHONE_PROVENANCE_MAX_UPLOAD_BYTES", str(2
 @router.post("/verify-provenance")
 async def verify_provenance(
     file: UploadFile = File(...),
-    principal: DeveloperPrincipal = Depends(customer_or_developer_principal),
+    principal: DeveloperPrincipal = Depends(provenance_principal),
 ):
     _require_access(principal)
     tenant_id = str(UUID(principal.tenant_id))
