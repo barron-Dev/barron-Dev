@@ -47,7 +47,7 @@ alter table public.brand_threats
 alter table public.brand_threats
   validate constraint brand_threats_tenant_brand_fk;
 
-create index if not exists brand_threats_tenant_verification_idx
+create unique index if not exists brand_threats_tenant_id_id_uq\n  on public.brand_threats(tenant_id,id);\n\ncreate index if not exists brand_threats_tenant_verification_idx
   on public.brand_threats(tenant_id,verification_state,last_seen_at desc);
 
 create index if not exists brand_threats_case_idx
