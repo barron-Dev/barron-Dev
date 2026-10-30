@@ -6,7 +6,7 @@ def test_vip_assignment_schema_is_purpose_bound_and_short_lived():
     sql = (root / "supabase/migrations/20261030160000_ephemeral_assignment_audit_v1.sql").read_text()
     assert "end_time <= start_time + interval '14 days'" in sql
     assert "status = 'pending_approval'" in sql
-    assert "created_by <> trim(p_actor)" in sql
+    assert "created_by <> encode(digest(trim(p_actor), 'sha256'), 'hex')" in sql
     assert "consent_evidence_sha256" in sql
     assert "authorization_ref_sha256" in sql
     assert "create table if not exists public.vip_assignment_events" in sql
