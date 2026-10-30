@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "@/lib/api";
 
 type Receipt = { id: string; assessment_id: string; control_id: string; probe_id: string; probe_version: string; status: string; coverage: number; receipt_digest: string; signer_key_id: string; issued_at: string; };
-type Control = { id: string; stable_id?: string | null; framework: string; control_code: string; title: string; };\ntype FeedRun = { source: string; status: string; completed_at?: string | null; records_upserted: number; source_version?: string | null; error_code?: string | null; };\ntype SovereignFramework = { framework_key: string; country_iso: string; framework_name: string; framework_version: string; authority_name: string; source_url: string; caveats?: string | null; };
+type Control = { id: string; stable_id?: string | null; framework: string; control_code: string; title: string; };\ntype FeedRun = { source: string; status: string; completed_at?: string | null; records_upserted: number; source_version?: string | null; error_code?: string | null; };\ntype SovereignFramework = { framework_key: string; country_iso: string; framework_name: string; framework_version: string; authority_name: string; source_url: string; caveats?: string | null; };\ntype SovereignMapping = { framework_key: string; cyclothone_control_id: string; external_control_id: string; external_control_title: string; mapping_method: string; mapping_confidence: number | null; review_status: string; source_version: string; };
 
 export default function DeveloperCompliancePage() {
   const [framework, setFramework] = useState("soc2");
@@ -14,7 +14,7 @@ export default function DeveloperCompliancePage() {
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState("");
-  const [message, setMessage] = useState("");\n  const [feeds, setFeeds] = useState<Record<string, FeedRun>>({});\n  const [sovereign, setSovereign] = useState<SovereignFramework[]>([]);\n  const [country, setCountry] = useState("US");\n  const [riskCve, setRiskCve] = useState("");\n  const [riskControl, setRiskControl] = useState("");\n  const [riskResult, setRiskResult] = useState<Record<string, unknown> | null>(null);
+  const [message, setMessage] = useState("");\n  const [feeds, setFeeds] = useState<Record<string, FeedRun>>({});\n  const [sovereign, setSovereign] = useState<SovereignFramework[]>([]);\n  const [mappings, setMappings] = useState<SovereignMapping[]>([]);\n  const [country, setCountry] = useState("US");\n  const [riskCve, setRiskCve] = useState("");\n  const [riskControl, setRiskControl] = useState("");\n  const [riskResult, setRiskResult] = useState<Record<string, unknown> | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true); setError("");
@@ -23,7 +23,7 @@ export default function DeveloperCompliancePage() {
         apiFetch<Control[]>(`/api/v1/compliance/controls?framework=${encodeURIComponent(framework)}`),
         apiFetch<Receipt[]>("/api/v1/compliance/effectiveness-receipts?limit=100"),
       ]);
-      setControls(controlRows); setReceipts(receiptRows);\n      const [feedResult, frameworkResult] = await Promise.allSettled([\n        apiFetch<{ sources: Record<string, FeedRun> }>("/api/v1/compliance/global-intelligence/status"),\n        apiFetch<SovereignFramework[]>("/api/v1/compliance/sovereign-frameworks?country_iso=" + country),\n      ]);\n      if (feedResult.status === "fulfilled") setFeeds(feedResult.value.sources ?? {});\n      if (frameworkResult.status === "fulfilled") setSovereign(frameworkResult.value ?? []);
+      setControls(controlRows); setReceipts(receiptRows);\n      const [feedResult, frameworkResult, mappingResult] = await Promise.allSettled([\n        apiFetch<{ sources: Record<string, FeedRun> }>("/api/v1/compliance/global-intelligence/status"),\n        apiFetch<SovereignFramework[]>("/api/v1/compliance/sovereign-frameworks?country_iso=" + country),\n        apiFetch<SovereignMapping[]>("/api/v1/compliance/sovereign-framework-mappings"),\n      ]);\n      if (feedResult.status === "fulfilled") setFeeds(feedResult.value.sources ?? {});\n      if (frameworkResult.status === "fulfilled") setSovereign(frameworkResult.value ?? []);\n      if (mappingResult.status === "fulfilled") setMappings(mappingResult.value ?? []);
     } catch (e) { setError(e instanceof Error ? e.message : "Unable to load CSA records"); }
     finally { setLoading(false); }
   }, [framework, country]);
@@ -76,6 +76,11 @@ export default function DeveloperCompliancePage() {
           <div className="mt-3 flex gap-2"><select value={country} onChange={e => setCountry(e.target.value)} className="border border-[#26384a] bg-[#05070a] px-3 py-2 text-xs"><option value="US">United States</option><option value="DE">Germany</option><option value="CN">China</option><option value="RU">Russia</option></select><span className="self-center text-[10px] text-[#718095]">{sovereign.length} registered frameworks</span></div>
           <div className="mt-3 space-y-2">{sovereign.length === 0 ? <p className="text-xs text-[#8a97a8]">Framework registry not yet available or no entries for this jurisdiction.</p> : sovereign.map(item => <div key={item.framework_key} className="border-t border-[#1a2735] pt-3"><div className="text-sm">{item.framework_name} <span className="text-[10px] text-[#718095]">{item.framework_version}</span></div><div className="mt-1 text-[10px] text-[#718095]">{item.authority_name} · {item.framework_key}</div><a className="mt-1 inline-block text-[10px] text-[#00d9ff]" href={item.source_url} target="_blank" rel="noreferrer">Official source</a>{item.caveats && <p className="mt-1 text-[10px] text-[#8a97a8]">{item.caveats}</p>}</div>)}</div>
         </article>
+      </section>
+      <section className="mt-4 border border-[#1a2735] bg-[#0a1018] p-4">
+        <div className="flex flex-wrap items-center justify-between gap-2"><h2 className="text-lg font-semibold">Sovereign control crosswalks</h2><span className="text-[10px] text-[#718095]">{mappings.length} mappings · {mappings.filter(item => item.review_status === "reviewed").length} reviewed</span></div>
+        <p className="mt-1 text-xs text-[#8a97a8]">Candidate mappings remain explicitly unreviewed; no regulatory equivalence is implied.</p>
+        {mappings.length === 0 ? <p className="mt-3 text-xs text-[#8a97a8]">No control crosswalks have been published.</p> : <div className="mt-3 overflow-x-auto"><table className="w-full min-w-[640px] text-left text-xs"><thead className="text-[10px] uppercase text-[#718095]"><tr><th className="p-2">Framework</th><th className="p-2">Cyclothone control</th><th className="p-2">External reference</th><th className="p-2">Review</th></tr></thead><tbody>{mappings.map((item, index) => <tr key={item.framework_key + item.cyclothone_control_id + item.external_control_id + index} className="border-t border-[#1a2735]"><td className="p-2 font-mono">{item.framework_key}</td><td className="p-2 font-mono">{item.cyclothone_control_id}</td><td className="p-2">{item.external_control_id} · {item.external_control_title}</td><td className="p-2 text-[#ffc45c]">{item.review_status} / {item.mapping_method}</td></tr>)}</tbody></table></div>}
       </section>
       <section className="mt-8 border border-[#1a2735] bg-[#0a1018] p-4">
         <div className="font-mono text-[10px] tracking-[.16em] text-[#00d9ff]">DETERMINISTIC THREAT PRIORITIZATION</div>
