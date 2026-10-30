@@ -20,7 +20,7 @@ export function mdiServerClient(): SupabaseClient {
 export async function requireMdiClearance(req: NextRequest) {
   const token = req.headers
     .get('authorization')
-    ?.replace(/^Bearer\\s+/i, '')
+    ?.replace(/^Bearer\s+/i, '')
     .trim();
 
   if (!token) throw new Error('unauthorized');
