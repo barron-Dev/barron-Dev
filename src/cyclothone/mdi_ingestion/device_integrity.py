@@ -58,10 +58,13 @@ def evaluate_device_integrity(*, tenant_id: str, device_key: str, observations: 
         normalized.append({"signal":signal,"observed":observed,"source":source,"detail_hash":detail_hash})
     normalized.sort(key=lambda x:(x["signal"],x["source"],x["observed"],x["detail_hash"] or ""))
     active = {x["signal"] for x in normalized if x["observed"]}
+    # Source labels are caller-controlled metadata here, not verified provenance.
+    # This evaluator must never promote a client observation into a confirmed
+    # threat or authorize quarantine. Trusted server-side verifiers own promotion.
     if active & {"device_attestation_failed","app_signature_mismatch"}:
-        severity, disposition, action = 5, "threat_detected", "restrict_sensitive_access_and_require_review"
+        severity, disposition, action = 5, "human_review_required", "restrict_sensitive_access_and_require_review"
     elif "known_malware_match" in active:
-        severity, disposition, action = 4, "threat_detected", "restrict_sensitive_access_and_quarantine_corporate_data"
+        severity, disposition, action = 4, "human_review_required", "require_trusted_hash_verdict_before_quarantine"
     elif active & (_MEDIUM | {"tls_validation_failure","dns_configuration_changed","arp_conflict_observed"}):
         severity, disposition, action = 3, "human_review_required", "step_up_authentication_and_collect_fresh_evidence"
     elif coverage != "complete" or not normalized:
