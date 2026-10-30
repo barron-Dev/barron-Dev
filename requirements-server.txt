@@ -4,4 +4,4 @@ cryptography==50.0.1
 uvicorn==0.52.4
 reportlab==4.4.5
 boto3==1.40.40
-c2pa-python==0.38.0
+c2pa-python==0.38.3
