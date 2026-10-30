@@ -403,20 +403,41 @@ async def scan_sbom(body: SbomScanRequest, p: DeveloperPrincipal = Depends(_prin
         "sources_checked": "configured_package_intel_records",
     }
     decision = "BLOCKED" if blocked else "REVIEW_REQUIRED"
-    artifact = {
-        "tenant_id": p.tenant_id, "principal_id": principal_id, "device_id": device["id"],
-        "project_ref": body.project_ref, "format": "CycloneDX", "spec_version": body.sbom["specVersion"],
-        "sbom_sha256": sbom_sha, "signature_sha256": sha256_hex(body.signature_b64.encode()),
-        "component_count": len(components), "gate_decision": decision, "scan_summary": summary,
-    }
+    signature_sha = sha256_hex(body.signature_b64.encode())
+    component_payload = [
+        {
+            "purl": x["purl"], "ecosystem": x["ecosystem"], "name": x["name"],
+            "version": x["version"], "package_sha256": x["package_sha256"],
+            "intel_status": x["intel_status"], "intel_evidence_sha256": x["intel_evidence_sha256"],
+        }
+        for x in intel_rows
+    ]
     try:
-        response = await (await supabase._ensure()).table("global_sbom_artifacts").insert(artifact).select("id").single().execute()
-        artifact_id = str(response.data["id"])
-        if intel_rows:
-            rows = [{"tenant_id": p.tenant_id, "artifact_id": artifact_id, **x} for x in intel_rows]
-            await (await supabase._ensure()).table("global_sbom_components").insert(rows).execute()
+        committed = await supabase.rpc(
+            "global_commit_sbom_scan",
+            {
+                "p_tenant_id": p.tenant_id,
+                "p_principal_id": principal_id,
+                "p_device_id": device["id"],
+                "p_project_ref": body.project_ref,
+                "p_spec_version": body.sbom["specVersion"],
+                "p_sbom_sha256": sbom_sha,
+                "p_signature_sha256": signature_sha,
+                "p_component_count": len(components),
+                "p_gate_decision": decision,
+                "p_scan_summary": summary,
+                "p_components": component_payload,
+            },
+        )
+        if isinstance(committed, list):
+            committed = committed[0] if committed else None
+        if isinstance(committed, dict):
+            committed = committed.get("global_commit_sbom_scan") or committed.get("id")
+        if not committed:
+            raise RuntimeError("SBOM commit RPC returned no artifact id")
+        artifact_id = str(committed)
     except Exception as exc:
-        raise HTTPException(503, "sbom_evidence_persistence_failed") from exc
+        raise HTTPException(503, "sbom_atomic_evidence_commit_failed") from exc
     return {"status": "blocked" if blocked else "review_required", "gate_decision": decision,
             "artifact_id": artifact_id, "sbom_sha256": sbom_sha, "summary": summary,
             "affected_components": [{"purl": x["purl"], "version": x["version"], "status": x["intel_status"]} for x in intel_rows if x["intel_status"] != "unknown"]}
