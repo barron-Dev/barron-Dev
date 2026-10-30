@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from datetime import UTC, date, datetime
 from typing import Any
 
@@ -29,7 +30,7 @@ def _number(value: Any) -> float | None:
 
 def _cve(value: Any) -> str | None:
     candidate = str(value or "").strip().upper()
-    if len(candidate) < 13 or not candidate.startswith("CVE-"):
+    if not re.fullmatch(r"CVE-[0-9]{4}-[0-9]{4,}", candidate):
         return None
     return candidate
 
@@ -52,13 +53,6 @@ def normalize_kev(payload: dict[str, Any], synced_at: datetime) -> list[dict[str
             "kev_due_date": item.get("dueDate") or None,
             "known_ransomware_use": str(item.get("knownRansomwareCampaignUse", "")).lower() == "known",
             "kev_synced_at": synced_at.isoformat(),
-            "source_refs": {
-                "cisa_kev": CISA_KEV_URL,
-                "vendor_project": item.get("vendorProject"),
-                "product": item.get("product"),
-                "vulnerability_name": item.get("vulnerabilityName"),
-                "required_action": item.get("requiredAction"),
-            },
         })
     return rows
 
@@ -79,7 +73,6 @@ def normalize_epss(items: list[dict[str, Any]], synced_at: datetime) -> list[dic
             "epss_percentile": percentile,
             "epss_as_of": item.get("date") or synced_at.date().isoformat(),
             "epss_synced_at": synced_at.isoformat(),
-            "source_refs": {"first_epss": FIRST_EPSS_URL},
         })
     return rows
 
