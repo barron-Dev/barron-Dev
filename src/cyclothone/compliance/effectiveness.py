@@ -19,6 +19,29 @@ class EffectivenessReceiptError(ValueError):
     """Raised when a receipt cannot be safely normalized or verified."""
 
 
+class _FrozenDict(dict):
+    """JSON-serializable mapping that rejects mutation after construction."""
+
+    def _immutable(self, *args: Any, **kwargs: Any) -> None:
+        raise TypeError("receipt observations are immutable")
+
+    __setitem__ = _immutable
+    __delitem__ = _immutable
+    clear = _immutable
+    pop = _immutable
+    popitem = _immutable
+    setdefault = _immutable
+    update = _immutable
+
+
+def _freeze_json(value: Any) -> Any:
+    if isinstance(value, dict):
+        return _FrozenDict({key: _freeze_json(item) for key, item in value.items()})
+    if isinstance(value, list):
+        return tuple(_freeze_json(item) for item in value)
+    return value
+
+
 def _canonical_json(value: Any) -> bytes:
     try:
         return json.dumps(
@@ -64,6 +87,9 @@ class EffectivenessReceipt:
     signature_b64: str
     receipt_digest: str
     issued_at: datetime
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "observations", _freeze_json(self.observations))
 
     def signed_payload(self) -> dict[str, Any]:
         return {
