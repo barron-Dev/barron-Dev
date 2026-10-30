@@ -125,8 +125,6 @@ async def test_receipt_signature_binds_issuance_timestamp_and_compliance_key_dom
 
 @pytest.mark.asyncio
 async def test_receipt_uses_real_ed25519_signature_and_rejects_tampering():
-    from cryptography.hazmat.primitives import serialization
-
     from cyclothone.compliance import signing
 
     fields = _fields()
