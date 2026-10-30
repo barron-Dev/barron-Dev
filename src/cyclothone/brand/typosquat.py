@@ -4,7 +4,7 @@ import asyncio
 import socket
 
 from cyclothone.brand.permutations import generate_permutations
-from cyclothone.brand.similarity import combined_similarity
+from cyclothone.brand.similarity import combined_similarity\nfrom cyclothone.brand.deterministic import compare_domains
 from cyclothone.storage.supabase_client import supabase
 
 
@@ -17,7 +17,7 @@ class TyposquatScanner:
         stats = {
             "checked": 0,
             "resolved": 0,
-            "threats": 0,
+            "threats": 0,\n            "candidate_matches": 0,
             "recorded_candidates": 0,
             "persistence_failures": 0,
             "scan_errors": 0,
@@ -61,7 +61,7 @@ class TyposquatScanner:
                             "dns_resolved": True,
                             "http_content_inspected": False,
                             "tls_identity_verified": False,
-                            "customer_impact_confirmed": False,
+                            "customer_impact_confirmed": False,\n                            "lexical_evidence": lexical,
                         },
                     )
                     if persisted:
