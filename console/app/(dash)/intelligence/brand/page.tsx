@@ -181,7 +181,8 @@ export default function BrandPage() {
               <ServiceTable rows={threats} columns={[
                 { key: "kind", label: "Kind" },
                 { key: "severity", label: "Severity" },
-                { key: "status", label: "Status" },\n                { key: "verification_state", label: "Evidence state" },
+                { key: "status", label: "Status" },
+                { key: "verification_state", label: "Evidence state" },
                 { key: "first_seen_at", label: "First seen" },
                 { key: "last_seen_at", label: "Last seen" },
               ]} empty={<ServiceEmpty title="No brand threats" detail="No detected brand threats are currently recorded for this tenant." />}
