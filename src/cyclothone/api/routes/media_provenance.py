@@ -106,7 +106,7 @@ async def verify_provenance(
     for attempt in range(3):
         head_response = await client.table("media_provenance_receipts").select("receipt_hash").eq(
             "tenant_id", tenant_id
-        ).order("created_at", desc=True).order("id", desc=True).limit(1).execute()
+        ).order("tenant_sequence", desc=True).limit(1).execute()
         head_rows = head_response.data or []
         previous_hash = head_rows[0]["receipt_hash"] if head_rows else ZERO_HASH
         created_at = datetime.now(timezone.utc).isoformat()
@@ -168,8 +168,8 @@ async def list_provenance_receipts(principal: DeveloperPrincipal = Depends(prove
     tenant_id = _tenant_uuid(principal)
     client = await supabase._ensure()
     response = await client.table("media_provenance_receipts").select(
-        "id,media_sha256,manifest_store_sha256,validation_state,signer_identity,trust_policy_version,receipt_hash,created_at"
-    ).eq("tenant_id", tenant_id).order("created_at", desc=True).limit(100).execute()
+        "id,tenant_sequence,media_sha256,manifest_store_sha256,validation_state,signer_identity,trust_policy_version,receipt_hash,created_at"
+    ).eq("tenant_id", tenant_id).order("tenant_sequence", desc=True).limit(100).execute()
     return response.data or []
 
 
@@ -189,6 +189,7 @@ async def download_provenance_bundle(receipt_id: UUID, principal: DeveloperPrinc
     with zipfile.ZipFile(bundle, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         archive.writestr("receipt.json", json.dumps({
             "receipt_id": row["id"], "tenant_id": row["tenant_id"],
+            "tenant_sequence": row["tenant_sequence"],
             "media_sha256": row["media_sha256"],
             "manifest_store_sha256": row["manifest_store_sha256"],
             "validation_state": row["validation_state"],
