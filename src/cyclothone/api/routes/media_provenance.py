@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.concurrency import run_in_threadpool
 
 from cyclothone.developer.auth import DeveloperPrincipal, authenticate_request
-from cyclothone.provenance.c2pa_verify import ZERO_HASH, build_receipt_hash, sign_receipt, verify_c2pa_file
+from cyclothone.provenance.c2pa_verify import ZERO_HASH, build_receipt_hash, sign_receipt, validate_trust_policy, verify_c2pa_file
 from cyclothone.storage.supabase_client import supabase
 
 router = APIRouter(prefix="/media", tags=["synthetic-media-provenance"])
@@ -54,8 +54,10 @@ async def verify_provenance(
 
     created_at = datetime.now(timezone.utc).isoformat()
     ml_assessment = {"status": "not_requested", "influences_cryptographic_state": False}
-    head_rows = await supabase.select("media_provenance_receipts", "receipt_hash", tenant_id=tenant_id)
-    previous_hash = head_rows[-1]["receipt_hash"] if head_rows else ZERO_HASH
+    client = await supabase._ensure()
+    head_response = await client.table("media_provenance_receipts").select("receipt_hash").eq("tenant_id", tenant_id).order("created_at", desc=True).order("id", desc=True).limit(1).execute()
+    head_rows = head_response.data or []
+    previous_hash = head_rows[0]["receipt_hash"] if head_rows else ZERO_HASH
     receipt_payload = {
         "tenant_id": tenant_id, "media_sha256": result.media_sha256,
         "manifest_store_sha256": result.manifest_store_sha256,
