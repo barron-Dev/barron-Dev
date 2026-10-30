@@ -66,10 +66,10 @@ async def verify_provenance(
         raise HTTPException(403, {"error": "invalid_tenant_context"}) from exc
     policy = await supabase.select_one(
         "c2pa_trust_policies",
-        "id,policy_name,policy_version,trusted_root_pems,trusted_root_sha256,source_next_update",
+        "id,policy_name,policy_version,trusted_anchor_pems,trusted_anchor_sha256,source_next_update",
         is_active=True,
     )
-    if not policy or not policy.get("trusted_root_pems"):
+    if not policy or not policy.get("trusted_anchor_pems"):
         raise HTTPException(503, {"error": "trust_policy_unavailable", "message": "No active versioned C2PA trust policy is configured."})
     policy_expiry = datetime.fromisoformat(str(policy["source_next_update"]).replace("Z", "+00:00"))
     if policy_expiry <= datetime.now(timezone.utc):
@@ -88,7 +88,7 @@ async def verify_provenance(
                 tmp.write(chunk)
         if size == 0:
             raise HTTPException(400, {"error": "empty_media"})
-        anchors = "\n".join(policy["trusted_root_pems"])
+        anchors = "\n".join(policy["trusted_anchor_pems"])
         result = await run_in_threadpool(verify_c2pa_file, temp_path, anchors)
     finally:
         await file.close()
