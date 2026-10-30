@@ -117,6 +117,7 @@ export default function Developers() {
 
       <div className="relative z-10 mx-auto max-w-5xl px-5 py-10 md:px-8 md:py-14">
         <h1 className="text-2xl font-semibold">Developer access</h1>
+        <a href="/developers/supply-chain-integrity" className="mt-4 inline-flex rounded-full border border-[#c2f35a]/35 bg-[#c2f35a]/5 px-4 py-2 text-xs text-[#c2f35a]">CSA supply-chain integrity API →</a>
         <p className="mt-2 max-w-xl text-sm leading-6 text-[#8a97a8]">
           Create an application, issue an API key, and use the Cyclothone API. Advanced runtime details stay out of this screen.
         </p>
