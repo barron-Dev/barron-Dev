@@ -178,7 +178,6 @@ ALTER TABLE public.c2pa_trust_policies ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.media_provenance_receipts ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.c2pa_trust_policies FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON public.media_provenance_receipts FROM PUBLIC, anon, authenticated;
-GRANT SELECT, INSERT, UPDATE ON public.c2pa_trust_policies TO service_role;
 GRANT SELECT, INSERT ON public.media_provenance_receipts TO service_role;
 
 CREATE OR REPLACE FUNCTION public.reject_media_provenance_mutation()
@@ -299,7 +298,6 @@ ALTER TABLE public.c2pa_trust_policies ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.media_provenance_receipts ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.c2pa_trust_policies FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON public.media_provenance_receipts FROM PUBLIC, anon, authenticated;
-GRANT SELECT, INSERT, UPDATE ON public.c2pa_trust_policies TO service_role;
 GRANT SELECT, INSERT ON public.media_provenance_receipts TO service_role;
 
 CREATE OR REPLACE FUNCTION public.reject_media_provenance_mutation()
