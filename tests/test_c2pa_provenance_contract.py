@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+from pathlib import Path
 
 from cyclothone.provenance.c2pa_verify import (
     STATES, ZERO_HASH, build_receipt_hash, canonical_json, classify_validation,
@@ -40,3 +41,36 @@ def test_receipt_hash_is_canonical_and_deterministic():
     assert build_receipt_hash(payload) == hashlib.sha256(canonical_json(payload)).hexdigest()
     assert build_receipt_hash(payload) == build_receipt_hash({"a": 1, "b": 2})
     assert len(ZERO_HASH) == 64
+
+
+
+def test_trust_failure_and_unknown_failure_are_not_misclassified():
+    assert classify_validation(
+        "Invalid", {"validation_status": [{"code": "signingCredential.expired"}]}, True
+    ) == "UNTRUSTED"
+    assert classify_validation(
+        "Invalid", {"validation_status": [{"code": "unknown.validation.code"}]}, True
+    ) == "INDETERMINATE"
+
+
+def test_migration_enforces_canonical_signed_receipts_and_tenant_chain():
+    root = Path(__file__).resolve().parents[1]
+    sql = (root / "supabase/migrations/20261030130000_synthetic_media_provenance_v1.sql").read_text()
+    assert "tenant_sequence bigint NOT NULL" in sql
+    assert "UNIQUE (tenant_id, tenant_sequence)" in sql
+    assert "extensions.digest(convert_to(p_signed_payload_canonical, 'UTF8'), 'sha256')" in sql
+    assert "REVOKE ALL ON FUNCTION public.append_media_provenance_receipt" in sql
+    assert "TO service_role" in sql
+    assert "BEFORE UPDATE OR DELETE ON public.media_provenance_receipts" in sql
+
+
+def test_api_router_and_tenant_scoped_receipt_reads_are_wired():
+    root = Path(__file__).resolve().parents[1]
+    app = (root / "src/cyclothone/api/app.py").read_text()
+    route = (root / "src/cyclothone/api/routes/media_provenance.py").read_text()
+    verifier = (root / "src/cyclothone/provenance/c2pa_verify.py").read_text()
+    assert "application.include_router(media_provenance_router,prefix='/api/v1')" in app
+    assert route.count("Depends(provenance_principal)") == 3
+    assert 'eq("tenant_id", tenant_id)' in route
+    assert "Reader.try_create(str(path), context=context)" in verifier
+    assert '"remote_manifest_fetch": False' in verifier
