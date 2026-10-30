@@ -48,7 +48,7 @@ def _tenant_uuid(principal: DeveloperPrincipal) -> str:
 
 
 def _assert_active_policy(policy: dict | None) -> None:
-    if not policy or not policy.get("trusted_anchor_pems"):
+    if not policy or not policy.get("trusted_anchor_pems") or not policy.get("tsa_anchor_pems"):
         raise HTTPException(503, {"error": "trust_policy_unavailable", "message": "No active versioned C2PA trust policy is configured."})
     from datetime import datetime, timezone
     expiry = datetime.fromisoformat(str(policy["source_next_update"]).replace("Z", "+00:00"))
