@@ -22,6 +22,7 @@ def _make_bundle(path: Path, private_key: Ed25519PrivateKey) -> tuple[dict, Path
     import hashlib
     media_hash = hashlib.sha256(media.read_bytes()).hexdigest()
     payload = {
+        "source_job_id": "00000000-0000-0000-0000-000000000004",
         "tenant_id": "00000000-0000-0000-0000-000000000001",
         "media_sha256": media_hash,
         "manifest_store_sha256": None,
@@ -39,6 +40,7 @@ def _make_bundle(path: Path, private_key: Ed25519PrivateKey) -> tuple[dict, Path
     receipt_hash = hashlib.sha256(canonical).hexdigest()
     receipt = {
         "receipt_id": "00000000-0000-0000-0000-000000000003",
+        "source_job_id": payload["source_job_id"],
         "tenant_id": payload["tenant_id"],
         "media_sha256": media_hash,
         "manifest_store_sha256": None,
