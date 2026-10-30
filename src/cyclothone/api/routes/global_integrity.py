@@ -286,7 +286,8 @@ async def authorize_action(body: ActionAuthorizationRequest, p: DeveloperPrincip
     try:
         attested = datetime.fromisoformat(str(device.get("last_attested_at")).replace("Z", "+00:00"))
         valid_until = device.get("valid_until")
-        fresh = (datetime.now(UTC) - attested).total_seconds() <= 300 and (
+        age_seconds = (datetime.now(UTC) - attested).total_seconds()
+        fresh = 0 <= age_seconds <= 300 and (
             not valid_until or datetime.fromisoformat(str(valid_until).replace("Z", "+00:00")) > datetime.now(UTC)
         )
     except Exception:
