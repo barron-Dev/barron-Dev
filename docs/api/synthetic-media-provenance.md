@@ -26,7 +26,15 @@ Response contains:
 - receipt hash and Ed25519 signature proof
 - interpretation limits
 
-The current route processes the verification synchronously. The separate durable worker deployment remains a rollout requirement; do not treat this API slice as deployed until that worker is connected and authenticated end-to-end.
+The API stores the upload in a private, tenant-prefixed staging bucket and creates a durable verification job. It returns HTTP 202 with a `job_id`; poll `GET /api/v1/media/jobs/{job_id}` until the status is `succeeded` or `failed`. The worker claims jobs with a database lease and fencing attempt, processes the media, appends the signed receipt, and deletes the staged original after success or terminal failure.
+
+Run the worker as a separate process using the same pinned application image and service-role environment:
+
+```bash
+python -m cyclothone.provenance.worker
+```
+
+The worker entrypoint and queue are implemented in this branch, but the separate Railway worker service has not been deployed. The Supabase migration has not been applied, the private bucket has not been created, and no authenticated end-to-end worker run has yet been proven. Do not treat this branch as production deployed.
 
 ## Receipt history and evidence bundle
 
