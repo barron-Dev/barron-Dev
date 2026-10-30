@@ -39,3 +39,15 @@ def test_api_uses_one_time_challenge_and_canonical_signature():
     assert "verify_ed25519" in ROUTE
     assert "context_sha256" in ROUTE
     assert "challenge_nonce" in ROUTE
+
+
+def test_sbom_evidence_and_gate_receipt_commit_atomically():
+    atomic = (ROOT / "supabase/migrations/20261030173500_global_sbom_atomic_commit.sql").read_text()
+    assert "global_commit_sbom_scan" in atomic
+    assert "verified_hardware_attestation_required" in atomic
+    assert "INSERT INTO public.global_sbom_artifacts" in atomic
+    assert "INSERT INTO public.global_sbom_components" in atomic
+    assert "INSERT INTO public.global_execution_receipts" in atomic
+    assert "GRANT EXECUTE ON FUNCTION public.global_commit_sbom_scan" in atomic
+    assert '"global_commit_sbom_scan"' in ROUTE
+    assert "sbom_atomic_evidence_commit_failed" in ROUTE
