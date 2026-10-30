@@ -571,7 +571,12 @@ async def tenant_blast_radius(body: BlastRadiusRequest, p: DeveloperPrincipal = 
         "execution_receipt": "persisted",
     }
 
-class DeviceRevocationRequest(BaseModel):
+
+
+class VerifierAssertionRequest(BaseModel):
+    assertion: dict[str, Any]
+    signature_b64: str = Field(min_length=80, max_length=256)
+\n\nclass DeviceRevocationRequest(BaseModel):
     device_id: UUID
     reason_code: str = Field(pattern=r"^[a-z0-9_]{3,80}$")
     evidence_sha256: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
@@ -609,3 +614,92 @@ async def revoke_global_device(body: DeviceRevocationRequest, p: DeveloperPrinci
     return {"status": "revoked", "device_id": str(body.device_id), "trust_event_id": str(event_id),
             "effect": "all outstanding device challenges invalidated; future sensitive actions denied"}
 
+@router.post("/devices/verify-attestation", status_code=200)
+async def verify_device_attestation(body: VerifierAssertionRequest, p: DeveloperPrincipal = Depends(_principal)):
+    if not p.tenant_id:
+        raise HTTPException(403, "tenant_identity_required")
+    p.require(("global:attestation:verify",))
+    principal_id, _, _ = await _global_principal(p)
+    assertion = body.assertion
+    try:
+        device_id = str(UUID(assertion.get("device_id", "")))
+        verifier_key_id = str(UUID(assertion.get("verifier_key_id", "")))
+        challenge_id = str(UUID(assertion.get("challenge_id", "")))
+    except (ValueError, TypeError, AttributeError) as exc:
+        raise HTTPException(422, "attestation_assertion_ids_invalid") from exc
+    if assertion.get("tenant_id") != str(p.tenant_id) or assertion.get("principal_id") != principal_id:
+        raise HTTPException(403, "attestation_assertion_identity_mismatch")
+    try:
+        device = await supabase.select_one(
+            "global_device_attestations",
+            "id,platform_device_id,device_fingerprint,hardware_public_key,platform,attestation_format,revoked_at",
+            id=device_id, tenant_id=p.tenant_id, principal_id=principal_id,
+        )
+        if not device:
+            raise HTTPException(404, "global_device_not_found")
+        if device.get("revoked_at"):
+            raise HTTPException(403, "device_revoked_requires_new_enrollment")
+        device_key_fp = public_key_fingerprint(device["hardware_public_key"])
+        if assertion.get("device_fingerprint") != device.get("device_fingerprint") or assertion.get("public_key_fingerprint") != device_key_fp:
+            raise HTTPException(403, "attestation_device_key_binding_mismatch")
+        if assertion.get("platform") != device.get("platform") or assertion.get("attestation_format") != device.get("attestation_format"):
+            raise HTTPException(403, "attestation_platform_format_mismatch")
+        challenge = await supabase.select_one(
+            "global_device_challenges", "id,nonce,expires_at,consumed_at,purpose,context_sha256",
+            id=challenge_id, tenant_id=p.tenant_id, principal_id=principal_id,
+            device_fingerprint=device["device_fingerprint"],
+        )
+        if not challenge or challenge.get("purpose") != "device_attestation":
+            raise HTTPException(403, "attestation_challenge_not_found")
+        if challenge.get("consumed_at") or datetime.fromisoformat(str(challenge["expires_at"]).replace("Z", "+00:00")) <= datetime.now(UTC):
+            raise HTTPException(403, "attestation_challenge_expired_or_replayed")
+        if assertion.get("challenge_nonce") != challenge.get("nonce") or assertion.get("context_sha256") != challenge.get("context_sha256"):
+            raise HTTPException(403, "attestation_challenge_binding_mismatch")
+        verifier = await supabase.select_one(
+            "global_attestation_verifier_keys",
+            "id,public_key_pem,key_fingerprint_sha256,platform,policy_version,status,not_before,not_after",
+            id=verifier_key_id,
+        )
+        if not verifier or verifier.get("status") != "ACTIVE":
+            raise HTTPException(403, "attestation_verifier_not_trusted")
+        if verifier.get("platform") != assertion.get("platform") or verifier.get("policy_version") != assertion.get("policy_version"):
+            raise HTTPException(403, "attestation_verifier_policy_mismatch")
+        assertion_sha, valid_until = verify_verifier_assertion(
+            assertion, body.signature_b64, verifier["public_key_pem"]
+        )
+        verifier_fp = sha256_hex(verifier["public_key_pem"].encode())
+        if verifier_fp != verifier.get("key_fingerprint_sha256"):
+            raise HTTPException(503, "attestation_verifier_key_integrity_failure")
+        result = await supabase.rpc(
+            "global_promote_attested_device_atomic",
+            {
+                "p_tenant_id": p.tenant_id, "p_principal_id": principal_id,
+                "p_device_id": device_id, "p_challenge_id": challenge_id,
+                "p_device_fingerprint": device["device_fingerprint"],
+                "p_context_sha256": challenge["context_sha256"], "p_nonce": challenge["nonce"],
+                "p_verifier_key_id": verifier_key_id, "p_platform": assertion["platform"],
+                "p_attestation_format": assertion["attestation_format"],
+                "p_assurance_level": assertion["assurance_level"],
+                "p_evidence_sha256": assertion["evidence_sha256"],
+                "p_assertion_sha256": assertion_sha, "p_valid_until": valid_until,
+                "p_policy_version": assertion["policy_version"],
+            },
+        )
+    except HTTPException:
+        raise
+    except GlobalIntegrityError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(503, "trusted_attestation_verification_unavailable") from exc
+    row = result[0] if isinstance(result, list) and result else result
+    if not isinstance(row, dict):
+        raise HTTPException(503, "trusted_attestation_verifier_invalid_response")
+    if row.get("decision") != "VERIFIED":
+        raise HTTPException(403, {"status": "blocked", "reason": row.get("reason_code") or "attestation_denied"})
+    return {
+        "status": "verified", "device_id": device_id,
+        "assurance_level": assertion["assurance_level"],
+        "valid_until": valid_until, "decision_id": str(row.get("decision_id")),
+        "evidence_sha256": assertion["evidence_sha256"],
+    }
+\n
