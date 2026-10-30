@@ -71,3 +71,5 @@ Live schema inspection found:
 - Four live tables reference `compliance_controls(id)`: `compliance_attestations`, `compliance_collection_results`, `compliance_control_status`, and `compliance_evidence`.
 
 A future backfill can update only the two rows selected by the exact `framework='hipaa'` and `control_code` values, preserving primary keys and all existing foreign-key relationships. It must assert exactly two target rows and no stable-ID conflicts before updating, then assert zero remaining NULL stable IDs and verify the partial unique index. Do not recreate controls or rewrite foreign keys.
+
+The source migration that originally added the live `stable_id` column and its partial unique index was not identified in the checked-in CSA migration candidates. This provenance must be recovered before treating the stable-ID schema as fully reconciled or adding a forward migration that assumes its complete lifecycle.
