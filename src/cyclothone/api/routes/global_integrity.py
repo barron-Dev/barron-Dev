@@ -5,6 +5,7 @@ import hashlib
 import json
 from datetime import UTC, datetime
 from typing import Any
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -63,6 +64,23 @@ async def _global_principal(p: DeveloperPrincipal) -> tuple[str, str, str]:
     if not principal_id:
         raise HTTPException(503, "global_principal_resolution_failed")
     return str(principal_id), kind, fingerprint
+
+
+
+async def _platform_device_id(p: DeveloperPrincipal, device_ref: str) -> str:
+    try:
+        canonical_id = str(UUID(device_ref))
+    except (ValueError, TypeError, AttributeError) as exc:
+        raise HTTPException(422, "device_ref_must_be_an_enrolled_device_uuid") from exc
+    try:
+        row = await supabase.select_one(
+            "devices", "id,status", id=canonical_id, tenant_id=p.tenant_id
+        )
+    except Exception as exc:
+        raise HTTPException(503, "platform_device_registry_unavailable") from exc
+    if not row or row.get("status") != "active":
+        raise HTTPException(403, "platform_device_not_active_or_not_found")
+    return canonical_id
 
 
 def _challenge_payload(
@@ -158,7 +176,8 @@ async def issue_challenge(body: ChallengeRequest, p: DeveloperPrincipal = Depend
     principal_id, _, _ = await _global_principal(p)
     if body.purpose not in {"device_attestation", "sensitive_action", "sbom_submission"}:
         raise HTTPException(422, "unsupported_challenge_purpose")
-    device_fp = device_fingerprint(p.tenant_id, body.device_ref)
+    platform_device_id = await _platform_device_id(p, body.device_ref)
+    device_fp = device_fingerprint(p.tenant_id, platform_device_id)
     context_sha = context_hash(body.context)
     try:
         result = await supabase.rpc(
@@ -189,7 +208,8 @@ async def issue_challenge(body: ChallengeRequest, p: DeveloperPrincipal = Depend
 @router.post("/devices/attest", status_code=201)
 async def attest_device(body: DeviceAttestationRequest, p: DeveloperPrincipal = Depends(_principal)):
     principal_id, _, _ = await _global_principal(p)
-    device_fp = device_fingerprint(p.tenant_id, body.device_ref)
+    platform_device_id = await _platform_device_id(p, body.device_ref)
+    device_fp = device_fingerprint(p.tenant_id, platform_device_id)
     context_sha = context_hash(body.context)
     try:
         key_fp = public_key_fingerprint(body.public_key_pem)
@@ -226,6 +246,7 @@ async def attest_device(body: DeviceAttestationRequest, p: DeveloperPrincipal = 
             "global_register_device_key",
             {
                 "p_tenant_id": p.tenant_id, "p_principal_id": principal_id,
+                "p_platform_device_id": platform_device_id,
                 "p_device_fingerprint": device_fp, "p_public_key": body.public_key_pem,
                 "p_platform": body.platform, "p_attestation_format": body.attestation_format,
                 "p_attestation_evidence_sha256": body.attestation_evidence_sha256,
@@ -249,13 +270,14 @@ async def attest_device(body: DeviceAttestationRequest, p: DeveloperPrincipal = 
 @router.post("/authorize")
 async def authorize_action(body: ActionAuthorizationRequest, p: DeveloperPrincipal = Depends(_principal)):
     principal_id, _, _ = await _global_principal(p)
-    device_fp = device_fingerprint(p.tenant_id, body.device_ref)
+    platform_device_id = await _platform_device_id(p, body.device_ref)
+    device_fp = device_fingerprint(p.tenant_id, platform_device_id)
     payload_sha = sha256_hex(canonical_json(body.action_payload))
     context = {"action_type": body.action_type, "action_payload_sha256": payload_sha}
     context_sha = context_hash(context)
     device = await supabase.select_one(
-        "global_device_attestations", "id,hardware_public_key,attestation_state,last_attested_at,valid_until",
-        tenant_id=p.tenant_id, principal_id=principal_id, device_fingerprint=device_fp,
+        "global_device_attestations", "id,platform_device_id,hardware_public_key,attestation_state,last_attested_at,valid_until",
+        tenant_id=p.tenant_id, principal_id=principal_id, platform_device_id=platform_device_id, device_fingerprint=device_fp,
     )
     if not device:
         await _receipt(p=p, principal_id=principal_id, device_id=None, challenge_id=None,
@@ -333,7 +355,8 @@ def _component(component: dict[str, Any]) -> dict[str, Any]:
 @router.post("/sbom/scan", status_code=201)
 async def scan_sbom(body: SbomScanRequest, p: DeveloperPrincipal = Depends(_principal)):
     principal_id, _, _ = await _global_principal(p)
-    device_fp = device_fingerprint(p.tenant_id, body.device_ref)
+    platform_device_id = await _platform_device_id(p, body.device_ref)
+    device_fp = device_fingerprint(p.tenant_id, platform_device_id)
     canonical_sbom = canonical_json(body.sbom)
     sbom_sha = sha256_hex(canonical_sbom)
     context = {"project_ref": body.project_ref, "sbom_sha256": sbom_sha}
