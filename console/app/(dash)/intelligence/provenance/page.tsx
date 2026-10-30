@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { apiFetch } from "../../../../lib/api";
+import { apiDownload, apiFetch } from "../../../../lib/api";
 
 type Verification = {
   receipt_id: string;
@@ -57,13 +57,7 @@ export default function ProvenancePage() {
   async function downloadBundle() {
     if (!result) return;
     try {
-      const response = await fetch(`/api/proxy/v1/media/receipts/${encodeURIComponent(result.receipt_id)}/bundle`);
-      if (!response.ok) throw new Error("Evidence bundle download failed.");
-      const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = url; anchor.download = `cyclothone-${result.receipt_id}.ctprove`;
-      anchor.click(); URL.revokeObjectURL(url);
+      await apiDownload(`/api/v1/media/receipts/${encodeURIComponent(result.receipt_id)}/bundle`, `cyclothone-${result.receipt_id}.ctprove`);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Evidence bundle download failed.");
     }
