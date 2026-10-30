@@ -47,7 +47,10 @@ alter table public.brand_threats
 alter table public.brand_threats
   validate constraint brand_threats_tenant_brand_fk;
 
-create unique index if not exists brand_threats_tenant_id_id_uq\n  on public.brand_threats(tenant_id,id);\n\ncreate index if not exists brand_threats_tenant_verification_idx
+create unique index if not exists brand_threats_tenant_id_id_uq
+  on public.brand_threats(tenant_id,id);
+
+create index if not exists brand_threats_tenant_verification_idx
   on public.brand_threats(tenant_id,verification_state,last_seen_at desc);
 
 create index if not exists brand_threats_case_idx
@@ -71,6 +74,8 @@ create table if not exists public.brand_evidence (
 );
 create index if not exists brand_evidence_tenant_threat_idx
   on public.brand_evidence(tenant_id,threat_id,captured_at desc);
+create unique index if not exists brand_evidence_dedupe_uq
+  on public.brand_evidence(tenant_id,threat_id,evidence_type,sha256);
 alter table public.brand_evidence enable row level security;
 revoke all on public.brand_evidence from anon,authenticated;
 grant select,insert on public.brand_evidence to service_role;
@@ -251,11 +256,21 @@ begin
           when brand_threats.severity='high' or excluded.severity='high' then 'high'
           when brand_threats.severity='medium' or excluded.severity='medium' then 'medium'
           else 'low' end,
-        metadata=(brand_threats.metadata || excluded.metadata) ||\n          jsonb_build_object('verification_state',brand_threats.verification_state),
+        metadata=(brand_threats.metadata || excluded.metadata) ||
+          jsonb_build_object('verification_state',brand_threats.verification_state),
         last_seen_at=now(),
         evidence_sha256=coalesce(excluded.evidence_sha256,brand_threats.evidence_sha256),
         verification_state=brand_threats.verification_state
   returning id into v_id;
+
+  if v_evidence_hash is not null then
+    insert into public.brand_evidence(
+      tenant_id,brand_id,threat_id,evidence_type,sha256,source_url,provenance
+    ) values (
+      p_tenant,p_brand,v_id,coalesce(p_metadata->>'evidence_type',p_kind),
+      v_evidence_hash,p_url,coalesce(p_metadata,'{}'::jsonb)
+    ) on conflict (tenant_id,threat_id,evidence_type,sha256) do nothing;
+  end if;
 
   return v_id;
 end;
