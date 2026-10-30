@@ -47,6 +47,7 @@ def test_valid_unknown_is_a_first_class_status():
     ("field", "value"),
     [
         ("status", "passing"),
+        ("status", ["effective"]),
         ("coverage", 1.1),
         ("coverage", True),
         ("scope_digest", "not-a-digest"),
