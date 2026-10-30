@@ -30,6 +30,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS c2pa_one_active_policy
 CREATE TABLE IF NOT EXISTS public.media_provenance_receipts (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id uuid NOT NULL,
+    source_job_id uuid NOT NULL UNIQUE,
     tenant_sequence bigint NOT NULL,
     media_sha256 char(64) NOT NULL CHECK (media_sha256 ~ '^[0-9a-f]{64}$'),
     manifest_store_sha256 char(64) CHECK (
@@ -80,6 +81,7 @@ BEFORE UPDATE OR DELETE ON public.media_provenance_receipts
 FOR EACH ROW EXECUTE FUNCTION public.reject_media_provenance_mutation();
 
 CREATE OR REPLACE FUNCTION public.append_media_provenance_receipt(
+    p_source_job_id uuid,
     p_tenant_id uuid,
     p_media_sha256 text,
     p_manifest_store_sha256 text,
@@ -111,6 +113,9 @@ BEGIN
     IF coalesce(current_setting('request.jwt.claim.role', true), '') <> 'service_role' THEN
         RAISE EXCEPTION 'service role required' USING ERRCODE = '42501';
     END IF;
+    IF p_source_job_id IS NULL THEN
+        RAISE EXCEPTION 'source job id required';
+    END IF;
     IF p_validation_state NOT IN ('VALID','INVALID','UNTRUSTED','MISSING_PROVENANCE','INDETERMINATE') THEN
         RAISE EXCEPTION 'invalid validation state';
     END IF;
@@ -126,7 +131,8 @@ BEGIN
        OR encode(extensions.digest(convert_to(p_signed_payload_canonical, 'UTF8'), 'sha256'), 'hex') <> p_receipt_hash THEN
         RAISE EXCEPTION 'receipt payload hash or canonical JSON mismatch';
     END IF;
-    IF p_signed_payload->>'tenant_id' IS DISTINCT FROM p_tenant_id::text
+    IF p_signed_payload->>'source_job_id' IS DISTINCT FROM p_source_job_id::text
+       OR p_signed_payload->>'tenant_id' IS DISTINCT FROM p_tenant_id::text
        OR p_signed_payload->>'media_sha256' IS DISTINCT FROM p_media_sha256
        OR p_signed_payload->>'manifest_store_sha256' IS DISTINCT FROM p_manifest_store_sha256
        OR p_signed_payload->>'validation_state' IS DISTINCT FROM p_validation_state
@@ -141,6 +147,18 @@ BEGIN
     END IF;
 
     PERFORM pg_advisory_xact_lock(hashtextextended(p_tenant_id::text, 0));
+    SELECT id INTO v_id
+      FROM public.media_provenance_receipts
+     WHERE source_job_id = p_source_job_id AND tenant_id = p_tenant_id;
+    IF FOUND THEN
+        RETURN v_id;
+    END IF;
+    IF EXISTS (
+        SELECT 1 FROM public.media_provenance_receipts
+         WHERE source_job_id = p_source_job_id
+    ) THEN
+        RAISE EXCEPTION 'source job tenant mismatch' USING ERRCODE = '42501';
+    END IF;
     SELECT coalesce(max(tenant_sequence), 0) + 1
       INTO v_sequence
       FROM public.media_provenance_receipts
@@ -156,13 +174,13 @@ BEGIN
     END IF;
 
     INSERT INTO public.media_provenance_receipts (
-        tenant_id, tenant_sequence, media_sha256, manifest_store_sha256, validation_state,
+        source_job_id, tenant_id, tenant_sequence, media_sha256, manifest_store_sha256, validation_state,
         signer_identity, trust_policy_id, trust_policy_version, sdk_version,
         raw_c2pa_report, ml_assessment, previous_receipt_hash, receipt_hash,
         receipt_signature, signing_key_id, signing_public_key, signed_payload,
         signed_payload_canonical, created_at
     ) VALUES (
-        p_tenant_id, v_sequence, p_media_sha256, p_manifest_store_sha256, p_validation_state,
+        p_source_job_id, p_tenant_id, v_sequence, p_media_sha256, p_manifest_store_sha256, p_validation_state,
         p_signer_identity, p_trust_policy_id, p_trust_policy_version, p_sdk_version,
         p_raw_c2pa_report, p_ml_assessment, p_previous_receipt_hash, p_receipt_hash,
         p_receipt_signature, p_signing_key_id, p_signing_public_key, p_signed_payload,
@@ -173,10 +191,10 @@ END;
 $$;
 
 REVOKE ALL ON FUNCTION public.append_media_provenance_receipt(
-    uuid,text,text,text,text,uuid,text,text,jsonb,jsonb,text,text,text,text,text,jsonb,text
+    uuid,uuid,text,text,text,text,uuid,text,text,jsonb,jsonb,text,text,text,text,text,jsonb,text
 ) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.append_media_provenance_receipt(
-    uuid,text,text,text,text,uuid,text,text,jsonb,jsonb,text,text,text,text,text,jsonb,text
+    uuid,uuid,text,text,text,text,uuid,text,text,jsonb,jsonb,text,text,text,text,text,jsonb,text
 ) TO service_role;
 
 CREATE TABLE IF NOT EXISTS public.provenance_i18n (
